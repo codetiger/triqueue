@@ -3,8 +3,9 @@
 """Activity-based power and energy per workload on a routed tq_top.
 
     python3 flow/power.py sky130hd t8_csa gemm64
+    python3 flow/power.py --docker sky130hd t8_csa gemm64     # a Docker run (flow/ppa.py --docker)
 
-Needs a finished flow (flow/ppa.py run <platform> <config>). Runs flow/activity.py for the
+Needs a finished flow (flow/ppa.py run <platform> <config>), native unless --docker. Runs flow/activity.py for the
 workload if its SAIF is missing, rescales the SAIF from the testbench clock to the flow clock,
 runs OpenSTA (flow/power.tcl) on the routed design with its extracted parasitics, and writes
 build/orfs/<platform>/<config>/power/<workload>.json.
@@ -21,13 +22,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "flow"))
 from activity import TB_PERIOD_PS, WORKLOADS  # noqa: E402
-from ppa import CONFIGS, PLATFORMS, WORK, orfs_make, work_dir  # noqa: E402
+from ppa import CONFIGS, PLATFORMS, base, orfs_make, work_dir  # noqa: E402
 
 TIME_FIELD = re.compile(r"\((DURATION|T0|T1|TZ|TX|TB) (\d+)\)")
 
 
-def flow_period_ps(platform, config):
-    mk = (ROOT / work_dir(platform, config) / "config.mk").read_text()
+def flow_period_ps(platform, config, native):
+    mk = (ROOT / work_dir(platform, config, native) / "config.mk").read_text()
     period = float(re.search(r"TQ_CLK_PERIOD\s*=\s*(\S+)", mk).group(1))
     return period * (1000 if PLATFORMS[platform]["unit"] == "ns" else 1)
 
@@ -92,24 +93,29 @@ def parse_total_power(rpt: str):
 
 
 def main():
-    if len(sys.argv) != 4 or sys.argv[1] not in PLATFORMS or sys.argv[2] not in CONFIGS \
-            or sys.argv[3] not in WORKLOADS:
+    args = sys.argv[1:]
+    native = "--docker" not in args
+    args = [a for a in args if a != "--docker"]
+    if len(args) != 3 or args[0] not in PLATFORMS or args[1] not in CONFIGS or args[2] not in WORKLOADS:
         print(__doc__)
         return 2
-    platform, config, workload = sys.argv[1:]
-    rel = work_dir(platform, config)
+    platform, config, workload = args
+    rel = work_dir(platform, config, native)
+    WORK = base(native)
     saif = ROOT / "build" / "activity" / config / f"{workload}.saif"
-    if not saif.exists():
+    rtl_mtime = max(f.stat().st_mtime for f in (ROOT / "rtl").rglob("*.sv"))
+    if not saif.exists() or saif.stat().st_mtime < rtl_mtime:     # missing or older than the RTL
         rc = subprocess.run([sys.executable, str(ROOT / "flow" / "activity.py"), config, workload]).returncode
         if rc:
             return rc
-    period_ps = flow_period_ps(platform, config)
+    period_ps = flow_period_ps(platform, config, native)
     scaled = ROOT / rel / "power" / f"{workload}.saif"
     cycles = rescale_saif(saif, scaled, period_ps)
     rpt = ROOT / rel / "power" / f"{workload}.rpt"
     rc = orfs_make(platform, config, "run", 4, f"power/{workload}.log", env=dict(
         RUN_SCRIPT=f"{WORK}/flow/power.tcl", RUN_LOG_NAME_STEM=f"power_{workload}",
-        TQ_SAIF=f"{WORK}/{rel}/power/{workload}.saif", TQ_POWER_RPT=f"{WORK}/{rel}/power/{workload}.rpt"))
+        TQ_SAIF=f"{WORK}/{rel}/power/{workload}.saif", TQ_POWER_RPT=f"{WORK}/{rel}/power/{workload}.rpt"),
+        native=native)
     if rc or not rpt.exists():
         print(f"[power] {platform} {config} {workload}: failed, see {rel}/power/{workload}.log")
         return rc or 1
@@ -119,7 +125,7 @@ def main():
     time_s = cycles * period_ps * 1e-12
     energy = p["total"] * time_s
     t = CONFIGS[config]["T"]
-    out = dict(platform=platform, config=config, workload=workload, period_ps=period_ps,
+    out = dict(flow="native" if native else "docker", platform=platform, config=config, workload=workload, period_ps=period_ps,
                cycles=cycles, useful_macs=macs, utilization=macs / (t * t * cycles),
                power_w=p, energy_j=energy, pj_per_mac=energy / macs * 1e12,
                tops_per_w=2 * macs / energy / 1e12)

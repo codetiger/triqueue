@@ -1,14 +1,17 @@
 # SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
-"""Run tq_top through OpenROAD-flow-scripts (ORFS) in Docker.
+"""Run tq_top through OpenROAD-flow-scripts (ORFS).
 
     python3 flow/ppa.py run sky130hd t8_csa              # full flow, RTL to routed layout
     python3 flow/ppa.py run sky130hd t8_csa --to synth   # stop after a stage
     python3 flow/ppa.py run asap7 t8_cpa --period 900    # override the clock period
+    python3 flow/ppa.py --docker run sky130hd t8_csa     # the pinned Docker image instead
     python3 flow/ppa.py list                             # platforms and configurations
 
-Each run works in build/orfs/<platform>/<config>/ (config.mk, logs, reports, results).
-The ORFS image is pinned (ORFS_IMAGE) so that results can name the flow version.
+The reference flow is a native ORFS build at ORFS_COMMIT in ORFS_HOME (see flow/README.md);
+its runs work in build/orfs_native/<platform>/<config>/ (config.mk, logs, reports, results)
+and stop before the GDS, which PPA does not need. --docker runs the same commit's image
+(ORFS_IMAGE, amd64) in build/orfs_docker/...: close to the native results, not bit-identical.
 """
 import argparse
 import os
@@ -18,7 +21,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ORFS_IMAGE = "openroad/orfs:26Q4-272-gd0e5b3c13"
-WORK = "/work"                          # ROOT is mounted here inside the container
+ORFS_COMMIT = "d0e5b3c13"               # the image's ORFS commit; a native checkout must match
+ORFS_HOME = Path(os.environ.get("ORFS_HOME", "~/Development/OpenROAD-flow-scripts")).expanduser()
+DOCKER_WORK = "/work"                   # ROOT is mounted here inside the container
 
 # name: tq_top parameters
 CONFIGS = {
@@ -31,8 +36,8 @@ CONFIGS = {
     "t32_cpa":   dict(T=32, ACC_FORM=1),
 }
 
-# name: clock period (platform time unit), floorplan utilization (%), thread cap, extra ORFS
-# variables. The detailed router's memory grows with its thread count: asap7 at T = 8 needs
+# name: clock period (platform time unit), floorplan utilization (%), Docker thread cap, extra
+# ORFS variables. The detailed router's memory grows with its thread count: asap7 at T = 8 needs
 # over 12 GB with 8 threads, more than a 16 GB laptop's Docker VM has.
 PLATFORMS = {
     "sky130hd":   dict(period=10.0, unit="ns", util=40, max_jobs=8, extra={}),
@@ -43,7 +48,13 @@ PLATFORMS = {
 STAGES = ("synth", "floorplan", "place", "cts", "route", "finish")
 
 
-def config_mk(platform, config, period):
+def base(native):
+    """Path of the repository root as the flow sees it."""
+    return str(ROOT) if native else DOCKER_WORK
+
+
+def config_mk(platform, config, period, native=False):
+    WORK = base(native)
     p = PLATFORMS[platform]
     files = [f"{WORK}/{line}" for line in (ROOT / "rtl" / "files.f").read_text().split()]
     params = " ".join(f"{k} {v}" for k, v in CONFIGS[config].items())
@@ -63,39 +74,67 @@ def config_mk(platform, config, period):
     return "\n".join(lines) + "\n"
 
 
-def work_dir(platform, config):
-    return Path("build") / "orfs" / platform / config
+def work_dir(platform, config, native=False):
+    return Path("build") / ("orfs_native" if native else "orfs_docker") / platform / config
 
 
-def orfs_make(platform, config, target, jobs, log, env=None):
-    """Run `make <target>` in the ORFS container for a run directory that has a config.mk."""
-    rel = work_dir(platform, config)
+def check_native():
+    head = subprocess.run(["git", "-C", str(ORFS_HOME), "rev-parse", "--short=9", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    if head != ORFS_COMMIT:
+        sys.exit(f"[ppa] {ORFS_HOME} is at {head or '?'}, expected ORFS {ORFS_COMMIT}")
+    for tool in ("OpenROAD/bin/openroad", "yosys/bin/yosys"):
+        if not (ORFS_HOME / "tools" / "install" / tool).exists():
+            sys.exit(f"[ppa] {ORFS_HOME}/tools/install/{tool} missing; build it (flow/README.md)")
+
+
+def finish_targets(platform, config, native):
+    """`finish` without the GDS: final netlist, SDC, SPEF and reports."""
+    w = f"{base(native)}/{work_dir(platform, config, native)}"
+    d = f"{platform}/tq_{config}/base"
+    return f"{w}/results/{d}/6_final.v {w}/results/{d}/6_final.sdc {w}/logs/{d}/6_report.log"
+
+
+def orfs_make(platform, config, target, jobs, log, env=None, native=False):
+    """Run `make <target>` with ORFS for a run directory that has a config.mk."""
+    rel = work_dir(platform, config, native)
+    WORK = base(native)
     extra = " ".join(f"{k}={v}" for k, v in (env or {}).items())
-    make = (f"make -C /OpenROAD-flow-scripts/flow DESIGN_CONFIG={WORK}/{rel}/config.mk "
-            f"WORK_HOME={WORK}/{rel} NUM_CORES={jobs} {extra} {target}")
-    cmd = ["docker", "run", "--rm", "--platform", "linux/amd64",
-           "-v", f"{ROOT}:{WORK}", ORFS_IMAGE,
-           "bash", "-c", f"source /OpenROAD-flow-scripts/env.sh > /dev/null && {make}"]
+    args = (f"DESIGN_CONFIG={WORK}/{rel}/config.mk WORK_HOME={WORK}/{rel} NUM_CORES={jobs} "
+            f"{extra} {target}")
+    if native:
+        check_native()
+        cmd = ["bash", "-c", f"source {ORFS_HOME}/env.sh > /dev/null && "
+               f"gmake -C {ORFS_HOME}/flow {args}"]
+    else:
+        cmd = ["docker", "run", "--rm", "--platform", "linux/amd64",
+               "-v", f"{ROOT}:{WORK}", ORFS_IMAGE,
+               "bash", "-c", f"source /OpenROAD-flow-scripts/env.sh > /dev/null && "
+               f"make -C /OpenROAD-flow-scripts/flow {args}"]
     with open(ROOT / rel / log, "w") as f:
         return subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT).returncode
 
 
-def run(platform, config, period, to, jobs):
-    rel = work_dir(platform, config)
+def run(platform, config, period, to, jobs, native=True):
+    rel = work_dir(platform, config, native)
     (ROOT / rel).mkdir(parents=True, exist_ok=True)
     mk = ROOT / rel / "config.mk"
-    text = config_mk(platform, config, period)
+    text = config_mk(platform, config, period, native)
     if not mk.exists() or mk.read_text() != text:     # an unchanged config.mk keeps make incremental
         mk.write_text(text)
-    jobs = min(jobs, PLATFORMS[platform]["max_jobs"])
+    if not native:                                    # the Docker VM's memory is the limit
+        jobs = min(jobs, PLATFORMS[platform]["max_jobs"])
+    target = finish_targets(platform, config, native) if native and to == "finish" else to
     print(f"[ppa] {platform} {config} period={period} -> {rel} ({to})", flush=True)
-    rc = orfs_make(platform, config, to, jobs, "flow.log")
+    rc = orfs_make(platform, config, target, jobs, "flow.log", native=native)
     print(f"[ppa] {platform} {config}: exit {rc}, log {rel}/flow.log", flush=True)
     return rc
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--docker", action="store_true", help=f"use the Docker image {ORFS_IMAGE} "
+                    f"instead of the native build in ORFS_HOME ({ORFS_HOME})")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
     r.add_argument("platform", choices=PLATFORMS)
@@ -114,7 +153,7 @@ def main():
     period = a.period if a.period is not None else PLATFORMS[a.platform]["period"]
     if isinstance(period, float) and period.is_integer():
         period = int(period)
-    return run(a.platform, a.config, period, a.to, a.jobs)
+    return run(a.platform, a.config, period, a.to, a.jobs, native=not a.docker)
 
 
 if __name__ == "__main__":
