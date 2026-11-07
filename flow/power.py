@@ -20,10 +20,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "flow"))
-from activity import WORKLOADS  # noqa: E402
+from activity import TB_PERIOD_PS, WORKLOADS  # noqa: E402
 from ppa import CONFIGS, PLATFORMS, WORK, orfs_make, work_dir  # noqa: E402
 
-TIME_FIELD = re.compile(rb"\((DURATION|T0|T1|TZ|TX|TB) (\d+)\)")
+TIME_FIELD = re.compile(r"\((DURATION|T0|T1|TZ|TX|TB) (\d+)\)")
 
 
 def flow_period_ps(platform, config):
@@ -32,17 +32,52 @@ def flow_period_ps(platform, config):
     return period * (1000 if PLATFORMS[platform]["unit"] == "ns" else 1)
 
 
+def esc(name: str) -> str:
+    """SAIF escaping for an identifier part (Verilator already escapes net names)."""
+    return name.replace("[", "\\[").replace("]", "\\]").replace(".", "\\.")
+
+
+def flatten_saif(text: str) -> str:
+    """Rewrite Verilator's nested SAIF as one tq_top instance with dotted net names.
+
+    The routed netlist is flat (Yosys flattens), so a register bit tq_top/u_core/u_array/x[3]
+    is the net \\u_core.u_array.x[3] there. OpenSTA reads one top-level instance only, so the
+    $rootio and tq_pkg instances Verilator also writes are dropped (tq_top has its own ports).
+    """
+    lines = text.splitlines()
+    head = next(i for i, l in enumerate(lines) if l.lstrip().startswith("(INSTANCE "))
+    out, stack, nets = lines[:head], [], []
+    for line in lines[head:]:
+        t = line.strip()
+        if t.startswith("(INSTANCE "):
+            stack.append(("I", t[len("(INSTANCE "):].strip()))
+        elif t == "(NET":
+            stack.append(("N", None))
+        elif t == ")":
+            if stack:
+                stack.pop()
+        elif t.startswith("(") and stack and stack[-1][0] == "N":
+            path = [n for k, n in stack if k == "I"]
+            if path[0] != "tq_top":
+                continue
+            prefix = "".join(esc(n) + "\\." for n in path[1:])
+            nets.append("   (" + prefix + t[1:])
+    out += [" (INSTANCE tq_top", "  (NET", *nets, "  )", " )", ")"]
+    return "\n".join(out) + "\n"
+
+
 def rescale_saif(src: Path, dst: Path, period_ps: float):
-    """Scale all times so that the testbench clock period becomes period_ps. Returns cycles."""
-    data = src.read_bytes()
-    assert b"(TIMESCALE 1ps)" in data, "expected a 1 ps SAIF timescale"
-    duration = int(re.search(rb"\(DURATION (\d+)\)", data).group(1))
-    clk_tc = int(re.search(rb"\(clk_i \(T0 \d+\) \(T1 \d+\).*?\(TC (\d+)\)", data).group(1))
-    tb_period = 2 * duration / clk_tc
-    cycles = round(duration / tb_period)
-    f = period_ps / tb_period
+    """Flatten the SAIF and scale all times so that the testbench clock period (TB_PERIOD_PS)
+    becomes period_ps. Returns the number of simulated cycles."""
+    text = src.read_text()
+    assert "(TIMESCALE 1ps)" in text, "expected a 1 ps SAIF timescale"
+    duration = int(re.search(r"\(DURATION (\d+)\)", text).group(1))
+    cycles = round(duration / TB_PERIOD_PS)
+    f = period_ps / TB_PERIOD_PS
+    text = TIME_FIELD.sub(lambda m: "(%s %d)" % (m.group(1), round(int(m.group(2)) * f)),
+                          flatten_saif(text))
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_bytes(TIME_FIELD.sub(lambda m: b"(%s %d)" % (m.group(1), round(int(m.group(2)) * f)), data))
+    dst.write_text(text)
     return cycles
 
 

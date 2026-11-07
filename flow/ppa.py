@@ -31,11 +31,13 @@ CONFIGS = {
     "t32_cpa":   dict(T=32, ACC_FORM=1),
 }
 
-# name: clock period (platform time unit), floorplan utilization (%), extra ORFS variables
+# name: clock period (platform time unit), floorplan utilization (%), thread cap, extra ORFS
+# variables. The detailed router's memory grows with its thread count: asap7 at T = 8 needs
+# over 12 GB with 8 threads, more than a 16 GB laptop's Docker VM has.
 PLATFORMS = {
-    "sky130hd":   dict(period=10.0, unit="ns", util=40, extra={}),
-    "ihp-sg13g2": dict(period=8.0,  unit="ns", util=40, extra={}),
-    "asap7":      dict(period=1000, unit="ps", util=45, extra={}),
+    "sky130hd":   dict(period=10.0, unit="ns", util=40, max_jobs=8, extra={}),
+    "ihp-sg13g2": dict(period=8.0,  unit="ns", util=40, max_jobs=8, extra={}),
+    "asap7":      dict(period=1000, unit="ps", util=45, max_jobs=3, extra={}),
 }
 
 STAGES = ("synth", "floorplan", "place", "cts", "route", "finish")
@@ -81,7 +83,11 @@ def orfs_make(platform, config, target, jobs, log, env=None):
 def run(platform, config, period, to, jobs):
     rel = work_dir(platform, config)
     (ROOT / rel).mkdir(parents=True, exist_ok=True)
-    (ROOT / rel / "config.mk").write_text(config_mk(platform, config, period))
+    mk = ROOT / rel / "config.mk"
+    text = config_mk(platform, config, period)
+    if not mk.exists() or mk.read_text() != text:     # an unchanged config.mk keeps make incremental
+        mk.write_text(text)
+    jobs = min(jobs, PLATFORMS[platform]["max_jobs"])
     print(f"[ppa] {platform} {config} period={period} -> {rel} ({to})", flush=True)
     rc = orfs_make(platform, config, to, jobs, "flow.log")
     print(f"[ppa] {platform} {config}: exit {rc}, log {rel}/flow.log", flush=True)

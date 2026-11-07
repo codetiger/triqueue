@@ -15,5 +15,5 @@ if { [file exists $::env(RESULTS_DIR)/6_final.spef] } {
 read_saif -scope tq_top $::env(TQ_SAIF)
 report_activity_annotation
 set rpt $::env(TQ_POWER_RPT)
-report_power > $rpt
+report_power -digits 6 > $rpt
 puts "TQ: power report $rpt"

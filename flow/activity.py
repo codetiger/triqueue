@@ -34,6 +34,8 @@ WORKLOADS = {
     "mbv1_pw8_16":    case(2304, 16, 8, lat=2),          # vww_mbv1 pointwise 8->16, low K
 }
 
+TB_PERIOD_PS = 10_000                                   # clock in verif/tb/tq_tb.py
+
 MODEL_FIELDS = {"T": "tile", "SHARED_PORT": "shared_port"}
 
 
