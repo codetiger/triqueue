@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
 """Cycle-level model of the Tri-Queue int8 matrix core (design doc rev 2).
 

@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
 """Shared GEMM workload list. Every benchmark (model, RTL, other designs) reads gemm.csv.
 

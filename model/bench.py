@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
 """Cycle-model benchmarks for the Tri-Queue core, checked against the design doc's predictions.
 

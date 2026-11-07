@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 // SPDX-License-Identifier: Apache-2.0
 // Accelerate cblas_sgemm sweep (runs on AMX). Prints CSV: m,n,k,sec_per_call,macs_per_s
 // Build: clang -O2 -o sgemm_sweep sgemm_sweep.c -framework Accelerate

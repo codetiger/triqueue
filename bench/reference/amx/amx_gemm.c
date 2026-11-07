@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 // SPDX-License-Identifier: Apache-2.0
 // Hand-written AMX fp32 GEMM on pre-packed operands: a like-for-like counterpart to the Tri-Queue model.
 // Output-stationary 32x32 tile held in Z (4 x 16x16 fp32 tiles). Per k: 1 ldy pair (32 A values),

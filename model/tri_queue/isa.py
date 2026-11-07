@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
 """Tri-Queue ISA: opcodes, config registers, encoder and the reference GEMM kernel.
 

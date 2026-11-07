@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
 """Host-side packing (design doc section 5.3).
 

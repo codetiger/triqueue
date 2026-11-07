@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
 """Functional and structural proofs for the Tri-Queue model. Run: python3 -m pytest -q"""
 import itertools

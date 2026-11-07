@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
 """Compare measured Apple AMX utilization (M2 Pro) with the Tri-Queue cycle model.
 

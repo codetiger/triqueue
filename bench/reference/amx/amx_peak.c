@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 // SPDX-License-Identifier: Apache-2.0
 // Apple AMX peak-throughput microbenchmark (M1-M3).
 // AMX is undocumented. Encodings follow the community reverse-engineering at github.com/corsix/amx.

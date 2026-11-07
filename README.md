@@ -49,4 +49,4 @@ cd model && python3 -m pytest -q && python3 bench.py
 
 ## License
 
-Hardware (`rtl/`, `verif/`, `flow/`) is under the [Solderpad Hardware License 2.1](LICENSE.hardware). Everything else is under the [Apache License 2.0](LICENSE). See [decision 0002](docs/decisions/0002-licensing.md).
+Copyright 2026 Harishankar Narayanan. Hardware (`rtl/`, `verif/`, `flow/`) is under the [Solderpad Hardware License 2.1](LICENSE.hardware). Everything else is under the [Apache License 2.0](LICENSE). See [decision 0002](docs/decisions/0002-licensing.md).

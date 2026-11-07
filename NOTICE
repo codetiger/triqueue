@@ -1,0 +1,5 @@
+Tri-Queue matrix coprocessor
+Copyright 2026 Harishankar Narayanan
+
+Hardware (rtl/, verif/, flow/) is licensed under the Solderpad Hardware License v2.1
+(LICENSE.hardware). Everything else is licensed under the Apache License 2.0 (LICENSE).
