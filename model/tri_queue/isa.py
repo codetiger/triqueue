@@ -42,7 +42,7 @@ def vouter(shape=None, tile: int = 8) -> bytes:
 
 
 def gemm_kernel() -> bytes:
-    """The complete GEMM kernel from the design doc, section 6.2 (without CFG)."""
+    """The complete GEMM kernel from the spec, section 6.2 (without CFG)."""
     return b"".join([
         enc(ZERO_C),
         enc(STREAM_A),        # prime: tile 0 A panel

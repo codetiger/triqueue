@@ -6,13 +6,9 @@ import itertools
 import numpy as np
 import pytest
 
+from _helpers import rand
 from tri_queue import isa
 from tri_queue.core import run_gemm, reference, Params
-
-
-def rand(rng, shape, dt):
-    lo, hi = (-128, 128) if dt == np.int8 else (0, 256)
-    return rng.integers(lo, hi, shape).astype(dt)
 
 
 def sizes_around(t):

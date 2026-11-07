@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
-"""Cycle-level model of the Tri-Queue int8 matrix core (design doc rev 4).
+"""Cycle-level model of the Tri-Queue int8 matrix core (spec rev 4, docs/spec/).
 
 The simulator executes the real instruction bytes. The arithmetic is done the way the hardware
 does it: 9x9 multiplies, per-quadrant operand selection for the k-depth arity modes, and
@@ -29,7 +29,7 @@ import numpy as np
 from . import isa
 from .packing import kp, auto_shape, panel_width
 
-# Max products an accumulate cell in each (T/2 x T/2) quadrant may sum per cycle (doc section 4.1).
+# Max products an accumulate cell in each (T/2 x T/2) quadrant may sum per cycle (spec section 4.1).
 HW_CELL_ARITY = {(0, 0): 4, (0, 1): 2, (1, 0): 2, (1, 1): 1}
 
 

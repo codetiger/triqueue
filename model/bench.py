@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
-"""Cycle-model benchmarks for the Tri-Queue core, checked against the design doc's predictions.
+"""Cycle-model benchmarks for the Tri-Queue core, checked against the spec's predictions.
 
 Run: python3 bench.py            (writes results.md next to this file)
 """
@@ -43,8 +43,8 @@ w("Defaults: 64 int8 MACs, 128-bit read port, separate write port, memory latenc
   "FIFO depth 8, MAC command queue 4, stream command queue 2.\n")
 
 # 1. headline claims
-w("## 1. Design-doc claims\n")
-w("| Claim | Doc predicts | Simulated | Verdict |")
+w("## 1. Spec claims\n")
+w("| Claim | Spec predicts | Simulated | Verdict |")
 w("| --- | --- | --- | --- |")
 s = gemm(64, 64, 64)
 w(f"| 64³ cycles (separate write port) | ≈ 4,120 (99.4%) | {s.cycles:,} ({pct(s.utilization)}) | "
@@ -52,7 +52,8 @@ w(f"| 64³ cycles (separate write port) | ≈ 4,120 (99.4%) | {s.cycles:,} ({pct
 w(f"| 64³ dynamic instructions | ≈ 2.3k (2,317) | {s.instructions:,} | {'✅' if s.instructions == 2317 else '❌'} |")
 w(f"| 64³ SRAM reads | 64 KB | {s.read_bytes // 1024} KB | {'✅' if s.read_bytes == 65536 else '❌'} |")
 w(f"| 64³ C writes | 16 KB (int32) | {s.write_bytes // 1024} KB | {'✅' if s.write_bytes == 16384 else '❌'} |")
-w(f"| Program size | 49 B kernel + 40 B CFG | {s.program_bytes - 40} B kernel + 40 B CFG | ❌ doc miscounted (10 B) |")
+w(f"| Program size | 10 B kernel + 40 B CFG | {s.program_bytes - 40} B kernel + 40 B CFG | "
+  f"{'✅' if s.program_bytes == 50 else '❌'} |")
 sh = gemm(64, 64, 64, Params(shared_port=True))
 w(f"| 64³ shared read/write port | ≈ 80% | {sh.cycles:,} ({pct(sh.utilization)}) | "
   f"{'✅' if abs(sh.utilization - 0.80) < 0.02 else '❌'} |")
@@ -75,7 +76,7 @@ w("")
 
 # 3. drain-hiding condition K >= 16
 w("## 3. Drain hiding vs K (64×64×K)\n")
-w("Doc claim: the 16-cycle drain hides under compute only when K ≥ 16.\n")
+w("Spec claim: the 16-cycle drain hides under compute only when K ≥ 16.\n")
 w("| K | Cycles | Utilization | wait_drain cycles |")
 w("| --- | --- | --- | --- |")
 for k in (8, 16, 24, 32, 64, 128):

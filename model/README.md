@@ -1,4 +1,4 @@
-# Tri-Queue simulator
+# Tri-Queue cycle model
 
 Cycle-level Python model of the int8 Tri-Queue core in `docs/spec/tri_queue_matrix_core_design.md`.
 
@@ -14,7 +14,7 @@ Shapes for `bench.py` and `dse.py` come from `bench/workloads/gemm.csv`. The vec
 ## What it models
 
 - **The real program.** The front end decodes the 10-byte kernel and 40 bytes of `CFG`, including zero-overhead `LOOP_T` and `LOOP_K` and the `AUTO` tile shapes.
-- **Host packing.** Panels are packed exactly as in doc §5.3, and the stream engine reads them by address.
+- **Host packing.** Panels are packed exactly as in spec §5.3, and the stream engine reads them by address.
 - **Size parameters.** Tile T (T×T tile, T² multipliers; the spec's design point is 8) and port width W (default 2T), both set in `Params`. The ISA and kernel don't change with T.
 - **The multiplier array.** T² 9×9 multipliers with per-quadrant operand selection for the four k-depth shapes. It asserts that no accumulate cell ever sums more products than its quadrant's hardware arity (TL 4, TR 2, BL 2, BR 1).
 - **The accumulator.** 32-bit carry-save (sum, carry) using real 3:2 compressor reduction. The CPA happens at drain, and C is written to memory with C_LD strides and masked lanes.

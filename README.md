@@ -45,6 +45,7 @@ Peak throughput is a parameter, set by tile size and port width. It is not a goa
 Quick start (Python 3.10+; RTL targets need Verilator 5, Yosys and SymbiYosys):
 
 ```
+git clone https://github.com/codetiger/triqueue.git && cd triqueue
 pip install -r requirements.txt
 make              # model tests, RTL lint, RTL regression, formal proofs, synthesis check
 ```

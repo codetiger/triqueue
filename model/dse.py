@@ -35,12 +35,16 @@ def pct(x):
     return f"{100 * x:.1f}%"
 
 
+MCMD_BITS = 52   # MAC command queue entry in RTL v0 (rtl/core/tq_pkg.sv, MCMD_W)
+
+
 def state_bits(p: Params):
-    """Operand and accumulator state, in bits (spec section 2.1 generalized to T, W)."""
+    """Architectural state in bits (spec section 2.1 generalized to T, W): operand FIFOs, accumulator
+    banks, CFG and the MAC command queue. Pipeline registers and the program buffer are excluded."""
     fifos = 2 * p.fifo_depth * p.port_bytes * 8      # QA + QB
     sc = p.banks * p.tile * p.tile * 64               # sum + carry, 32 b each
     cfg = 8 * 32
-    macq = p.mac_queue_depth * 8
+    macq = p.mac_queue_depth * MCMD_BITS
     return fifos, sc, fifos + sc + cfg + macq
 
 

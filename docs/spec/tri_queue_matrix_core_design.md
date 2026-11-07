@@ -107,8 +107,10 @@ The port, the tile, the accumulator storage and the utilization model all stay t
 | **QB** | 8 vectors × 16 B | 1 Kbit | FIFO. Stream engine pushes, `VOUTER_MAC` pops | B row slices: one vector = 8 columns × 2 k steps |
 | **SC** | 2 banks × 8×8 × (sum + carry) 32 b | 8 Kbit | One bank active (MAC target), the other idle (draining) | The int32 output tile, held in place for all K steps |
 | **CFG** | 8 × 32 b | 0.25 Kbit | Written by `CFG` | Bases, C stride, K, M, N, mode |
-| **MAC command queue** | 4 × 8 b | 32 b | In-order queue of `VOUTER_MAC` / `SWAP_C` | Lets the decoder run ahead of execution (§5.2) |
-| **Total** | | **≈ 10.3 Kbit** | | |
+| **MAC command queue** | 4 × 52 b | 208 b | In-order queue of `ZERO_C` / `VOUTER_MAC` / `SWAP_C`. A `SWAP_C` entry carries the finished tile's C address and size, computed by the front end. | Lets the decoder run ahead of execution (§5.2) |
+| **Total** | | **≈ 10.5 Kbit** | | |
+
+This is the architectural state (1 Kbit = 1024 bits). RTL v0 adds pipeline registers (the 64 × 18-bit product register and a 2 × 32-byte beat-1 operand register), the two stream command queues and the 64-byte program buffer: about 14k flip-flops in total at T = 8, from generic Yosys synthesis.
 
 Each FIFO holds 16 k steps of operands. In the cycle model, depth 8 fully hides SRAM latency up to 8 cycles and still reaches 94% at 16 cycles. Depth 16 hides up to 16 cycles (`model/results.md` §5). Choose the depth from the target SRAM's latency.
 
@@ -338,7 +340,7 @@ Ideal = 262,144 MACs ÷ 64 = **4,096 cycles**. The simulated fixed overhead is *
 | MACs per element loaded | 4.0 | 4.0 | 4.0 | 2.0 |
 | Dynamic instructions | 2,317 | 2,317 | ≈ 4.4k | ≈ 21.8k |
 | Program bytes fetched | 10 + 40 CFG | 10 + 40 CFG | 10 + 40 CFG | ≈ 87k |
-| Operand state | ≈ 10.3 Kbit | ≈ 10.3 Kbit | ≈ 10.2 Kbit | ≈ 3 Kbit |
+| Operand state | ≈ 10.5 Kbit | ≈ 10.5 Kbit | ≈ 10.2 Kbit | ≈ 3 Kbit |
 
 On the same port and with about the same state, the int8 core does the 64³ GEMM about **4× faster** than the int32 revision and about **12× faster** than the original spec.
 
@@ -412,7 +414,7 @@ The model takes T as a parameter (`model/dse.md`, [decision 0008](../decisions/0
 | | T = 8 | T = 16 | T = 32 |
 | --- | --- | --- | --- |
 | MACs/cycle, read port | 64, 128 b | 256, 256 b | 1024, 512 b |
-| State (bits per MAC) | 10.5 Kbit (164) | 37 Kbit (145) | 140 Kbit (136) |
+| State (bits per MAC) | 10.5 Kbit (167) | 36.5 Kbit (146) | 136.5 Kbit (136) |
 | Bytes read per MAC | 0.25 | 0.125 | 0.0625 |
 | Drain hidden when | Kp ≥ 24 | Kp ≥ 40 | Kp ≥ 72 |
 | 64³ / 256³ utilization | 99.2% / 100% | 95.3% / 99.9% | 75.1% / 99.5% |
@@ -435,7 +437,8 @@ The model takes T as a parameter (`model/dse.md`, [decision 0008](../decisions/0
 | Operand routing | Per-quadrant mux selecting 4 A bytes and 4 B bytes from up to 4 k offsets (k-depth modes) |
 | Drain unit | 4 × 32-bit CPA, edge-mask byte enables, C address generator |
 | Stream engine | 2 increment-only panel walkers, A/B arbiter on one read port, 2-deep command queues |
-| Control | 4-bit opcode decoder, 4-deep MAC command queue, 2-level loop counters + loop buffer (≥ 8 bytes), tile walker (ti, tj), AUTO shape logic |
+| Pipeline registers | Product register (64 × 18 b) and beat-1 operand register (2 × 32 B), so a beat's multiply and accumulate take one stage each |
+| Control | 4-bit opcode decoder, 4-deep MAC command queue, 2-level loop counters, 64-byte program buffer (holds `CFG` + kernel, so the loop body is never refetched), tile walker with running address offsets (no multipliers), AUTO shape logic |
 | Not needed | Register file, operand crossbar, rename or scoreboard, branch unit |
 
 ---
@@ -454,8 +457,8 @@ At a high level, the Tri-Queue combines the **output-stationary outer-product da
 
 Items 1, 2 and 4 are now settled in decision records: 0007 (requantization deferred), 0006 (carry-save for v0, plain adder measured in Phase 3) and 0004 (register port plus adapters). The memory interface is in 0005.
 
-1. **Output requantization.** Adding scale, shift and clamp to int8 in the drain unit cuts the drain to 4 vectors per tile. That allows a shared read/write port at about 94% utilization, and it matches what int8 inference layers need anyway. `MODE` has reserved bits for it, and the scale and shift values would need either a 9th `CFG` register or a packed field.
-2. **Accumulator form.** Carry-save keeps the 1-cycle accumulate loop at a high Fmax but doubles SC to 8 Kbit. A plain 32-bit adder per cell halves SC (total state ≈ 6 Kbit) if the target clock allows a 32-bit add per cycle.
+1. **Output requantization.** Adding scale, shift and clamp to int8 in the drain unit cuts the drain to 4 vectors per tile. That would allow a shared read/write port at about 94% utilization (unverified: decision 0007 shows the bank stays busy just as long unless the CPA lanes also grow), and it matches what int8 inference layers need anyway. `MODE` has reserved bits for it, and the scale and shift values would need either a 9th `CFG` register or a packed field.
+2. **Accumulator form.** Carry-save keeps the 1-cycle accumulate loop at a high Fmax but doubles SC to 8 Kbit. A plain 32-bit adder per cell halves SC (total state ≈ 6.5 Kbit) if the target clock allows a 32-bit add per cycle.
 3. **Other types.** int4 (2× the MACs per beat, so the tile would have to grow by the balance law), and fp16 or bf16 (these can't use carry-save accumulation and would need a separate accumulator design).
 4. **Host interface.** A RoCC-style custom-instruction attachment (as in Gemmini) or a memory-mapped command FIFO.
 5. **Packing.** Either a separate packing pass, or a strided stream mode that reads unpacked row-major data, at the cost of more address logic and a risk of SRAM bank conflicts.
@@ -465,7 +468,6 @@ Items 1, 2 and 4 are now settled in decision records: 0007 (requantization defer
 ## 11. Next steps
 
 The project-level plan is in `docs/roadmap.md`. The items below are the design-specific steps.
-
 
 1. ~~Build a Python simulator of this exact ISA that matches numpy bit-for-bit.~~ Done: `model/`, 229 tests.
 2. ~~Add a cycle-level model, and check the 64³ figure, the drain condition and the queue depths.~~ Done: `model/results.md`.

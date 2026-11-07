@@ -6,6 +6,7 @@ from collections import Counter
 
 import numpy as np
 
+from _helpers import gemm
 from tri_queue.core import run_gemm, reference, Params, build_gemm, read_c
 from tri_queue.vectors import export, read_words, main
 
@@ -13,11 +14,6 @@ from tri_queue.vectors import export, read_words, main
 def parse(line):
     cyc, unit, event, *kv = line.split()
     return int(cyc), unit, event, dict(x.split("=", 1) for x in kv)
-
-
-def gemm(m, n, k, seed=0):
-    rng = np.random.default_rng(seed)
-    return rng.integers(-128, 128, (m, k)).astype(np.int8), rng.integers(-128, 128, (k, n)).astype(np.int8)
 
 
 def test_tracing_does_not_change_timing():

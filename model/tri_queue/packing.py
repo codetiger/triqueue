@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
-"""Host-side packing (design doc section 5.3), for a T x T tile (T = 8 in the spec).
+"""Host-side packing (spec section 5.3), for a T x T tile (T = 8 in the spec).
 
 A -> column panels: T rows (T/2 for a final panel with <= T/2 rows left) x Kp, k-major.
 B -> row panels:    Kp x T columns (T/2 for a final panel with <= T/2 cols left), k-major.

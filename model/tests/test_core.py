@@ -6,15 +6,9 @@ import itertools
 import numpy as np
 import pytest
 
+from _helpers import DTYPES, rand
 from tri_queue import isa
 from tri_queue.core import run_gemm, reference, Params
-
-DTYPES = {"s8": np.int8, "u8": np.uint8}
-
-
-def rand(rng, shape, dt):
-    lo, hi = (-128, 128) if dt == np.int8 else (0, 256)
-    return rng.integers(lo, hi, shape).astype(dt)
 
 
 EDGE_SIZES = [1, 3, 4, 5, 7, 8, 9, 12, 13, 16, 17, 31]
