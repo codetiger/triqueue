@@ -55,4 +55,4 @@ In order of strictness:
 
 The RTL regression (`verif/`) applies checks 1–4 to every case. With random `gnt` back-pressure, which the model doesn't have, it applies 1 and 3 plus the order of writes and MAC shapes.
 
-The trace exposes no internal state (FIFO contents, sum/carry values), so an RTL that keeps the accumulator in a different internal form ([decision 0006](../decisions/0006-accumulator-form.md)) checks against the same vectors.
+The trace exposes no internal state (FIFO contents, sum/carry values), so an RTL that keeps the accumulator in a different internal form (spec §10.2) checks against the same vectors.

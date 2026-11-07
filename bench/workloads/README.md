@@ -13,4 +13,4 @@ Python: `from workloads import shapes; shapes("model")`, with `bench/workloads` 
 
 **Not yet in sync:** `bench/reference/amx/amx_gemm.c` and `sgemm_sweep.c` still have their own size lists. `compare.py` shows `–` for any shape they don't measure.
 
-**To do (Phase 0 follow-up):** add layer shapes from real int8 models (MLPerf Tiny, a small transformer), with the source model and layer named in `why`.
+**To do:** add layer shapes from real int8 models (MLPerf Tiny, a small transformer), with the source model and layer named in `why`.

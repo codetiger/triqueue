@@ -9,7 +9,7 @@
 // inside a cycle follows the model: memory responses land -> MAC unit -> memory port(s) -> front end,
 // so later stages see the earlier stages' pops in the same cycle.
 //
-// Interfaces: decision 0004 (host, via tq_regs) and 0005 (memory: OBI-style, W = 2T bytes).
+// Interfaces: spec 6.4 (host, via tq_regs) and 6.3 (memory: OBI-style, W = 2T bytes).
 
 module tq_core #(
     parameter int T           = 8,     // tile: T x T, T*T multipliers (power of two, >= 4)

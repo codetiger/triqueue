@@ -1,16 +1,12 @@
 # Design: Tri-Queue Matrix Core
 
-**Revised Tri-Stack SIMD + Variable-Arity Matrix Compute Core**
+**An int8 outer-product matrix coprocessor for RISC-V SoCs**
 
-Nov 7, 2026 · Harishankar Narayanan · Status: draft, rev 4 (int8, tile size parameterized, checked by cycle model)
+Harishankar Narayanan · rev 4
 
-Derived from `docs/history/tri_stack_simd_matrix_architecture_specification.md` (the original spec) and `docs/history/matrix_engine_comparison.md` (the comparison). The performance figures come from the cycle-level model in `model/`, with full results in `model/results.md`. That model runs the real instruction bytes and checks every result bit-exact against numpy. These are model results, not RTL results.
+This is the design specification of the Tri-Queue core. Figures are for the T = 8 design point unless stated otherwise. Performance figures come from the cycle-level model in `model/` (full results in `model/results.md` and `model/dse.md`), which runs the real instruction bytes and checks every result bit-exact against numpy. The RTL in `rtl/` implements this spec and matches the model cycle for cycle (`verif/`). Area, power and clock frequency have not been measured yet, so no figure here is an efficiency claim.
 
-**Rev 2 changes:** operands are now int8 or uint8, with int32 accumulation. The core has 64 multipliers instead of 16 and the same 128-bit port. Variable arity returns as a *k-depth reduction*, which keeps edge tiles efficient.
-
-**Rev 4 changes:** the tile size is now a parameter T (T×T tile, T² multipliers, port width W = 2T bytes). The design point is unchanged at T = 8, and §7.3 covers T = 16 and 32. Base addresses and `C_LD` must be multiples of W (§6.1). Host and memory interfaces are settled in `docs/decisions/` 0004–0008. The figures throughout this document are for T = 8. Two execution rules make the hardware exact (§5.2, §6): the MAC unit takes at most one `ZERO_C`/`SWAP_C` per cycle, and loop bodies contain only 1-byte instructions. **RTL v0** (`rtl/`) implements this spec and matches the cycle model cycle for cycle (`verif/`).
-
-**Rev 3 changes:** the numbers are replaced with cycle-model results, and three errors are fixed: the `AUTO` shape rule (§4.2), per-quadrant operand selection (§4.1) and the kernel size (§6.2). The drain-hiding and FIFO-latency conditions are tightened, and §7.1 records what the model found.
+The Tri-Queue evolved from an earlier "Tri-Stack" SIMD + variable-arity design. §1 lists what it kept and what it changed.
 
 ---
 
@@ -304,7 +300,7 @@ Encoding: `opcode [7:4] | arg [3:0]`. `CFG` is the only multi-byte instruction.
 
 Tile walk: row-major over the ⌈M/T⌉ × ⌈N/T⌉ tiles. Tile (ti, tj) writes to `C_BASE + T·ti·C_LD + 4T·tj` (T = 8: `C_BASE + 8·ti·C_LD + 32·tj`).
 
-**Alignment:** `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` must be multiples of the port width W (16 bytes at T = 8). The host pads each C row to whole words, so every read and every drain write is one aligned word, and partial words use byte enables. The model asserts this rule ([decision 0005](../decisions/0005-memory-interface.md)).
+**Alignment:** `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` must be multiples of the port width W (16 bytes at T = 8). The host pads each C row to whole words, so every read and every drain write is one aligned word, and partial words use byte enables. The model asserts this rule, and the RTL stops with `ERR_ALIGN` if it is broken (§6.3).
 
 ### 6.2 Complete GEMM kernel
 
@@ -324,11 +320,44 @@ Tile walk: row-major over the ⌈M/T⌉ × ⌈N/T⌉ tiles. Tile (ti, tj) writes
 
 The kernel is **10 bytes** (plus 40 bytes of `CFG`) and runs any M×N×K int8 GEMM. For 64³ it executes 8 + 4 + 64 tiles × 36 + 1 = **2,317 instructions**, a count the simulator matches exactly. Because of the loop buffer, those 10 bytes are fetched only once.
 
+Two execution rules keep the hardware simple and cycle-exact with the model: the MAC unit consumes at most one `ZERO_C`/`SWAP_C` per cycle (§5.2), and loop bodies contain only 1-byte instructions.
+
+### 6.3 Memory interface
+
+The core has two native ports, W = 2T bytes wide, with OBI-style (OpenHW Open Bus Interface) handshakes. They connect directly to tightly coupled SRAM, or to an interconnect through a thin adapter (for example an AXI4 master: panels are contiguous, so each panel becomes INCR bursts).
+
+| Port | Signals | Rules |
+| --- | --- | --- |
+| Read | `rd_req`, `rd_addr` → `rd_gnt`; `rd_rvalid`, `rd_rdata` | A request is accepted when `req && gnt`. Responses return in order, any number of cycles later (including the request cycle). The stream engine only requests when the destination FIFO has room for the response, so `rvalid` never needs backpressure. |
+| Write | `wr_req`, `wr_addr`, `wr_be`, `wr_wdata` → `wr_gnt` | Drain writes, accepted when `req && gnt`. Byte enables are contiguous from the low byte. With `SHARED_PORT` the core never requests both ports in one cycle, so both can share a single-port SRAM (§5.1). |
+
+- Requests never depend combinationally on `gnt`.
+- Every read and every drain write is one aligned W-byte word (alignment rule, §6.1). C rows are padded to whole words, which wastes at most W − 4 bytes per row.
+- With an SRAM that always grants and answers L cycles after the request, the RTL matches the cycle model run with `mem_latency = L + 1`. The extra cycle is the operand FIFO write. SRAM latency costs only FIFO depth: depth 8 hides up to 8 cycles at every T (`model/dse.md` §5).
+- `gnt` back-pressure is supported and verified (random stalls of up to 80%), but the cycle model doesn't include it yet.
+
+### 6.4 Host interface
+
+The core exposes one 32-bit register port (OBI-style: always grants, read data one cycle after the request) and an interrupt. Bus or CPU attachment is a thin adapter on this port: AXI4-Lite or APB for any SoC, CV-X-IF for custom-instruction issue from CVA6 or CV32E40X, or RoCC for Chipyard. A GEMM is 50 bytes of program, after which the host only waits, so the interface carries very little traffic.
+
+| Offset | Name | Access | Contents |
+| --- | --- | --- | --- |
+| `0x000` | `ID` | RO | `0x5451_0001` ("TQ", register map version 1) |
+| `0x004` | `HW_CONFIG` | RO | `[7:0]` T, `[15:8]` FIFO depth, `[19:16]` MAC queue depth, `[20]` shared port, `[31:24]` program buffer bytes / 4. Software reads this instead of assuming a size. |
+| `0x008` | `CTRL` | WO | bit 0 `START` (run the program buffer from offset 0), bit 1 `ABORT` |
+| `0x00C` | `STATUS` | RO | bit 0 `BUSY`, bit 1 `DONE` (sticky until `START`), bit 2 `ERROR`, `[11:8]` error code |
+| `0x010` / `0x014` | `IRQ_EN` / `IRQ_STATUS` | RW / W1C | bit 0 done, bit 1 error |
+| `0x020`–`0x030` | `PERF_CYCLES`, `PERF_INSTRET`, `PERF_BEATS`, `PERF_READS`, `PERF_WRITES` | RO | Cleared at `START`. Every benchmark result can be read from the hardware. |
+| `0x040`–`0x05C` | `CFG[0..7]` | RO | Configuration registers as last written by the program |
+| `0x100`– | `PROG` | WO | Program buffer (64 bytes by default): `CFG` instructions + kernel. The loop buffer runs from here. |
+
+Error codes: 1 undefined opcode, 2 `CFG` to a register ≥ 8, 3 loop stack overflow or nested `LOOP_T`, 4 `CFG` inside a loop body, 5 instruction past the program buffer, 6 misaligned base or `C_LD`.
+
 ---
 
 ## 7. Performance (64×64×64, cycle model)
 
-Ideal = 262,144 MACs ÷ 64 = **4,096 cycles**. The simulated fixed overhead is **34 cycles**: 16 at the start (8 `CFG` writes, the kernel prologue and the first SRAM latency) and 18 at the end (the last drain). The int32 and original-spec columns are analytic figures from rev 1 and the comparison doc.
+Ideal = 262,144 MACs ÷ 64 = **4,096 cycles**. The simulated fixed overhead is **34 cycles**: 16 at the start (8 `CFG` writes, the kernel prologue and the first SRAM latency) and 18 at the end (the last drain). The int32 and original-spec columns are analytic figures for two earlier design iterations: a 16-multiplier int32 version and the original Tri-Stack.
 
 | Metric | **Tri-Queue int8** (separate write port) | Tri-Queue int8 (shared port) | Tri-Queue int32 (rev 1) | Original Tri-Stack |
 | --- | --- | --- | --- | --- |
@@ -367,11 +396,11 @@ Not predicted by the analytic model:
 - **K padding to a multiple of 8 wastes up to 7/Kp** of the compute, for example 11% at K = 65.
 - **Odd M or N costs more than the edge-shape table suggests,** because a 1-row remainder still occupies a 4-wide tile.
 
-The cross-design table in the comparison doc assumed int32 at 16 MACs. It needs to be redone at int8 with 64 MACs: for example, Gemmini with an 8×8 int8 mesh, an int8 register-tile engine, and RVV with int8 dot products.
+A comparison against other int8 designs at the same MAC count (for example Gemmini with an 8×8 int8 mesh, an int8 register-tile engine, and RVV with int8 dot products) has not been made yet. To be fair it needs the same synthesis flow and workloads for every design.
 
 ### 7.2 Real-hardware reference: Apple AMX (M2 Pro)
 
-These measurements were taken on this machine (`bench/reference/amx/`). AMX is undocumented, so the kernels use the encodings from corsix/amx. The full data is in `bench/reference/amx/results.md` and `bench/reference/amx/ablation.md`.
+These measurements were taken on an M2 Pro (`bench/reference/amx/`). AMX is undocumented, so the kernels use the encodings from corsix/amx. The full data is in `bench/reference/amx/results.md` and `bench/reference/amx/ablation.md`.
 
 **What the measurements show about AMX itself**
 
@@ -409,7 +438,7 @@ These measurements were taken on this machine (`bench/reference/amx/`). AMX is u
 
 ### 7.3 Scaling the tile (cycle model)
 
-The model takes T as a parameter (`model/dse.md`, [decision 0008](../decisions/0008-tile-size.md)). Every shape, the quadrant arity limits and the kernel stay the same: shapes become T or T/2 rows and columns with reduction depth 1, 2 or 4. All results are bit-exact.
+The model and the RTL take T as a parameter (`model/dse.md`). The RTL is verified at T = 4, 8 and 16. Every shape, the quadrant arity limits and the kernel stay the same: shapes become T or T/2 rows and columns with reduction depth 1, 2 or 4. All results are bit-exact.
 
 | | T = 8 | T = 16 | T = 32 |
 | --- | --- | --- | --- |
@@ -453,25 +482,14 @@ At a high level, the Tri-Queue combines the **output-stationary outer-product da
 
 ---
 
-## 10. Open decisions
+## 10. Design choices and open questions
 
-Items 1, 2 and 4 are now settled in decision records: 0007 (requantization deferred), 0006 (carry-save for v0, plain adder measured in Phase 3) and 0004 (register port plus adapters). The memory interface is in 0005.
-
-1. **Output requantization.** Adding scale, shift and clamp to int8 in the drain unit cuts the drain to 4 vectors per tile. That would allow a shared read/write port at about 94% utilization (unverified: decision 0007 shows the bank stays busy just as long unless the CPA lanes also grow), and it matches what int8 inference layers need anyway. `MODE` has reserved bits for it, and the scale and shift values would need either a 9th `CFG` register or a packed field.
-2. **Accumulator form.** Carry-save keeps the 1-cycle accumulate loop at a high Fmax but doubles SC to 8 Kbit. A plain 32-bit adder per cell halves SC (total state ≈ 6.5 Kbit) if the target clock allows a 32-bit add per cycle.
-3. **Other types.** int4 (2× the MACs per beat, so the tile would have to grow by the balance law), and fp16 or bf16 (these can't use carry-save accumulation and would need a separate accumulator design).
-4. **Host interface.** A RoCC-style custom-instruction attachment (as in Gemmini) or a memory-mapped command FIFO.
-5. **Packing.** Either a separate packing pass, or a strided stream mode that reads unpacked row-major data, at the cost of more address logic and a risk of SRAM bank conflicts.
+1. **Output requantization (deferred).** Scale, shift and clamp to int8 in the drain would cut drain write traffic 4×, which int8 inference layers need anyway. But the drain has two costs: write-port traffic, which requantization cuts, and bank occupancy, which depends on the number of CPA lanes (W/4 today) and not on the output width. Unless the lanes also grow 4×, the bank stays busy just as long and the drain-hiding threshold (Kp ≥ 2T + 8) doesn't move, so the earlier estimate of about 94% on a shared port is unverified. The current core writes int32. The drain is a pipeline with a slot between the CPA and the write formatter for a later requantization stage, and `MODE` bits 2 and above are reserved. It will be modelled (output width and lane count) before any hardware is added.
+2. **Accumulator form (carry-save).** Carry-save keeps the 1-cycle accumulate loop short at a high Fmax, but it doubles SC to 8 Kbit and is about 128 of the ~167 state bits per MAC. A plain 32-bit adder per cell halves SC (total state ≈ 6.5 Kbit) if a 32-bit add with up to 4 products fits in a cycle at the target clock. The RTL uses carry-save. The alternative is to be compared on synthesis results. Both give identical results and cycles, so the same golden vectors check either.
+3. **Data types.** int8 and uint8 with int32 accumulation only. int4 doubles the MACs per beat, so by the balance law the tile has to grow. fp16 and bf16 can't use carry-save accumulation: floating-point accumulate latency removes the double-bank advantage (§7.2), so they need their own accumulator design.
+4. **Host interface (settled).** A register port with thin adapters (§6.4), so one core works with every host.
+5. **Packing.** Operands are pre-packed by the host. A strided stream mode that reads unpacked row-major data would save the packing pass, at the cost of more address logic, SRAM bank-conflict risk, and losing the one-aligned-word-per-read property (§6.3).
 6. **Matrix-vector work (M = 1).** Every element of the matrix is used once, so the port caps it at 16 MACs per cycle (25% of peak) in any mode. The current design reaches 16.7%. A dedicated mode could reach the cap by keeping the vector in QA instead of re-streaming it for each tile.
-7. **Small-GEMM overhead.** The fixed 34-cycle start and end cost could be hidden by letting the host queue the next GEMM's `CFG` and streams before the previous one's `FENCE`. That would need a shadow `CFG` set.
+7. **Small-GEMM overhead.** The fixed 34-cycle start and end cost could be hidden by letting the host queue the next GEMM's `CFG` and streams before the previous one's `FENCE`. That would need a shadow `CFG` set and possibly a larger program buffer.
 
-## 11. Next steps
-
-The project-level plan is in `docs/roadmap.md`. The items below are the design-specific steps.
-
-1. ~~Build a Python simulator of this exact ISA that matches numpy bit-for-bit.~~ Done: `model/`, 229 tests.
-2. ~~Add a cycle-level model, and check the 64³ figure, the drain condition and the queue depths.~~ Done: `model/results.md`.
-3. ~~Measure the AMX utilization curve on the M2 Pro as a real-hardware reference, and test the double-bank claim without depending on precision.~~ Done: `bench/reference/amx/`, §7.2. Open: the integer (`mac16`) path.
-4. ~~Generalize the model to any tile size, export golden vectors and traces for RTL, and sweep T = 8/16/32.~~ Done: `model/dse.md`, §7.3, `docs/spec/trace_format.md`.
-5. ~~Write RTL and simulate it in Verilator against the Python model.~~ Done: `rtl/`, `verif/`. 643 cases in 7 configurations, cycle-exact. Next: synthesize with Yosys + OpenROAD, and compare against Gemmini configured with an 8×8 int8 mesh in the same flow (roadmap Phases 3 and 5).
-6. Build the visual explainer (outer-product walkthrough, beat schedule, k-depth arity, overlap timeline). It can replay traces from the simulator.
+Tile size is a parameter rather than a choice (§7.3): larger T reads fewer bytes per MAC but uses the array less well on small and irregular shapes, so the right T depends on the SoC's workloads and on area and energy figures that only synthesis can give.

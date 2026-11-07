@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 //
 // Tri-Queue top level: register port + core. This is the unit an SoC integrates, through an
-// adapter for its bus (decision 0004) and its memory (decision 0005).
+// adapter for its bus (spec 6.4) and its memory (spec 6.3).
 
 module tq_top #(
     parameter int T           = 8,

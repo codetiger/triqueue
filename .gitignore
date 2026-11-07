@@ -29,3 +29,6 @@ build/
 # Formal run directories
 verif/formal/tq_fifo/
 verif/formal/tq_fifo_*/
+
+# Private planning notes (roadmap, decision records, metrics, history): local only
+private/

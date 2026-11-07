@@ -36,7 +36,7 @@ formal:
 	cd verif/formal && $(SBY) -f tq_fifo.sby
 
 # Synthesizability check with generic Yosys cells: no latches, no loops, no undriven nets.
-# Gate counts here are technology-independent and are not area results (docs/metrics.md).
+# Gate counts here are technology-independent and are not area results.
 synth-check:
 	mkdir -p build/synth
 	$(YOSYS) -q -l build/synth/tq_top_t8.log -p "read_verilog -sv -DSYNTHESIS $(RTL); \

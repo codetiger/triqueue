@@ -2,7 +2,7 @@
 
 An open-source RTL matrix-multiply coprocessor for RISC-V SoCs, in the same class as Apple's AMX, Arm SME and Gemmini. It is designed to drop into a larger chip and to be measured honestly against the alternatives.
 
-**Status:** RTL v0. The SystemVerilog core matches the cycle-level Python model cycle for cycle and is bit-exact against numpy across 643 regression cases. Area, power and clock numbers come next (Phase 3). See [`docs/roadmap.md`](docs/roadmap.md).
+**Status:** RTL v0. The SystemVerilog core matches the cycle-level Python model cycle for cycle and is bit-exact against numpy across 643 regression cases. Area, power and clock frequency have not been measured yet.
 
 ## Why
 
@@ -29,18 +29,13 @@ Peak throughput is a parameter, set by tile size and port width. It is not a goa
 
 | Path | Contents |
 | --- | --- |
-| `docs/spec/` | The design spec (`tri_queue_matrix_core_design.md`), the source of truth for the architecture |
-| `docs/roadmap.md` | Phased plan |
-| `docs/metrics.md` | How every reported number is computed |
-| `docs/decisions/` | Decision records (RTL language, licensing, scope, ...) |
-| `docs/history/` | The original Tri-Stack spec and the architecture comparison that led to this design |
+| `docs/benchmarks.md` | Summary of every completed benchmark, with links to the generated results |
+| `docs/spec/` | The design spec (`tri_queue_matrix_core_design.md`, including the host and memory interfaces) and the golden-vector / trace format |
 | `model/` | Cycle-level Python model: runs the real instruction bytes, bit-exact against numpy. This will be the golden reference for RTL. |
 | `rtl/` | SystemVerilog RTL (`tq_top`), parameterized by tile size; see `rtl/README.md` for interfaces |
 | `verif/` | cocotb + Verilator regression against the model, SymbiYosys proofs |
 | `bench/workloads/` | The shared list of GEMM shapes that every benchmark uses |
 | `bench/reference/amx/` | Apple AMX (M2 Pro) measurements used as a real-silicon reference |
-
-`sw/`, `bench/designs/`, `flow/` and `results/` get added in later phases (see the roadmap).
 
 Quick start (Python 3.10+; RTL targets need Verilator 5, Yosys and SymbiYosys):
 
@@ -52,4 +47,4 @@ make              # model tests, RTL lint, RTL regression, formal proofs, synthe
 
 ## License
 
-Copyright 2026 Harishankar Narayanan. Hardware (`rtl/`, `verif/`, `flow/`) is under the [Solderpad Hardware License 2.1](LICENSE.hardware). Everything else is under the [Apache License 2.0](LICENSE). See [decision 0002](docs/decisions/0002-licensing.md).
+Copyright 2026 Harishankar Narayanan. Hardware (`rtl/`, `verif/`, `flow/`) is under the [Solderpad Hardware License 2.1](LICENSE.hardware). Everything else is under the [Apache License 2.0](LICENSE). Each source file carries an SPDX license identifier.

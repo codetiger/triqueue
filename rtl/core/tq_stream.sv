@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 //
-// Stream engine and memory-port arbitration (spec 5.1, 5.2; decision 0005).
+// Stream engine and memory-port arbitration (spec 5.1, 5.2, 6.3).
 // Model: TriQueueCore._read_candidate / _issue_read / step_port (model/tri_queue/core.py).
 //
 // Two panel walkers (A, B) share one read port, alternating round-robin. A read is issued only

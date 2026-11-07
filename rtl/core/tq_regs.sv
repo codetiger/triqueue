@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 //
-// Host register port (decision 0004). 32-bit OBI-style slave: req/gnt, response one cycle later.
+// Host register port (spec 6.4). 32-bit OBI-style slave: req/gnt, response one cycle later.
 //
 //   0x000 ID          RO  0x5451_0001 ("TQ", register-map version 1)
 //   0x004 HW_CONFIG   RO  [7:0] T, [15:8] FIFO_DEPTH, [19:16] MACQ_DEPTH, [20] SHARED_PORT,

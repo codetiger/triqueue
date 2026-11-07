@@ -17,9 +17,9 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/spec/tri_
 
 ## Interfaces
 
-**Register port** (decision 0004): 32-bit, OBI-style. `reg_gnt_o` is always 1, and read data arrives one cycle after the request (`reg_rvalid_o`). The register map is in the header of `core/tq_regs.sv`. A run is: write the program to `PROG` (0x100), write `CTRL.START`, wait for `STATUS.DONE` or `irq_o`.
+**Register port** (spec §6.4): 32-bit, OBI-style. `reg_gnt_o` is always 1, and read data arrives one cycle after the request (`reg_rvalid_o`). The register map is in the header of `core/tq_regs.sv`. A run is: write the program to `PROG` (0x100), write `CTRL.START`, wait for `STATUS.DONE` or `irq_o`.
 
-**Memory ports** (decision 0005): OBI-style, W bytes wide.
+**Memory ports** (spec §6.3): OBI-style, W bytes wide.
 
 | Port | Signals | Rules |
 | --- | --- | --- |
