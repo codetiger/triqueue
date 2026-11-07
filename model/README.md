@@ -26,6 +26,6 @@ Shapes for `bench.py` and `dse.py` come from `bench/workloads/gemm.csv`. The vec
 - `ZERO_C` and `SWAP_C` toggle bank pointers and take no MAC cycle. Per cycle the MAC unit consumes at most one of them, then at most one `VOUTER_MAC`.
 - Loop bodies contain only 1-byte instructions (no `CFG`); the model raises an error otherwise.
 - `VOUTER_MAC` waits until all of its operand bytes are in the FIFOs, then pops them when it starts.
-- SRAM reads are pipelined, one W-byte read per cycle, with a fixed latency and no `gnt` stalls. Bank conflicts are not modeled.
+- SRAM reads are pipelined, one W-byte read per cycle, with a fixed latency. Ports always grant unless `gnt_stall` > 0, which withholds each port's `gnt` at random with that probability (seeded by `gnt_seed`, drawn as in `docs/golden-vectors.md`). An ungranted request is held unchanged until granted (OBI request stability). Bank conflicts are not modeled.
 - `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` are multiples of W (asserted). `run_gemm` pads C rows to whole words.
 - The MAC pipeline (`mac_pipe`) and the drain CPA latency only affect when a drain may begin.

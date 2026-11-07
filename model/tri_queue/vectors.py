@@ -73,6 +73,8 @@ def main(argv=None):
     ap.add_argument("--mem-latency", type=int, default=2)
     ap.add_argument("--fifo-depth", type=int, default=8)
     ap.add_argument("--shared-port", action="store_true")
+    ap.add_argument("--gnt-stall", type=float, default=0.0, help="probability a port's gnt is withheld")
+    ap.add_argument("--gnt-seed", type=int, default=0)
     ap.add_argument("-o", "--out", type=Path, required=True)
     args = ap.parse_args(argv)
     rng = np.random.default_rng(args.seed)
@@ -83,7 +85,8 @@ def main(argv=None):
 
     a, b = rand((args.m, args.k), args.a), rand((args.k, args.n), args.b)
     p = Params(tile=args.tile, port_bytes=args.port_bytes, mem_latency=args.mem_latency,
-               fifo_depth=args.fifo_depth, shared_port=args.shared_port)
+               fifo_depth=args.fifo_depth, shared_port=args.shared_port,
+               gnt_stall=args.gnt_stall, gnt_seed=args.gnt_seed)
     meta = export(a, b, p, args.out)
     e = meta["expected"]
     print(f"{args.out}: {e['cycles']} cycles, {e['instructions']} instructions, "

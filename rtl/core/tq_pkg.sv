@@ -18,6 +18,10 @@ package tq_pkg;
   localparam logic [3:0] OP_LOOP_T   = 4'h8;
   localparam logic [3:0] OP_FENCE    = 4'h9;
 
+  // ---- accumulator form (tq_mac_array ACC_FORM, spec 10.2) ----
+  localparam int ACC_CSA = 0;   // carry-save (sum, carry): 64 bits per cell and bank, CPA at drain
+  localparam int ACC_CPA = 1;   // plain 32-bit value: carry-propagate add in the accumulate loop
+
   // ---- config registers ----
   localparam int CFG_A_BASE = 0;
   localparam int CFG_B_BASE = 1;

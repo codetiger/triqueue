@@ -22,7 +22,7 @@ Further tables in the source file: shared read/write port (79.8% at 64³), drain
 
 ## 2. RTL, T = 8
 
-Source: `verif/` (`make rtl-test`). The SystemVerilog core gives the same cycle count as the model for every one of 643 regression cases in 7 configurations (T = 4, 8, 16; shared port; minimal queues), including **4,130 cycles for 64³**. Results are bit-exact, and every memory transaction and MAC start happens on the same cycle as in the model. Under random memory back-pressure (not modelled), results and transaction order still match.
+Source: `verif/` (`make rtl-test`). The SystemVerilog core gives the same cycle count as the model for every one of 840 regression cases in 9 configurations (T = 4, 8, 16, 32; shared port; minimal queues; both accumulator forms; random memory back-pressure of 10–80%), including **4,130 cycles for 64³**. Results are bit-exact, and every memory transaction and MAC start happens on the same cycle as in the model.
 
 ## 3. Tile size (cycle model)
 
@@ -36,6 +36,16 @@ Source: `model/dse.md` (`model/dse.py`). Port width 2T bytes.
 | Useful MACs per cycle, same mean | 35.8 | 90.5 | 205.4 |
 | Bytes read per MAC | 0.25 | 0.125 | 0.0625 |
 | Architectural state per MAC | 167 bits | 146 bits | 136 bits |
+
+**Real int8 networks** (`model/dse.md` §6): MLPerf Tiny and BERT-tiny layers at batch 1, lowered to GEMM with im2col (depthwise convolutions excluded). Utilization is weighted by MACs over all of a network's layers, run back to back.
+
+| Network | MMACs | T = 8 | T = 16 | T = 32 |
+| --- | --- | --- | --- | --- |
+| DS-CNN keyword spotting | 2.37 | 97.1% | 94.8% | 77.3% |
+| MobileNetV1 0.25, visual wake words | 6.69 | 85.4% | 67.6% | 40.5% |
+| ResNet-8, CIFAR-10 | 12.50 | 99.1% | 97.1% | 75.1% |
+| FC autoencoder, anomaly detection (all GEMV) | 0.26 | 16.6% | 8.2% | 4.0% |
+| BERT-tiny, sequence 128 | 58.72 | 99.9% | 99.7% | 97.7% |
 
 ## 4. Apple AMX reference (M2 Pro, measured)
 

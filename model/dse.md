@@ -67,3 +67,54 @@ Useful MACs per cycle (utilization × T²), geometric mean over the same shapes:
 | 32 | 8 | 96.2% | 96.0% | 90.3% |
 | 32 | 16 | 96.2% | 96.0% | 95.7% |
 
+## 6. Real int8 networks (tag `layers`)
+
+Layer shapes from `bench/workloads/README.md` (MLPerf Tiny and BERT-tiny, batch 1, depthwise convolutions excluded). A network's utilization is weighted by MACs: Σ useful MACs ÷ (T² × Σ cycles), each layer counted as often as it occurs. Layers run back to back with no overlap between them, so the fixed per-GEMM overhead is paid every layer.
+
+| Network | Layers | MMACs | T = 8 | T = 16 | T = 32 | MACs/cycle, T = 8 | MACs/cycle, T = 16 | MACs/cycle, T = 32 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `kws_dscnn` | 6 | 2.37 | 97.1% | 94.8% | 77.3% | 62.1 | 242.8 | 791.4 |
+| `vww_mbv1` | 15 | 6.69 | 85.4% | 67.6% | 40.5% | 54.6 | 173.0 | 414.7 |
+| `ic_resnet8` | 10 | 12.50 | 99.1% | 97.1% | 75.1% | 63.4 | 248.7 | 769.0 |
+| `ad_fcae` | 10 | 0.26 | 16.6% | 8.2% | 4.0% | 10.6 | 21.0 | 41.3 |
+| `bert_tiny` | 16 | 58.72 | 99.9% | 99.7% | 97.7% | 64.0 | 255.1 | 1000.1 |
+
+Per layer:
+
+| Network | Layer | M×N×K | × | T = 8 | T = 16 | T = 32 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `kws_dscnn` | conv 10x4 s2 1->64 (25x5 out) | 125×64×40 | 1 | 97.1% | 94.4% | 55.3% |
+| `kws_dscnn` | pointwise 64->64 (25x5) | 125×64×64 | 4 | 97.3% | 95.6% | 84.0% |
+| `kws_dscnn` | fc 64->12 | 1×12×64 | 1 | 12.5% | 4.6% | 1.6% |
+| `vww_mbv1` | conv 3x3 s2 3->8 (48x48) | 2304×8×27 | 1 | 84.1% | 55.7% | 20.1% |
+| `vww_mbv1` | pointwise 8->16 (48x48) | 2304×16×8 | 1 | 46.9% | 24.1% | 12.0% |
+| `vww_mbv1` | pointwise 16->32 (24x24) | 576×32×16 | 1 | 93.5% | 47.8% | 23.9% |
+| `vww_mbv1` | pointwise 32->32 (24x24) | 576×32×32 | 1 | 99.6% | 95.0% | 47.3% |
+| `vww_mbv1` | pointwise 32->64 (12x12) | 144×64×32 | 1 | 99.3% | 93.1% | 45.4% |
+| `vww_mbv1` | pointwise 64->64 (12x12) | 144×64×64 | 1 | 99.6% | 97.9% | 86.0% |
+| `vww_mbv1` | pointwise 64->128 (6x6) | 36×128×64 | 1 | 94.3% | 80.5% | 59.8% |
+| `vww_mbv1` | pointwise 128->128 (6x6) | 36×128×128 | 5 | 94.5% | 81.2% | 62.7% |
+| `vww_mbv1` | pointwise 128->256 (3x3) | 9×256×128 | 1 | 64.1% | 55.3% | 36.0% |
+| `vww_mbv1` | pointwise 256->256 (3x3) | 9×256×256 | 1 | 64.2% | 55.8% | 36.7% |
+| `vww_mbv1` | fc 256->2 | 1×2×256 | 1 | 5.6% | 1.4% | 0.3% |
+| `ic_resnet8` | conv 3x3 3->16 (32x32) | 1024×16×27 | 1 | 84.0% | 80.0% | 39.2% |
+| `ic_resnet8` | conv 3x3 16->16 (32x32) | 1024×16×144 | 2 | 99.9% | 99.5% | 65.8% |
+| `ic_resnet8` | conv 3x3 s2 16->32 (16x16) | 256×32×144 | 1 | 99.8% | 98.9% | 93.4% |
+| `ic_resnet8` | conv 3x3 32->32 (16x16) | 256×32×288 | 1 | 99.9% | 99.5% | 96.6% |
+| `ic_resnet8` | shortcut 1x1 s2 16->32 | 256×32×16 | 1 | 92.7% | 47.0% | 23.1% |
+| `ic_resnet8` | conv 3x3 s2 32->64 (8x8) | 64×64×288 | 1 | 99.8% | 98.9% | 93.4% |
+| `ic_resnet8` | conv 3x3 64->64 (8x8) | 64×64×576 | 1 | 99.9% | 99.5% | 96.6% |
+| `ic_resnet8` | shortcut 1x1 s2 32->64 | 64×64×32 | 1 | 98.4% | 88.7% | 41.4% |
+| `ic_resnet8` | fc 64->10 | 1×10×64 | 1 | 10.4% | 3.8% | 1.3% |
+| `ad_fcae` | fc 640->128 | 1×128×640 | 1 | 16.6% | 8.3% | 4.1% |
+| `ad_fcae` | fc 128->128 | 1×128×128 | 6 | 16.5% | 8.2% | 4.0% |
+| `ad_fcae` | fc 128->8 (bottleneck) | 1×8×128 | 1 | 14.2% | 5.0% | 1.2% |
+| `ad_fcae` | fc 8->128 | 1×128×8 | 1 | 14.0% | 6.1% | 2.4% |
+| `ad_fcae` | fc 128->640 | 1×640×128 | 1 | 16.6% | 8.3% | 4.1% |
+| `bert_tiny` | fused QKV projection | 128×384×128 | 2 | 100.0% | 99.8% | 98.7% |
+| `bert_tiny` | attention scores Q.K^T per head | 128×128×64 | 4 | 99.8% | 98.8% | 91.3% |
+| `bert_tiny` | attention context P.V per head | 128×64×128 | 4 | 99.8% | 98.8% | 92.6% |
+| `bert_tiny` | attention output projection | 128×128×128 | 2 | 99.9% | 99.4% | 96.2% |
+| `bert_tiny` | FFN up 128->512 | 128×512×128 | 2 | 100.0% | 99.8% | 99.0% |
+| `bert_tiny` | FFN down 512->128 | 128×128×512 | 2 | 100.0% | 99.8% | 99.0% |
+

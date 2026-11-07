@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+#
+# Unbounded proof (ABC PDR) for tq_core at T = 4 with minimal queues (FIFO depth 2, MAC queue 2):
+# any program, START / ABORT at any time, any gnt pattern and any memory latency
+# (tq_core_env.sv). Properties: an accumulate never targets the draining bank, no queue
+# (operand FIFOs, command queues, read tags) overflows or underflows, and a request without gnt
+# is held unchanged (OBI request stability). The accumulator form doesn't matter: the datapath
+# is outside the cone of these properties and is removed first.
+# Run: sby -f tq_core.sby split     (~3 min, every CI push: make formal)
+#      sby -f tq_core.sby shared    (1-80 min, varies widely, nightly CI: make formal-nightly)
+
+[tasks]
+split
+shared
+
+[options]
+mode prove
+
+[engines]
+abc pdr
+
+[script]
+read_verilog -sv -formal -DSYNTHESIS -DTQ_FORMAL_CORE tq_pkg.sv tq_fifo.sv tq_frontend.sv tq_stream.sv tq_mac_array.sv tq_drain.sv tq_core.sv tq_core_env.sv
+split:  chparam -set KERNEL 0 -set SHARED_PORT 0 tq_core_env
+shared: chparam -set KERNEL 0 -set SHARED_PORT 1 tq_core_env
+prep -top tq_core_env
+flatten
+# keep only the input cone of the assertions and assumptions (drops the datapath)
+delete t:* t:$check %ci* %d
+opt_clean -purge
+# out-of-range part-select fill (x) becomes a free value, so the abc engine can take the model
+techmap t:$shiftx
+setundef -anyseq
+
+[files]
+../../rtl/core/tq_pkg.sv
+../../rtl/common/tq_fifo.sv
+../../rtl/core/tq_frontend.sv
+../../rtl/core/tq_stream.sv
+../../rtl/core/tq_mac_array.sv
+../../rtl/core/tq_drain.sv
+../../rtl/core/tq_core.sv
+tq_core_env.sv

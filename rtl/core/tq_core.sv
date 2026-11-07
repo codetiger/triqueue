@@ -18,6 +18,7 @@ module tq_core #(
     parameter int SCMD_DEPTH  = 2,     // stream command queues
     parameter bit SHARED_PORT = 1'b0,  // drain writes share the read port
     parameter int PROG_BYTES  = 64,
+    parameter int ACC_FORM    = tq_pkg::ACC_CSA,  // accumulator form (tq_mac_array, spec 10.2)
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -173,7 +174,7 @@ module tq_core #(
   logic [$clog2(T)-1:0] rd_row;
   logic [T/2*32-1:0] rd_val;
 
-  tq_mac_array #(.T(T)) u_array (
+  tq_mac_array #(.T(T), .ACC_FORM(ACC_FORM)) u_array (
       .clk_i, .rst_ni,
       .beat_i(beat), .beat_idx_i(beat_idx), .rfull_i(beat_rf), .cfull_i(beat_cf),
       .bank_i(beat_bank), .a_i(beat_a), .b_i(beat_b),
@@ -288,6 +289,14 @@ module tq_core #(
       // ZERO_C only while nothing drains (model: assert in step_mac)
       if (is_zero) assert (!drain_act) else $error("ZERO_C during a drain");
     end
+  end
+`endif
+
+`ifdef FORMAL
+  // ---------------------------------------------------------------- formal (verif/formal/tq_core.sby)
+  // For any program: an accumulate never targets the bank being drained.
+  always_comb begin
+    if (rst_ni && running_q) assert (!(prod_valid && drain_act && prod_bank == rd_bank));
   end
 `endif
 

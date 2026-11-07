@@ -58,6 +58,16 @@ module tq_fifo #(
   end
 
 `ifdef FORMAL
+`ifdef TQ_FORMAL_CORE
+  // ---- core-level proof (verif/formal/tq_core.sby): legal use is a property of the core ----
+  always_comb begin
+    if (rst_ni && !clear_i) begin
+      assert (pop_i != 2'd3);
+      assert (32'(pop_i) <= 32'(count_q));                                // no underflow
+      assert (32'(count_q) - 32'(pop_i) + 32'(push_i) <= DEPTH);          // no overflow
+    end
+  end
+`else
   // ---- properties, proved by k-induction with SymbiYosys (verif/formal/tq_fifo.sby) ----
   logic past_valid = 1'b0;
   always_ff @(posedge clk_i) past_valid <= 1'b1;
@@ -105,6 +115,7 @@ module tq_fifo #(
       end
     end
   end
+`endif
 `endif
 
 endmodule

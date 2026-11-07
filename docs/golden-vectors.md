@@ -51,8 +51,18 @@ In order of strictness:
 1. **Results:** `mem_final.hex` must match exactly. Bit-exact, always required.
 2. **Transactions:** the sequence of `port rd` (s, addr, n) and of `port wr` (addr, n, data) must match exactly, compared as two separate ordered lists. Required.
 3. **Counters:** `instructions`, `beats`, `read_vectors`, `write_vectors` and `mac_ops` must match exactly. Required.
-4. **Cycles:** the total, and the cycle of each `mac start` and `port wr`, should match when the testbench SRAM always grants and answers L cycles after the request, with the model run at `mem_latency = L + 1`. The extra cycle is the operand FIFO write. A difference is either an RTL bug or a model assumption the RTL doesn't hold. Either way it gets explained and recorded, never ignored.
+4. **Cycles:** the total, and the cycle of each `mac start`, `port rd` and `port wr`, must match when the testbench SRAM answers L cycles after the request and grants as described under "Back-pressure", with the model run at `mem_latency = L + 1`. The extra cycle is the operand FIFO write. A difference is either an RTL bug or a model assumption the RTL doesn't hold. Either way it gets explained and recorded, never ignored.
 
-The RTL regression (`verif/`) applies checks 1–4 to every case. With random `gnt` back-pressure, which the model doesn't have, it applies 1 and 3 plus the order of writes and MAC shapes.
+The RTL regression (`verif/`) applies checks 1–4 to every case, including those with back-pressure.
+
+## Back-pressure
+
+`Params.gnt_stall` (probability p, default 0) and `Params.gnt_seed` set the grants of both ports. With p = 0 every request is granted. Otherwise the model and the testbench use the same generator, `tri_queue.core.GrantSource`:
+
+- `rng = numpy.random.default_rng(gnt_seed)`.
+- On every model cycle, starting at 0, draw `rd_gnt = rng.random() >= p`, then `wr_gnt = rng.random() >= p`. Both are drawn whether or not the port requests.
+- Outside the busy cycles the testbench grants without drawing.
+
+A request that isn't granted is held unchanged until it is: a held read keeps its stream (A/B arbitration and panel loads wait), and on a shared port a held read or write keeps the port. The testbench checks that every ungranted request reappears unchanged the next cycle.
 
 The trace exposes no internal state (FIFO contents, sum/carry values), so an RTL that keeps the accumulator in a different internal form (spec §10.2) checks against the same vectors.

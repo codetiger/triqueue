@@ -6,8 +6,6 @@ Harishankar Narayanan · rev 4
 
 This is the design specification of the Tri-Queue core. Figures are for the T = 8 design point unless stated otherwise. Performance figures come from the cycle-level model in `model/` (full results in `model/results.md` and `model/dse.md`), which runs the real instruction bytes and checks every result bit-exact against numpy. The RTL in `rtl/` implements this spec and matches the model cycle for cycle (`verif/`). Area, power and clock frequency have not been measured yet, so no figure here is an efficiency claim.
 
-The Tri-Queue evolved from an earlier "Tri-Stack" SIMD + variable-arity design. §1 lists what it kept and what it changed.
-
 ---
 
 ## 1. Summary
@@ -21,40 +19,23 @@ The design rests on one idea:
 
 The core keeps an 8×8 tile of C in place. Every cycle it takes 8 values from a column of A and 8 values from a row of B, multiplies all 64 pairs at once, and adds each product into its place in the tile. The rest of the design exists to keep that loop fed every cycle.
 
-### Why int8 is the default
+### Why int8
 
-The balance law says a core with **P** multipliers and a port that supplies **W** elements per cycle needs an output tile at least **R = 2P / W** on a side to stay busy.
+The balance law says a core with **P** multipliers and a port that supplies **W** elements per cycle needs an output tile at least **R = 2P / W** on a side to stay busy. A 128-bit port carries 16 int8 elements per beat, so 64 multipliers balance against an 8×8 tile and each k step takes exactly one beat. At int32 the same port carries 4 elements and would feed only 16 multipliers. The 9×9 multipliers are also small: 64 × 81 = 5,184 partial-product bits for the whole array. int8 is the standard precision for ML inference.
 
-| | int32 (rev 1) | **int8 (rev 2)** |
-| --- | --- | --- |
-| Elements per 128-bit beat (W) | 4 | **16** |
-| Multipliers (P) | 16 | **64** |
-| Balanced tile R = 2P/W | 8×8 | **8×8 (unchanged)** |
-| Cycles per k step | 4 beats per op | **1 beat per k** |
-| Peak MACs per cycle | 16 | **64 (4×)** |
-| Multiplier partial-product bits | 16 × 528 = 8,448 | **64 × 81 = 5,184 (≈ 0.6×)** |
+### Key design choices
 
-The port, the tile, the accumulator storage and the utilization model all stay the same. The core does 4× the work per cycle, and its multiplier array is about 40% smaller (comparing partial-product bits, before synthesis). int8 is also the standard precision for ML inference.
-
-### What it keeps from the original Tri-Stack
-
-- Implicit operands and 1-byte instructions (opcode `[7:4]`, argument `[3:0]`)
-- Role-separated storage: one store for A, one for B, one for C
-- An outer-product MAC into a hardwired, carry-save accumulator tile
-- Variable arity, now as a variable-depth reduction into each accumulator (§4)
-
-### What it changes, and why
-
-| Change | Original | Tri-Queue | Effect |
-| --- | --- | --- | --- |
-| Operand type | int32 | **int8 / uint8 → int32** | 4× MACs per port beat, smaller multipliers |
-| Operand order | SA and SB are LIFO stacks | QA and QB are FIFOs | The next k step can be prefetched behind the current one |
-| Loads | `VPUSH_A/B` in the instruction stream | Decoupled stream engine | Loads overlap compute |
-| Accumulator | 4×4, one bank | 8×8, two banks | Reuse rises from 2 to 4 MACs per load, and draining hides under compute |
-| Outer product | 16 MACs per beat | 64 MACs per beat (a full 8×8 per k) | 16 bytes per cycle, exactly what a 128-bit port supplies |
-| Write-back | Shares the read port | Separate write port | Required at int8: int32 results are 4× wider than the inputs |
-| Tile loop | Host-driven | `LOOP_T` hardware tile walker | A whole GEMM is one small program |
-| Scope | Compared against CPUs | Coprocessor beside a host core | Branches and scalar math stay on the host |
+| Choice | Effect |
+| --- | --- |
+| Implicit operands and 1-byte instructions (opcode `[7:4]`, argument `[3:0]`) | A whole GEMM is a 10-byte kernel; no register file or rename logic |
+| Role-separated storage: QA for A, QB for B, the accumulator tile for C | No crossbar between storage and the multipliers |
+| QA and QB are FIFOs fed by a decoupled stream engine | Loads overlap compute; the next k step is prefetched behind the current one |
+| 64 MACs per beat (a full 8×8 outer product per k) | 16 bytes per cycle, exactly what a 128-bit port supplies; 4 MACs per element loaded |
+| 8×8 carry-save accumulator tile, two banks | Draining one tile hides under compute on the next |
+| Variable-depth reduction into each accumulator (§4) | Edge tiles keep more multipliers busy |
+| Separate write port (shared port optional) | int32 results are 4× wider than the inputs |
+| `LOOP_T` hardware tile walker | The tile loop runs without the host |
+| Coprocessor beside a host core | Branches and scalar math stay on the host |
 
 ---
 
@@ -163,7 +144,7 @@ beat 1:  SC[r][c] += A[r][k+1] × B[k+1][c]    for all 64 (r, c)
 
 ## 4. Variable arity: k-depth reduction
 
-The original spec's idea was variable-arity adder trees (`ADD N`). In the Tri-Queue that idea solves a specific problem: **edge tiles**.
+Variable-depth reduction solves one specific problem: **edge tiles**.
 
 **The problem.** A tile with only 4 valid rows uses just 32 of the 64 multipliers per beat, so it runs at 50% utilization. A 4×4 corner tile runs at 25%.
 
@@ -204,15 +185,6 @@ The 8×8 multiplier array splits into four 4×4 quadrants. In a reduced mode, a 
 ### 4.3 Lane-level tails
 
 When the number of remaining rows or columns isn't a multiple of 4, the host packer pads that panel with zeros up to 4. The drain unit masks the writes to the padding lanes. No instruction support is needed.
-
-### 4.4 Dropped from the original
-
-| Original op | Why it is dropped |
-| --- | --- |
-| `VMUL_RED N` (stand-alone dot-product tree) | Replaced by k-depth arity inside the accumulate cells. Matrix-vector work is still capped at 16 MACs per cycle by the port in any mode (§9). |
-| `ADD_RED N`, `MUL_RED N` | Not on the GEMM path. Scalar reductions belong to the host. |
-| `VPUSH_A/B N`, `DROP_A N` | Replaced by the stream engine. |
-| `SET_ADDR`, `S_ADDR` stack | Replaced by `CFG` registers. This also fixes the spec's missing `LOOP_K` count slot. |
 
 ---
 
@@ -331,10 +303,10 @@ The core has two native ports, W = 2T bytes wide, with OBI-style (OpenHW Open Bu
 | Read | `rd_req`, `rd_addr` → `rd_gnt`; `rd_rvalid`, `rd_rdata` | A request is accepted when `req && gnt`. Responses return in order, any number of cycles later (including the request cycle). The stream engine only requests when the destination FIFO has room for the response, so `rvalid` never needs backpressure. |
 | Write | `wr_req`, `wr_addr`, `wr_be`, `wr_wdata` → `wr_gnt` | Drain writes, accepted when `req && gnt`. Byte enables are contiguous from the low byte. With `SHARED_PORT` the core never requests both ports in one cycle, so both can share a single-port SRAM (§5.1). |
 
-- Requests never depend combinationally on `gnt`.
+- Requests never depend combinationally on `gnt`, and a request that isn't granted stays asserted with the same address and data until it is (OBI, and AXI `xVALID`, request stability). START or ABORT drops it.
 - Every read and every drain write is one aligned W-byte word (alignment rule, §6.1). C rows are padded to whole words, which wastes at most W − 4 bytes per row.
 - With an SRAM that always grants and answers L cycles after the request, the RTL matches the cycle model run with `mem_latency = L + 1`. The extra cycle is the operand FIFO write. SRAM latency costs only FIFO depth: depth 8 hides up to 8 cycles at every T (`model/dse.md` §5).
-- `gnt` back-pressure is supported and verified (random stalls of up to 80%), but the cycle model doesn't include it yet.
+- `gnt` back-pressure is supported and part of the cycle model: an ungranted request holds the port: the read keeps its stream (no re-arbitration and no panel loads meanwhile), and on a shared port a held read or write keeps the port. The RTL matches the model cycle for cycle under random stalls of up to 80% on both ports.
 
 ### 6.4 Host interface
 
@@ -357,21 +329,19 @@ Error codes: 1 undefined opcode, 2 `CFG` to a register ≥ 8, 3 loop stack overf
 
 ## 7. Performance (64×64×64, cycle model)
 
-Ideal = 262,144 MACs ÷ 64 = **4,096 cycles**. The simulated fixed overhead is **34 cycles**: 16 at the start (8 `CFG` writes, the kernel prologue and the first SRAM latency) and 18 at the end (the last drain). The int32 and original-spec columns are analytic figures for two earlier design iterations: a 16-multiplier int32 version and the original Tri-Stack.
+Ideal = 262,144 MACs ÷ 64 = **4,096 cycles**. The simulated fixed overhead is **34 cycles**: 16 at the start (8 `CFG` writes, the kernel prologue and the first SRAM latency) and 18 at the end (the last drain).
 
-| Metric | **Tri-Queue int8** (separate write port) | Tri-Queue int8 (shared port) | Tri-Queue int32 (rev 1) | Original Tri-Stack |
-| --- | --- | --- | --- | --- |
-| Multipliers | 64 (9×9) | 64 (9×9) | 16 (32×32 low) | 16 (32×32) |
-| Peak MACs per cycle | 64 | 64 | 16 | 16 |
-| Cycles | **4,130** | 5,131 | 16,432 | ≈ 50,700 |
-| Utilization | **99.2%** | 79.8% | 99.7% | 32% |
-| SRAM reads | 64 KB (65,536 elements) | 64 KB | 256 KB (65,536 elements) | 512 KB (131,072 elements) |
-| MACs per element loaded | 4.0 | 4.0 | 4.0 | 2.0 |
-| Dynamic instructions | 2,317 | 2,317 | ≈ 4.4k | ≈ 21.8k |
-| Program bytes fetched | 10 + 40 CFG | 10 + 40 CFG | 10 + 40 CFG | ≈ 87k |
-| Operand state | ≈ 10.5 Kbit | ≈ 10.5 Kbit | ≈ 10.2 Kbit | ≈ 3 Kbit |
-
-On the same port and with about the same state, the int8 core does the 64³ GEMM about **4× faster** than the int32 revision and about **12× faster** than the original spec.
+| Metric | **Tri-Queue int8** (separate write port) | Tri-Queue int8 (shared port) |
+| --- | --- | --- |
+| Multipliers | 64 (9×9) | 64 (9×9) |
+| Peak MACs per cycle | 64 | 64 |
+| Cycles | **4,130** | 5,131 |
+| Utilization | **99.2%** | 79.8% |
+| SRAM reads | 64 KB (65,536 elements) | 64 KB |
+| MACs per element loaded | 4.0 | 4.0 |
+| Dynamic instructions | 2,317 | 2,317 |
+| Program bytes fetched | 10 + 40 CFG | 10 + 40 CFG |
+| Operand state | ≈ 10.5 Kbit | ≈ 10.5 Kbit |
 
 ### 7.1 What the cycle model shows
 
@@ -484,8 +454,8 @@ At a high level, the Tri-Queue combines the **output-stationary outer-product da
 
 ## 10. Design choices and open questions
 
-1. **Output requantization (deferred).** Scale, shift and clamp to int8 in the drain would cut drain write traffic 4×, which int8 inference layers need anyway. But the drain has two costs: write-port traffic, which requantization cuts, and bank occupancy, which depends on the number of CPA lanes (W/4 today) and not on the output width. Unless the lanes also grow 4×, the bank stays busy just as long and the drain-hiding threshold (Kp ≥ 2T + 8) doesn't move, so the earlier estimate of about 94% on a shared port is unverified. The current core writes int32. The drain is a pipeline with a slot between the CPA and the write formatter for a later requantization stage, and `MODE` bits 2 and above are reserved. It will be modelled (output width and lane count) before any hardware is added.
-2. **Accumulator form (carry-save).** Carry-save keeps the 1-cycle accumulate loop short at a high Fmax, but it doubles SC to 8 Kbit and is about 128 of the ~167 state bits per MAC. A plain 32-bit adder per cell halves SC (total state ≈ 6.5 Kbit) if a 32-bit add with up to 4 products fits in a cycle at the target clock. The RTL uses carry-save. The alternative is to be compared on synthesis results. Both give identical results and cycles, so the same golden vectors check either.
+1. **Output requantization (deferred).** Scale, shift and clamp to int8 in the drain would cut drain write traffic 4×, which int8 inference layers need anyway. But the drain has two costs: write-port traffic, which requantization cuts, and bank occupancy, which depends on the number of CPA lanes (W/4 today) and not on the output width. Unless the lanes also grow 4×, the bank stays busy just as long and the drain-hiding threshold (Kp ≥ 2T + 8) doesn't move, so a gain on a shared port (estimated at about 94%) is unverified. The current core writes int32. The drain is a pipeline with a slot between the CPA and the write formatter for a later requantization stage, and `MODE` bits 2 and above are reserved. It will be modelled (output width and lane count) before any hardware is added.
+2. **Accumulator form (carry-save).** Carry-save keeps the 1-cycle accumulate loop short at a high Fmax, but it doubles SC to 8 Kbit and is about 128 of the ~167 state bits per MAC. A plain 32-bit adder per cell halves SC (total state ≈ 6.5 Kbit) if a 32-bit add with up to 4 products fits in a cycle at the target clock. The RTL implements both behind the `ACC_FORM` parameter, with carry-save as the default; synthesis results decide which becomes the default. Both give identical results and cycles, so the same golden vectors check either.
 3. **Data types.** int8 and uint8 with int32 accumulation only. int4 doubles the MACs per beat, so by the balance law the tile has to grow. fp16 and bf16 can't use carry-save accumulation: floating-point accumulate latency removes the double-bank advantage (§7.2), so they need their own accumulator design.
 4. **Host interface (settled).** A register port with thin adapters (§6.4), so one core works with every host.
 5. **Packing.** Operands are pre-packed by the host. A strided stream mode that reads unpacked row-major data would save the packing pass, at the cost of more address logic, SRAM bank-conflict risk, and losing the one-aligned-word-per-read property (§6.3).

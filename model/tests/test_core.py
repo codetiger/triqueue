@@ -104,3 +104,65 @@ def test_correct_under_any_timing(p):
     a, b = rand(rng, (20, 24), np.int8), rand(rng, (24, 27), np.uint8)
     c, _ = run_gemm(a, b, p)
     np.testing.assert_array_equal(c, reference(a, b))
+
+
+@pytest.mark.parametrize("shared", [False, True])
+@pytest.mark.parametrize("stall", [0.2, 0.5, 0.8])
+@pytest.mark.parametrize("m,n,k", [(20, 24, 27), (9, 9, 9), (64, 64, 32)])
+def test_gnt_backpressure(m, n, k, stall, shared):
+    """Random gnt stalls slow the run down but never change the result or the transactions."""
+    from _helpers import gemm
+    a, b = gemm(m, n, k, seed=m + n + k)
+    c0, s0 = run_gemm(a, b, Params(shared_port=shared))
+    c, s = run_gemm(a, b, Params(shared_port=shared, gnt_stall=stall, gnt_seed=7))
+    np.testing.assert_array_equal(c, reference(a, b))
+    assert (s.read_vectors, s.write_vectors, s.beats, s.instructions) == \
+        (s0.read_vectors, s0.write_vectors, s0.beats, s0.instructions)
+    assert s.cycles > s0.cycles and s.port_stall["rd"] > 0 and s.port_stall["wr"] > 0
+
+
+def test_gnt_deterministic_and_zero_is_default():
+    from _helpers import gemm
+    a, b = gemm(33, 17, 40)
+    runs = [run_gemm(a, b, Params(gnt_stall=0.4, gnt_seed=3))[1].cycles for _ in range(2)]
+    assert runs[0] == runs[1]
+    assert run_gemm(a, b, Params(gnt_stall=0.0, gnt_seed=99))[1].cycles == run_gemm(a, b)[1].cycles
+
+
+@pytest.mark.parametrize("shared", [False, True])
+@pytest.mark.parametrize("stall", [0.3, 0.7])
+@pytest.mark.parametrize("m,n,k", [(20, 24, 27), (64, 64, 32)])
+def test_gnt_request_stability(m, n, k, stall, shared):
+    """OBI: a request that is not granted is presented again, unchanged, the next cycle."""
+    from _helpers import gemm
+    from tri_queue.core import TriQueueCore, build_gemm
+
+    class Probe(TriQueueCore):
+        def __init__(self, *args):
+            super().__init__(*args)
+            self.reqs = []                       # (cycle, port, request, granted)
+
+        def _try_read(self, s, gnt):
+            port = "p" if self.p.shared_port else "rd"
+            self.reqs.append((self.cycle, port, ("rd", self.stream[s][0]), gnt))
+            super()._try_read(s, gnt)
+
+        def _try_write(self, gnt):
+            port = "p" if self.p.shared_port else "wr"
+            self.reqs.append((self.cycle, port, ("wr", self.drain["writes"][0][0]), gnt))
+            super()._try_write(gnt)
+
+    a, b = gemm(m, n, k, seed=3)
+    p = Params(shared_port=shared, gnt_stall=stall, gnt_seed=11)
+    mem, prog, _ = build_gemm(a, b, p)
+    core = Probe(mem, prog, p)
+    core.run()
+    by_port = {}
+    for cyc, port, req, _ in core.reqs:
+        by_port.setdefault(port, {})[cyc] = req
+    held = 0
+    for cyc, port, req, gnt in core.reqs:
+        if not gnt:
+            held += 1
+            assert by_port[port].get(cyc + 1) == req, f"{port} request changed after cycle {cyc}"
+    assert held > 0

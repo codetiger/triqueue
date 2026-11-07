@@ -3,7 +3,7 @@
 """Design-space sweep over tile size T (and port width W) with the cycle model.
 
 Run: python3 dse.py            (writes dse.md next to this file)
-Shapes come from bench/workloads/gemm.csv (tag `dse`). Every run is checked bit-exact against numpy.
+Shapes come from bench/workloads/gemm.csv (tags `dse` and `layers`). Every run is checked bit-exact against numpy.
 """
 import math
 import sys
@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bench" / "workloads"))
-from workloads import shapes  # noqa: E402
+from workloads import rows as workload_rows, shapes  # noqa: E402
 from tri_queue.core import run_gemm, reference, Params  # noqa: E402
 
 TILES = (8, 16, 32)
@@ -123,6 +123,34 @@ for t in TILES:
     for depth in (4, 8, 16):
         w(f"| {t} | {depth} | " + " | ".join(
             pct(gemm(4 * t, 4 * t, 128, Params(tile=t, fifo_depth=depth, mem_latency=x)).utilization) for x in lat) + " |")
+w("")
+
+# 6. real network layers
+layers = workload_rows("layers")
+nets = list(dict.fromkeys(r["group"] for r in layers))
+w("## 6. Real int8 networks (tag `layers`)\n")
+w("Layer shapes from `bench/workloads/README.md` (MLPerf Tiny and BERT-tiny, batch 1, depthwise convolutions excluded). "
+  "A network's utilization is weighted by MACs: Σ useful MACs ÷ (T² × Σ cycles), each layer counted as often as it occurs. "
+  "Layers run back to back with no overlap between them, so the fixed per-GEMM overhead is paid every layer.\n")
+w("| Network | Layers | MMACs | " + " | ".join(f"T = {t}" for t in TILES) + " | " +
+  " | ".join(f"MACs/cycle, T = {t}" for t in TILES) + " |")
+w("| --- | --- | --- |" + " --- |" * (2 * len(TILES)))
+for net in nets:
+    rs = [r for r in layers if r["group"] == net]
+    macs = sum(r["count"] * r["m"] * r["n"] * r["k"] for r in rs)
+    utils, mpc = [], []
+    for t in TILES:
+        cyc = sum(r["count"] * gemm(r["m"], r["n"], r["k"], Params(tile=t)).cycles for r in rs)
+        utils.append(pct(macs / (t * t * cyc)))
+        mpc.append(f"{macs / cyc:.1f}")
+    w(f"| `{net}` | {sum(r['count'] for r in rs)} | {macs / 1e6:.2f} | " + " | ".join(utils) + " | " + " | ".join(mpc) + " |")
+w("")
+w("Per layer:\n")
+w("| Network | Layer | M×N×K | × | " + " | ".join(f"T = {t}" for t in TILES) + " |")
+w("| --- | --- | --- | --- |" + " --- |" * len(TILES))
+for r in layers:
+    w(f"| `{r['group']}` | {r['why']} | {r['m']}×{r['n']}×{r['k']} | {r['count']} | " + " | ".join(
+        pct(gemm(r["m"], r["n"], r["k"], Params(tile=t)).utilization) for t in TILES) + " |")
 w("")
 
 text = "\n".join(out)

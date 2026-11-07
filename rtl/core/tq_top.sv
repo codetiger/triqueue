@@ -11,6 +11,7 @@ module tq_top #(
     parameter int SCMD_DEPTH  = 2,
     parameter bit SHARED_PORT = 1'b0,
     parameter int PROG_BYTES  = 64,
+    parameter int ACC_FORM    = tq_pkg::ACC_CSA,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -55,7 +56,7 @@ module tq_top #(
       .perf_i({p_wr, p_rd, p_beat, p_ret, p_cyc}));
 
   tq_core #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
-            .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES)) u_core (
+            .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM)) u_core (
       .clk_i, .rst_ni,
       .start_i(start), .abort_i(abort), .prog_i(prog),
       .busy_o(busy), .done_o(done), .error_o(error), .err_code_o(err_code), .cfg_o(cfg),
@@ -63,5 +64,12 @@ module tq_top #(
       .perf_reads_o(p_rd), .perf_writes_o(p_wr),
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i,
       .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i);
+
+`ifndef SYNTHESIS
+  initial begin
+    assert (ACC_FORM == tq_pkg::ACC_CSA || ACC_FORM == tq_pkg::ACC_CPA)
+      else $fatal(1, "tq_top: ACC_FORM must be tq_pkg::ACC_CSA or tq_pkg::ACC_CPA");
+  end
+`endif
 
 endmodule

@@ -12,7 +12,7 @@ The goal is an **open-source RTL matrix coprocessor for RISC-V**, comparable to 
 
 ## Current state
 
-RTL v0 exists and matches the model cycle for cycle. The architecture is the **Tri-Queue**: an int8 outer-product engine with a T×T int32 carry-save accumulator tile (double-banked), T² 9×9 multipliers and one 2T-byte SRAM read port. T is a parameter; the spec's design point and all spec figures are T = 8 (64 MACs, 128-bit port).
+RTL v0 exists and matches the model cycle for cycle. The architecture is the **Tri-Queue**: an int8 outer-product engine with a T×T int32 accumulator tile (double-banked, carry-save by default), T² 9×9 multipliers and one 2T-byte SRAM read port. T is a parameter; the spec's design point and all spec figures are T = 8 (64 MACs, 128-bit port).
 
 - `docs/specification.md`: the spec (rev 4) and the source of truth, including the memory (§6.3) and host (§6.4) interfaces and the design choices (§10). `docs/golden-vectors.md` is the golden-vector and trace contract between the model and the RTL testbenches.
 - `model/`: a cycle-level Python model of the spec that runs the real instruction bytes and checks every result bit-exact against numpy. It is the golden reference for the RTL.
@@ -37,15 +37,16 @@ From the repo root:
 make                  # model-test, rtl-lint, rtl-test, formal, synth-check
 make model-test       # model pytest suite
 make model-results    # regenerate model/results.md and model/dse.md (bench.py + dse.py)
-make rtl-lint         # verilator -Wall in 6 configurations + Yosys elaboration (both must be warning-free)
-make rtl-test         # cocotb regression, all configurations (~40 s); builds go to build/rtl/<config>/
+make rtl-lint         # verilator -Wall in 7 configurations + Yosys elaboration (both must be warning-free)
+make rtl-test         # cocotb regression, all configurations (~60 s); builds go to build/rtl/<config>/
 python3 -m pytest verif -q -k t8_default    # one RTL configuration
-make formal           # SymbiYosys proofs (verif/formal/tq_fifo.sby)
+make formal           # SymbiYosys: FIFO proof (tq_fifo.sby) + unbounded core proof, split port (tq_core.sby split, ~3 min)
+make formal-nightly   # core proof, shared port (tq_core.sby shared, 1-80 min, varies widely)
 make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets (stats in build/synth/)
 make clean            # removes build/ and SymbiYosys work dirs
 ```
 
-RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check.
+RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_cpa`, `t32`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs on every push: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
 
 Run model commands from `model/` (`pytest.ini` sets `pythonpath = .`, so imports are `from tri_queue...`):
 
@@ -79,21 +80,21 @@ python3 ablation.py    # writes ablation.md (~40 s)
 
 - `isa.py`: the ISA. One byte per instruction (`opcode[7:4] | arg[3:0]`); only `CFG` is multi-byte (1 + 32-bit LE immediate). Defines opcodes, the 8 config registers (`A_BASE, B_BASE, C_BASE, C_LD, K, M, N, MODE`), the encoder, `decode`/`disassemble`, and `gemm_kernel()`, the 10-byte reference kernel from spec §6.2.
 - `packing.py`: host-side panel packing (spec §5.3). A becomes column panels and B row panels, k-major, T wide (T/2 wide for a final panel with ≤T/2 left), K padded to `kp(k)` (multiple of 8 for every T). `auto_shape` picks the per-tile `(r, c, d)` with `r·c·d = T²`, giving four shapes (at T = 8: 8x8x1, 8x4x2, 4x8x2, 4x4x4). The ISA encodes shapes as full/half, so it's independent of T.
-- `core.py`: `TriQueueCore`, plus `build_gemm` (packs and builds the memory image and program), `run_gemm(a, b, params, trace=None)` (returns `(C, Stats)`), `read_c` and `reference(a, b)` (numpy int32 GEMM). Each cycle runs in a fixed order: memory responses land → MAC unit → memory port(s) → front end. `Params` holds the size parameters (`tile` T, `port_bytes` W, which defaults to 2T) and the tunable microarchitecture knobs (memory latency, FIFO depth in W-byte vectors, queue depths, `shared_port`, `banks`). `Stats` records cycles, instruction count, per-shape MAC counts, MAC stall reasons (`mac_state`), front-end stall reasons, and read/write transactions and bytes. Passing a list as `trace` collects the event lines defined in `docs/golden-vectors.md`; tracing must never change timing.
+- `core.py`: `TriQueueCore`, plus `build_gemm` (packs and builds the memory image and program), `run_gemm(a, b, params, trace=None)` (returns `(C, Stats)`), `read_c` and `reference(a, b)` (numpy int32 GEMM). Each cycle runs in a fixed order: memory responses land → MAC unit → memory port(s) → front end. `Params` holds the size parameters (`tile` T, `port_bytes` W, which defaults to 2T) and the tunable microarchitecture knobs (memory latency, FIFO depth in W-byte vectors, queue depths, `shared_port`, `banks`, `gnt_stall`/`gnt_seed`). `Stats` records cycles, instruction count, per-shape MAC counts, MAC stall reasons (`mac_state`), front-end stall reasons, read/write transactions and bytes, and `gnt` stalls per port (`port_stall`). Passing a list as `trace` collects the event lines defined in `docs/golden-vectors.md`; tracing must never change timing.
 - `vectors.py`: the golden-vector exporter for RTL (`python3 -m tri_queue.vectors`).
 
 Properties the model enforces and the tests check:
 - Arithmetic is done the hardware way: 9×9 multiplies with sign extension per `MODE`, and 32-bit wrapping 3:2 carry-save accumulation (`_csa_reduce`). The carry-propagate add happens only at drain. Don't replace this with a plain numpy matmul inside the core; the tests compare against `reference()`.
 - Per-quadrant arity limits (`HW_CELL_ARITY`: TL 4, TR 2, BL 2, BR 1) are asserted, so a shape/operand-selection bug fails loudly.
 - `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` must be multiples of W (asserted). C rows are padded to whole words, so `C_LD` is not always `4·N`; use `read_c` to extract C.
-- The modelling assumptions are listed in both `model/README.md` and the `core.py` docstring: 1 instruction decoded per cycle, zero-overhead loops, `ZERO_C`/`SWAP_C` take no MAC cycle, `VOUTER_MAC` waits for all its operand bytes, pipelined SRAM reads with fixed latency and no `gnt` stalls, no bank conflicts. If you change an assumption, update both places.
+- The modelling assumptions are listed in both `model/README.md` and the `core.py` docstring: 1 instruction decoded per cycle, zero-overhead loops, `ZERO_C`/`SWAP_C` take no MAC cycle, `VOUTER_MAC` waits for all its operand bytes, pipelined SRAM reads with fixed latency, ports always granted unless `gnt_stall` > 0 (seeded random `gnt` back-pressure that the RTL testbench reproduces through the shared `GrantSource`; an ungranted request is held unchanged until granted), no bank conflicts. If you change an assumption, update both places.
 
 `bench.py` writes `results.md` section by section and labels each spec claim ✅/❌ against the simulated value. When you add a claim to the spec, add a row for it there.
 
 ## RTL architecture (`rtl/core/`)
 
-`tq_top` = `tq_regs` (register port, program buffer, perf counters) + `tq_core`. Inside `tq_core`: `tq_frontend` (decoder, 2-level loop stack, tile walker; tile addresses are kept as running offsets, so there are no multipliers outside the array) pushes into the MAC command queue and two stream command queues. `tq_stream` turns stream commands into W-byte reads (round-robin A/B, credit-based so responses never back-pressure, a tag FIFO routes in-order responses to QA/QB). The MAC control in `tq_core` pops operands for a beat; `tq_mac_array` does per-quadrant operand select, T² 9×9 multiplies into a product register, then carry-save accumulation into one of two banks the next cycle. `tq_drain` drains the idle bank through T/2 CPA lanes and a staging register into aligned writes, then clears it. All queues use the shared `rtl/common/tq_fifo.sv`, which is the block the formal proof covers. When you add a source file, add it to `rtl/files.f` in compile order (`tq_pkg` first). The Makefile, lint and the cocotb runner all read that list.
+`tq_top` = `tq_regs` (register port, program buffer, perf counters) + `tq_core`. Inside `tq_core`: `tq_frontend` (decoder, 2-level loop stack, tile walker; tile addresses are kept as running offsets, so there are no multipliers outside the array) pushes into the MAC command queue and two stream command queues. `tq_stream` turns stream commands into W-byte reads (round-robin A/B, credit-based so responses never back-pressure, a tag FIFO routes in-order responses to QA/QB). The MAC control in `tq_core` pops operands for a beat; `tq_mac_array` does per-quadrant operand select, T² 9×9 multiplies into a product register, then accumulation into one of two banks the next cycle (carry-save by default; `ACC_FORM = tq_pkg::ACC_CPA` selects a plain 32-bit adder). `tq_drain` drains the idle bank through T/2 CPA lanes and a staging register into aligned writes, then clears it. All queues use the shared `rtl/common/tq_fifo.sv`, which is proved on its own (`tq_fifo.sby`); `tq_core.sby` proves the whole core (T = 4, any program) with the FIFOs' legal use as assertions (`TQ_FORMAL_CORE`). When you add a source file, add it to `rtl/files.f` in compile order (`tq_pkg` first). The Makefile, lint and the cocotb runner all read that list.
 
-Yosys-compatible SV subset (Verilator accepts more, so lint with both): no `import`, so write `tq_pkg::NAME`; no `return`, so assign to the function name; no `$bits(type)`, so use the widths in `tq_pkg` (`MCMD_W`, `SCMD_W`); no `break`. Packed structs, enums and packed 2-D arrays are fine. Simulation-only assertions go under `ifndef SYNTHESIS`, and formal properties under `ifdef FORMAL`.
+Yosys-compatible SV subset (Verilator accepts more, so lint with both): no `import`, so write `tq_pkg::NAME`; no `return`, so assign to the function name; no `$bits(type)`, so use the widths in `tq_pkg` (`MCMD_W`, `SCMD_W`); no `break`. Packed structs, enums and packed 2-D arrays are fine. Simulation-only assertions go under `ifndef SYNTHESIS`, and formal properties under `ifdef FORMAL`. Formal environments can't use hierarchical references (Yosys turns `dut.x` into a new free wire), so put properties and covers inside the RTL module.
 
 cocotb (2.x) can't see fields of packed structs through VPI. Monitor flat signals instead (e.g. `u_core.beat_rf`, not `mc.rfull`). The runner passes `sys.path` of the pytest process to the simulator as `PYTHONPATH`, so `verif/test_rtl.py` adds `verif/tb` to `sys.path`.

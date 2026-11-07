@@ -8,6 +8,14 @@
 // when the destination FIFO has room for it after everything already in flight ("credits"),
 // so read responses never need backpressure. Responses return in order; a tag FIFO records
 // which operand FIFO each one belongs to.
+//
+// clear (START / ABORT) can arrive with reads in flight. The memory still answers them, so the
+// number outstanding is kept in drop_q: those responses are discarded, and no new read is issued
+// until they are all back (found by the core-level formal check, verif/formal/tq_core.sby).
+//
+// OBI request stability: a request that is not granted is held unchanged until it is. A held
+// read keeps its stream (no re-arbitration, no panel loads); on a shared port a held read or
+// write keeps the port. clear (START / ABORT) drops a held request.
 
 module tq_stream #(
     parameter int T           = 8,
@@ -77,24 +85,30 @@ module tq_stream #(
   logic        act_a_q, act_b_q, rr_q;               // rr_q: 0 = A first, 1 = B first
   logic [31:0] addr_a_q, addr_b_q, vecs_a_q, vecs_b_q;
   logic [CRW-1:0] cred_a_q, cred_b_q;                // FIFO occupancy + reads in flight
-  logic [IFW-1:0] infl_q;
+  logic [IFW-1:0] infl_q, drop_q;                   // reads in flight; stale reads to discard
+  logic           drop;
+  assign drop = rd_rvalid_i && (drop_q != 0);
+  logic           rd_hold_q, rd_hold_b_q;            // read request held for gnt, and its stream
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic           wr_hold_q;                         // write request held for gnt (shared port only)
+  /* verilator lint_on UNUSEDSIGNAL */
 
   logic avail_a, avail_b, space_a, space_b, cand_a, cand_b;
   assign avail_a = act_a_q || (cnt_a != 0);
   assign avail_b = act_b_q || (cnt_b != 0);
   assign space_a = (32'(cred_a_q) - 32'(qa_pop_i)) < FIFO_DEPTH;
   assign space_b = (32'(cred_b_q) - 32'(qb_pop_i)) < FIFO_DEPTH;
-  assign cand_a  = avail_a && space_a;
-  assign cand_b  = avail_b && space_b;
+  assign cand_a  = avail_a && space_a && (drop_q == 0);
+  assign cand_b  = avail_b && space_b && (drop_q == 0);
 
   // the first stream in round-robin order is always evaluated; the second only if the first
   // is not a candidate (model: the loop in _read_candidate returns early)
   logic sel_valid, sel_b, cand_first;
   assign cand_first = rr_q ? cand_b : cand_a;
-  assign sel_valid  = cand_a || cand_b;
-  assign sel_b      = rr_q ? cand_b : !cand_a;
-  assign load_a     = !act_a_q && (cnt_a != 0) && (!rr_q || !cand_first);
-  assign load_b     = !act_b_q && (cnt_b != 0) && ( rr_q || !cand_first);
+  assign sel_valid  = rd_hold_q || cand_a || cand_b;
+  assign sel_b      = rd_hold_q ? rd_hold_b_q : rr_q ? cand_b : !cand_a;
+  assign load_a     = !rd_hold_q && !act_a_q && (cnt_a != 0) && (!rr_q || !cand_first);
+  assign load_b     = !rd_hold_q && !act_b_q && (cnt_b != 0) && ( rr_q || !cand_first);
 
   logic [31:0] cur_addr_a, cur_addr_b, cur_vecs_a, cur_vecs_b;
   assign cur_addr_a = act_a_q ? addr_a_q : ha.addr;
@@ -106,7 +120,7 @@ module tq_stream #(
   // Shared port: the drain write wins when SWAP_C waits on it or no read is ready (model: step_port).
   logic rd_want;
   if (SHARED_PORT) begin : g_shared
-    assign wr_req_o = wr_pending_i && (swap_wait_i || !sel_valid);
+    assign wr_req_o = wr_pending_i && (wr_hold_q || (!rd_hold_q && (swap_wait_i || !sel_valid)));
     assign rd_want  = sel_valid && !wr_req_o;
   end else begin : g_split
     assign wr_req_o = wr_pending_i;
@@ -125,16 +139,16 @@ module tq_stream #(
   // A zero-latency memory answers in the request cycle: the response then bypasses the tag FIFO.
   logic tag, tag_head, unused_tag1, bypass;
   logic [$clog2(2*FIFO_DEPTH+1)-1:0] tag_cnt;
-  assign bypass = (tag_cnt == 0);
+  assign bypass = (tag_cnt == 0) && (drop_q == 0);
   assign tag    = bypass ? sel_b : tag_head;
   tq_fifo #(.WIDTH(1), .DEPTH(2 * FIFO_DEPTH)) u_tag (
       .clk_i, .rst_ni, .clear_i,
       .push_i(rd_fire_o && !(bypass && rd_rvalid_i)), .data_i(sel_b),
-      .pop_i({1'b0, rd_rvalid_i && !bypass}),
+      .pop_i({1'b0, rd_rvalid_i && !bypass && !drop}),
       .head0_o(tag_head), .head1_o(unused_tag1), .count_o(tag_cnt));
 
-  assign qa_push_o = rd_rvalid_i && !tag;
-  assign qb_push_o = rd_rvalid_i && tag;
+  assign qa_push_o = rd_rvalid_i && !drop && !tag;
+  assign qb_push_o = rd_rvalid_i && !drop && tag;
   assign q_data_o  = rd_rdata_i;
 
   // ---------------------------------------------------------------- state update
@@ -150,10 +164,15 @@ module tq_stream #(
     if (!rst_ni) begin
       act_a_q <= 1'b0; act_b_q <= 1'b0; rr_q <= 1'b0;
       addr_a_q <= '0; addr_b_q <= '0; vecs_a_q <= '0; vecs_b_q <= '0;
-      cred_a_q <= '0; cred_b_q <= '0; infl_q <= '0;
+      cred_a_q <= '0; cred_b_q <= '0; infl_q <= '0; drop_q <= '0;
+      rd_hold_q <= 1'b0; rd_hold_b_q <= 1'b0; wr_hold_q <= 1'b0;
     end else if (clear_i) begin
       act_a_q <= 1'b0; act_b_q <= 1'b0; rr_q <= 1'b0;
+      rd_hold_q <= 1'b0; wr_hold_q <= 1'b0;
       cred_a_q <= '0; cred_b_q <= '0; infl_q <= '0;
+      // everything still outstanding after this cycle (reads are blocked while drop_q != 0, so
+      // drop_q and infl_q are never both non-zero)
+      drop_q <= drop_q + infl_q + IFW'(rd_fire_o) - IFW'(rd_rvalid_i);
     end else begin
       act_a_q <= act_a_n;
       act_b_q <= act_b_n;
@@ -166,14 +185,36 @@ module tq_stream #(
         vecs_b_q <= fire_b ? cur_vecs_b - 32'd1  : cur_vecs_b;
       end
       if (rd_fire_o) rr_q <= !sel_b;
+      rd_hold_q   <= rd_req_o && !rd_gnt_i;
+      rd_hold_b_q <= sel_b;
+      wr_hold_q   <= wr_req_o && !wr_gnt_i;
       cred_a_q <= cred_a_q - CRW'(qa_pop_i) + CRW'(fire_a);
       cred_b_q <= cred_b_q - CRW'(qb_pop_i) + CRW'(fire_b);
-      infl_q   <= infl_q + IFW'(rd_fire_o) - IFW'(rd_rvalid_i);
+      infl_q   <= infl_q + IFW'(rd_fire_o) - IFW'(rd_rvalid_i && !drop);
+      drop_q   <= drop_q - IFW'(drop);
     end
   end
 
   assign idle_o = (32'(cnt_a) - 32'(load_a) == 0) && (32'(cnt_b) - 32'(load_b) == 0)
-               && !act_a_n && !act_b_n && (infl_q == 0) && !rd_fire_o;
+               && !act_a_n && !act_b_n && (infl_q == 0) && (drop_q == 0) && !rd_fire_o;
+`ifdef FORMAL
+  // OBI: a request without gnt stays asserted with the same address next cycle (unless cleared)
+  logic past_ok_q, past_rd_q, past_wr_q;
+  logic [31:0] past_addr_q;
+  always_ff @(posedge clk_i) begin
+    past_ok_q   <= rst_ni && !clear_i;
+    past_rd_q   <= rd_req_o && !rd_gnt_i;
+    past_wr_q   <= wr_req_o && !wr_gnt_i;
+    past_addr_q <= rd_addr_o;
+  end
+  always_comb begin
+    if (rst_ni && !clear_i && past_ok_q) begin
+      if (past_rd_q) assert (rd_req_o && rd_addr_o == past_addr_q);
+      if (past_wr_q) assert (wr_req_o);
+    end
+  end
+`endif
+
   assign align_err_o = (load_a && ha.addr[L2T:0] != '0) || (load_b && hb.addr[L2T:0] != '0);
 
 endmodule

@@ -4,13 +4,16 @@
 
 Timing contract with the cycle model (docs/golden-vectors.md):
   * model cycle 0 is the first cycle the core is busy;
-  * the SRAM always grants and returns read data `mem_latency - 1` cycles after the request,
-    so the data is in the operand FIFO `mem_latency` cycles after the request, as in the model.
+  * the SRAM returns read data `mem_latency - 1` cycles after the request, so the data is in the
+    operand FIFO `mem_latency` cycles after the request, as in the model;
+  * grants come from the model's GrantSource, one draw pair per busy cycle (always 1 otherwise),
+    so stalled runs are cycle-exact too.
 Everything is sampled at the falling edge, when the cycle's combinational values are stable.
 """
 from dataclasses import dataclass, field
 
 import numpy as np
+from tri_queue.core import GrantSource
 from cocotb.clock import Clock
 from cocotb.triggers import FallingEdge, RisingEdge
 
@@ -71,9 +74,10 @@ class TqTb:
                   stall: float = 0.0, seed: int = 0) -> RunRecord:
         """Load `prog`, start, serve memory from `mem` (modified in place) until the core is idle.
 
-        stall > 0 withholds each read and write grant with that probability (OBI back-pressure).
+        stall > 0 withholds each read and write grant with that probability (OBI back-pressure),
+        drawn exactly as the model's GrantSource(stall, seed) draws them.
         """
-        rng = np.random.default_rng(seed)
+        gnt = GrantSource(stall, seed)
         d, W, H = self.dut, self.W, self.T // 2
         assert mem_latency >= 1
         sram_lat = mem_latency - 1
@@ -86,6 +90,7 @@ class TqTb:
         rec = RunRecord()
         pending = []                                           # (due absolute cycle, data int)
         absc, cyc, started = 0, -1, False
+        held_rd = held_wr = None                               # OBI: ungranted request to repeat
         while True:
             busy = val(core.busy_o)
             if busy:
@@ -96,10 +101,16 @@ class TqTb:
             if cyc > max_cycles:
                 raise TimeoutError("core did not finish")
             # grants for this cycle (driven before the rising edge that ends it)
-            rd_gnt = int(rng.random() >= stall)
-            wr_gnt = int(rng.random() >= stall)
+            rd_gnt, wr_gnt = (int(g) for g in gnt.next()) if busy else (1, 1)
             d.rd_gnt_i.value = rd_gnt
             d.wr_gnt_i.value = wr_gnt
+            # OBI request stability: an ungranted request is repeated unchanged
+            rd_now = (val(d.rd_addr_o),) if val(d.rd_req_o) else None
+            wr_now = (val(d.wr_addr_o), val(d.wr_be_o), val(d.wr_wdata_o)) if val(d.wr_req_o) else None
+            assert held_rd is None or rd_now == held_rd, f"cycle {cyc}: read request changed before gnt"
+            assert held_wr is None or wr_now == held_wr, f"cycle {cyc}: write request changed before gnt"
+            held_rd = rd_now if rd_now and not rd_gnt else None
+            held_wr = wr_now if wr_now and not wr_gnt else None
             # read requests
             if val(d.rd_req_o) and rd_gnt:
                 addr = val(d.rd_addr_o)

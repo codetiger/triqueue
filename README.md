@@ -2,7 +2,7 @@
 
 An open-source RTL matrix-multiply coprocessor for RISC-V SoCs, in the same class as Apple's AMX, Arm SME and Gemmini. It is designed to drop into a larger chip and to be measured honestly against the alternatives.
 
-**Status:** RTL v0. The SystemVerilog core matches the cycle-level Python model cycle for cycle and is bit-exact against numpy across 643 regression cases. Area, power and clock frequency have not been measured yet.
+**Status:** RTL v0. The SystemVerilog core matches the cycle-level Python model cycle for cycle and is bit-exact against numpy across 840 regression cases. Area, power and clock frequency have not been measured yet.
 
 ## Why
 
@@ -32,7 +32,7 @@ Peak throughput is a parameter, set by tile size and port width. It is not a goa
 | `docs/benchmarks.md` | Summary of every completed benchmark, with links to the generated results |
 | `docs/specification.md` | The design specification, including the host and memory interfaces |
 | `docs/golden-vectors.md` | Golden test-vector and trace format: the contract between the model and RTL testbenches |
-| `model/` | Cycle-level Python model: runs the real instruction bytes, bit-exact against numpy. This will be the golden reference for RTL. |
+| `model/` | Cycle-level Python model: runs the real instruction bytes, bit-exact against numpy. It is the golden reference for the RTL. |
 | `rtl/` | SystemVerilog RTL (`tq_top`), parameterized by tile size; see `rtl/README.md` for interfaces |
 | `verif/` | cocotb + Verilator regression against the model, SymbiYosys proofs |
 | `bench/workloads/` | The shared list of GEMM shapes that every benchmark uses |

@@ -14,6 +14,7 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specifica
 | `SCMD_DEPTH` | 2 | Stream command queue depth |
 | `SHARED_PORT` | 0 | 1: drain writes share the read port (single-port SRAM); the core never requests both in one cycle |
 | `PROG_BYTES` | 64 | Program buffer size (8 `CFG` + 10-byte kernel = 50 bytes) |
+| `ACC_FORM` | `tq_pkg::ACC_CSA` | Accumulator cell (spec §10.2): `ACC_CSA` carry-save (sum, carry) with CPA lanes at the drain, or `ACC_CPA` one 32-bit value with a carry-propagate adder in the loop (half the accumulator state). Same results and cycle timing. |
 
 ## Interfaces
 
@@ -26,7 +27,7 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specifica
 | Read | `rd_req_o`, `rd_addr_o` → `rd_gnt_i`; `rd_rvalid_i`, `rd_rdata_i` | A request is accepted in a cycle where `req && gnt`. Responses come back in order, any number of cycles later (including the same cycle). `rvalid` has no backpressure: the core only requests when it has room for the response. |
 | Write | `wr_req_o`, `wr_addr_o`, `wr_be_o`, `wr_wdata_o` → `wr_gnt_i` | Accepted when `req && gnt`. Byte enables are contiguous from the low byte. |
 
-Requests never depend combinationally on `gnt`. All addresses are W-aligned: the program must keep `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` multiples of W, otherwise the core stops with `ERR_ALIGN`.
+Requests never depend combinationally on `gnt`, and an ungranted request stays asserted with the same address and data until granted (OBI request stability; START or ABORT drops it). All addresses are W-aligned: the program must keep `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` multiples of W, otherwise the core stops with `ERR_ALIGN`.
 
 **Timing against the model:** with an SRAM that always grants and answers L cycles after the request, the core matches the cycle model run with `mem_latency = L + 1`, cycle for cycle (`verif/`).
 

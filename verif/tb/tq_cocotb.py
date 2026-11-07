@@ -71,7 +71,8 @@ async def gemm_cases(dut):
     await tb.start()
     failures = []
     for case in cases:
-        p = Params(**params, mem_latency=case["lat"])
+        stall = case.get("stall", 0.0)
+        p = Params(**params, mem_latency=case["lat"], gnt_stall=stall, gnt_seed=case["seed"])
         a, b = operands(case)
         mem0, prog, layout, mem_model, s, ev = model_run(a, b, p)
         mem = mem0.copy()
@@ -79,8 +80,7 @@ async def gemm_cases(dut):
         if case.get("stall"):
             name += f" stall={case['stall']}"
         try:
-            stall = case.get("stall", 0.0)
-            rec = await tb.run(mem, prog, case["lat"], max_cycles=int(4 / (1 - stall)) * s.cycles + 200,
+            rec = await tb.run(mem, prog, case["lat"], max_cycles=2 * s.cycles + 200,
                                stall=stall, seed=case["seed"])
         except TimeoutError:
             failures.append(f"{name}: hang (model finishes in {s.cycles} cycles)")
@@ -94,23 +94,17 @@ async def gemm_cases(dut):
             errs.append("C differs from numpy")
         if not np.array_equal(mem, mem_model):
             errs.append("final memory differs from model")
-        timed = not case.get("stall")      # back-pressure is not in the cycle model: compare order only
-        if timed:
-            checks = (("reads", rec.reads, ev["rd"]), ("writes", rec.writes, ev["wr"]),
-                      ("mac starts", rec.mac_starts, ev["start"]))
-        else:
-            checks = (("write order", [w[1:] for w in rec.writes], [w[1:] for w in ev["wr"]]),
-                      ("mac start shapes", [x[1] for x in rec.mac_starts], [x[1] for x in ev["start"]]))
+        checks = (("reads", rec.reads, ev["rd"]), ("writes", rec.writes, ev["wr"]),
+                  ("mac starts", rec.mac_starts, ev["start"]))
         for label, xs, ys in checks:
             d = first_diff(xs, ys)
             if d:
                 errs.append(f"{label} {d}")
-        expect = {"instret": s.instructions, "beats": s.beats, "reads": s.read_vectors, "writes": s.write_vectors}
+        expect = {"instret": s.instructions, "beats": s.beats, "reads": s.read_vectors,
+                  "writes": s.write_vectors, "cycles": s.cycles}
         got = dict(rec.perf)
-        if timed:
-            expect["cycles"] = s.cycles
-            if rec.cycles != s.cycles:
-                errs.append(f"busy cycles rtl {rec.cycles} vs model {s.cycles}")
+        if rec.cycles != s.cycles:
+            errs.append(f"busy cycles rtl {rec.cycles} vs model {s.cycles}")
         for k_, v in expect.items():
             if got[k_] != v:
                 errs.append(f"perf {k_} rtl {got[k_]} vs model {v}")
@@ -120,5 +114,5 @@ async def gemm_cases(dut):
             failures.append(f"{name}: " + "; ".join(errs))
             dut._log.error("%s: %s", name, "; ".join(errs))
         else:
-            dut._log.info("%s: ok, %d cycles (model %d without back-pressure)", name, rec.cycles, s.cycles)
+            dut._log.info("%s: ok, %d cycles", name, rec.cycles)
     assert not failures, f"{len(failures)}/{len(cases)} cases failed:\n" + "\n".join(failures[:20])

@@ -6,16 +6,22 @@
 //
 // Pipeline for a beat issued in cycle n:
 //   cycle n   : per-quadrant operand select -> T*T 9x9 multiplies -> product register
-//   cycle n+1 : each accumulate cell compresses its (sum, carry) with up to 4 products
+//   cycle n+1 : each accumulate cell adds up to 4 products to its stored value
 //   cycle n+2 : the bank holds the result (model: mac_pipe = 2)
 //
 // The array is split into four (T/2 x T/2) quadrants. In the reduced-depth shapes a quadrant
 // works on a different k step and its products are routed to the TL, TR or BL quadrant's cells,
 // so the cells' arity is fixed by position: TL 4, TR 2, BL 2, BR 1. Destinations that can never
 // occur are constant-false, so synthesis removes those inputs.
+//
+// ACC_FORM (spec 10.2) selects how a cell stores its running sum. Both give the same values
+// mod 2^32 and the same timing:
+//   tq_pkg::ACC_CSA  carry-save (sum, carry), 3:2 compressors in the loop, CPA lanes at the drain
+//   tq_pkg::ACC_CPA  one 32-bit value, a carry-propagate adder in the loop, no drain CPA
 
 module tq_mac_array #(
-    parameter int T = 8,
+    parameter int T        = 8,
+    parameter int ACC_FORM = tq_pkg::ACC_CSA,
     localparam int H   = T / 2,
     localparam int L2T = $clog2(T),
     localparam int VB  = 2 * T * 8          // port word (vector) width in bits
@@ -107,9 +113,7 @@ module tq_mac_array #(
   for (genvar R = 0; R < T; R++) begin : g_row
     for (genvar C = 0; C < T; C++) begin : g_col
       localparam int QR = R / H, QC = C / H, I = R % H, J = C % H;
-      logic [31:0]   s0_q, c0_q, s1_q, c1_q, s_cur, c_cur;
       logic [4*32-1:0] p_in;
-      logic [63:0]   x0, x1, x2, x3;
       for (genvar s = 0; s < 4; s++) begin : g_src
         localparam int SI = s / 2, SJ = s % 2;
         localparam int PB = (s*H*H + I*H + J) * 18;
@@ -118,45 +122,81 @@ module tq_mac_array #(
         assign hit = ((prf_q ? SI : 0) == QR) && ((pcf_q ? SJ : 0) == QC);
         assign p_in[s*32 +: 32] = hit ? {{14{prod_q[PB + 17]}}, prod_q[PB +: 18]} : 32'd0;
       end
-      assign s_cur = pbank_q ? s1_q : s0_q;
-      assign c_cur = pbank_q ? c1_q : c0_q;
-      assign x0 = csa(s_cur, c_cur, p_in[0 +: 32]);
-      assign x1 = csa(x0[63:32], x0[31:0], p_in[32 +: 32]);
-      assign x2 = csa(x1[63:32], x1[31:0], p_in[64 +: 32]);
-      assign x3 = csa(x2[63:32], x2[31:0], p_in[96 +: 32]);
-      always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) begin
-          s0_q <= '0; c0_q <= '0; s1_q <= '0; c1_q <= '0;
-        end else begin
-          if (clear_all_i || (clear_bank_i && !clear_bank_sel_i)) begin
-            s0_q <= '0; c0_q <= '0;
-          end else if (pv_q && !pbank_q) begin
-            s0_q <= x3[63:32]; c0_q <= x3[31:0];
-          end
-          if (clear_all_i || (clear_bank_i && clear_bank_sel_i)) begin
-            s1_q <= '0; c1_q <= '0;
-          end else if (pv_q && pbank_q) begin
-            s1_q <= x3[63:32]; c1_q <= x3[31:0];
+      logic clr0, clr1, acc0, acc1;
+      assign clr0 = clear_all_i || (clear_bank_i && !clear_bank_sel_i);
+      assign clr1 = clear_all_i || (clear_bank_i &&  clear_bank_sel_i);
+      assign acc0 = pv_q && !pbank_q;
+      assign acc1 = pv_q &&  pbank_q;
+      if (ACC_FORM == tq_pkg::ACC_CSA) begin : g_csa
+        logic [31:0] s0_q, c0_q, s1_q, c1_q, s_cur, c_cur;
+        logic [63:0] x0, x1, x2, x3;
+        assign s_cur = pbank_q ? s1_q : s0_q;
+        assign c_cur = pbank_q ? c1_q : c0_q;
+        assign x0 = csa(s_cur, c_cur, p_in[0 +: 32]);
+        assign x1 = csa(x0[63:32], x0[31:0], p_in[32 +: 32]);
+        assign x2 = csa(x1[63:32], x1[31:0], p_in[64 +: 32]);
+        assign x3 = csa(x2[63:32], x2[31:0], p_in[96 +: 32]);
+        always_ff @(posedge clk_i or negedge rst_ni) begin
+          if (!rst_ni) begin
+            s0_q <= '0; c0_q <= '0; s1_q <= '0; c1_q <= '0;
+          end else begin
+            if (clr0) begin
+              s0_q <= '0; c0_q <= '0;
+            end else if (acc0) begin
+              s0_q <= x3[63:32]; c0_q <= x3[31:0];
+            end
+            if (clr1) begin
+              s1_q <= '0; c1_q <= '0;
+            end else if (acc1) begin
+              s1_q <= x3[63:32]; c1_q <= x3[31:0];
+            end
           end
         end
+        assign sum0[(R*T + C)*32 +: 32] = s0_q;
+        assign car0[(R*T + C)*32 +: 32] = c0_q;
+        assign sum1[(R*T + C)*32 +: 32] = s1_q;
+        assign car1[(R*T + C)*32 +: 32] = c1_q;
+      end else begin : g_cpa
+        logic [31:0] v0_q, v1_q, v_nxt;
+        assign v_nxt = (pbank_q ? v1_q : v0_q)
+                     + p_in[0 +: 32] + p_in[32 +: 32] + p_in[64 +: 32] + p_in[96 +: 32];
+        always_ff @(posedge clk_i or negedge rst_ni) begin
+          if (!rst_ni) begin
+            v0_q <= '0; v1_q <= '0;
+          end else begin
+            if (clr0)      v0_q <= '0;
+            else if (acc0) v0_q <= v_nxt;
+            if (clr1)      v1_q <= '0;
+            else if (acc1) v1_q <= v_nxt;
+          end
+        end
+        assign sum0[(R*T + C)*32 +: 32] = v0_q;
+        assign sum1[(R*T + C)*32 +: 32] = v1_q;
+        assign car0[(R*T + C)*32 +: 32] = 32'd0;
+        assign car1[(R*T + C)*32 +: 32] = 32'd0;
       end
-      assign sum0[(R*T + C)*32 +: 32] = s0_q;
-      assign car0[(R*T + C)*32 +: 32] = c0_q;
-      assign sum1[(R*T + C)*32 +: 32] = s1_q;
-      assign car1[(R*T + C)*32 +: 32] = c1_q;
     end
   end
 
   // ---------------------------------------------------------------- drain read port
   // Select T/2 lanes of (sum, carry), then T/2 carry-propagate adders (spec 8: drain CPA lanes).
+  // In the CPA form the lanes are the stored values themselves.
   localparam int BW = $clog2(T * T * 32);
   logic [BW-1:0]   base;
   logic [H*32-1:0] rs, rc;
   assign base = BW'((32'(rd_row_i) * T + (rd_half_i ? H : 0)) * 32);
   assign rs   = rd_bank_i ? sum1[base +: H * 32] : sum0[base +: H * 32];
   assign rc   = rd_bank_i ? car1[base +: H * 32] : car0[base +: H * 32];
-  for (genvar l = 0; l < H; l++) begin : g_cpa
-    assign rd_val_o[l*32 +: 32] = rs[l*32 +: 32] + rc[l*32 +: 32];
+  if (ACC_FORM == tq_pkg::ACC_CSA) begin : g_drain_cpa
+    for (genvar l = 0; l < H; l++) begin : g_lane
+      assign rd_val_o[l*32 +: 32] = rs[l*32 +: 32] + rc[l*32 +: 32];
+    end
+  end else begin : g_drain_direct
+    assign rd_val_o = rs;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_rc;
+    assign unused_rc = ^rc;
+    /* verilator lint_on UNUSEDSIGNAL */
   end
 
 endmodule

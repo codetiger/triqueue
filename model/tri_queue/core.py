@@ -19,6 +19,11 @@ Modelling assumptions (stated in model/README.md):
   * Loop bodies contain only 1-byte instructions (no CFG).
   * VOUTER_MAC needs all of its operand bytes present when it starts, and pops them at the start.
   * SRAM reads are fully pipelined with a fixed latency, one W-byte read per cycle.
+  * Port grants come from GrantSource: always granted by default, or seeded random OBI `gnt`
+    back-pressure (gnt_stall, gnt_seed) that the RTL testbench reproduces draw for draw.
+    A request that is not granted is held unchanged until it is (OBI/AXI request stability):
+    no re-arbitration of the read stream, and on a shared port no read/write swap.
+  * No SRAM bank conflicts.
 """
 import math
 from collections import deque, defaultdict
@@ -45,12 +50,15 @@ class Params:
     cpa_latency: int = 1         # drain: carry-propagate before the first write
     shared_port: bool = False    # True: drain writes share the single read port
     banks: int = 2               # 1: ablation - compute must wait while the only SC bank drains
+    gnt_stall: float = 0.0       # probability that a port's gnt is withheld in a cycle (OBI back-pressure)
+    gnt_seed: int = 0            # seed of the grant generator (see GrantSource)
 
     def __post_init__(self):
         if not self.port_bytes:
             self.port_bytes = 2 * self.tile
         assert self.tile >= 4 and self.tile % 2 == 0, "tile must be even and >= 4"
         assert self.port_bytes >= 4 and self.port_bytes % 4 == 0, "port must hold whole int32 lanes"
+        assert 0.0 <= self.gnt_stall < 1.0, "gnt_stall must be in [0, 1)"
 
 
 @dataclass
@@ -67,6 +75,7 @@ class Stats:
     read_bytes: int = 0
     write_vectors: int = 0       # write transactions (drain)
     write_bytes: int = 0
+    port_stall: dict = field(default_factory=lambda: defaultdict(int))  # "rd"/"wr": requests not granted
     max_cell_arity: dict = field(default_factory=lambda: defaultdict(int))
     useful_macs: int = 0
 
@@ -88,6 +97,24 @@ def _csa_reduce(ops):
         ops.append(a ^ b ^ c)
         ops.append(((a & b) | (a & c) | (b & c)) << one)
     return ops[0], ops[1]
+
+
+class GrantSource:
+    """Per-cycle `gnt` for the read and write ports (docs/golden-vectors.md, "Back-pressure").
+
+    Every cycle from model cycle 0, both grants are drawn, read first, whether or not a port
+    requests: gnt = rng.random() >= stall, with rng = numpy.random.default_rng(seed). The RTL
+    testbench uses this class, so a stalled run is cycle-exact with the model.
+    """
+
+    def __init__(self, stall: float = 0.0, seed: int = 0):
+        self.stall = stall
+        self.rng = np.random.default_rng(seed) if stall else None
+
+    def next(self) -> tuple[bool, bool]:
+        if self.rng is None:
+            return True, True
+        return bool(self.rng.random() >= self.stall), bool(self.rng.random() >= self.stall)
 
 
 class ByteFifo:
@@ -151,6 +178,9 @@ class TriQueueCore:
         self.last_write = [-1, -1]
         self.drain = None        # dict(bank, tile, ready, writes: deque)
         self.swap_wait = False
+        self.gnt = GrantSource(self.p.gnt_stall, self.p.gnt_seed)
+        self.rd_pend = None             # stream of a read request held for gnt
+        self.wr_pend = False            # a write request held for gnt
 
     def ev(self, unit, event, **kv):
         if self.trace is not None:
@@ -423,19 +453,37 @@ class TriQueueCore:
             self.ev("mac", "drain_done", bank=bank, tile=self.drain["tile"])
             self.drain = None
 
+    def _try_write(self, gnt):
+        self.wr_pend = not gnt
+        if gnt:
+            self._issue_write()
+        else:
+            self.stats.port_stall["wr"] += 1
+
+    def _try_read(self, s, gnt):
+        self.rd_pend = None if gnt else s
+        if gnt:
+            self._issue_read(s)
+        else:
+            self.stats.port_stall["rd"] += 1
+
     def step_port(self):
-        cand = self._read_candidate()
+        """Requests are decided without looking at gnt (OBI). A request without gnt is held
+        unchanged until granted: a held read skips stream arbitration (and panel loads), and on a
+        shared port a held read or write keeps the port."""
+        rd_gnt, wr_gnt = self.gnt.next()
+        cand = self.rd_pend or self._read_candidate()
         can_write = self.drain is not None and self.cycle >= self.drain["ready"]
         if not self.p.shared_port:
             if can_write:
-                self._issue_write()
+                self._try_write(wr_gnt)
             if cand:
-                self._issue_read(cand)
+                self._try_read(cand, rd_gnt)
             return
-        if can_write and (self.swap_wait or cand is None):
-            self._issue_write()
+        if self.wr_pend or (not self.rd_pend and can_write and (self.swap_wait or cand is None)):
+            self._try_write(wr_gnt)
         elif cand:
-            self._issue_read(cand)
+            self._try_read(cand, rd_gnt)
 
     def arrivals(self):
         while self.inflight and self.inflight[0][0] <= self.cycle:

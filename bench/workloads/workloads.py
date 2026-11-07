@@ -16,7 +16,7 @@ def rows(tag: str | None = None) -> list[dict]:
     with open(CSV, newline="") as f:
         out = []
         for r in csv.DictReader(f):
-            r["m"], r["n"], r["k"] = int(r["m"]), int(r["n"]), int(r["k"])
+            r["m"], r["n"], r["k"], r["count"] = int(r["m"]), int(r["n"]), int(r["k"]), int(r["count"])
             r["tags"] = set(filter(None, r["tags"].split(";")))
             if tag is None or tag in r["tags"]:
                 out.append(r)
