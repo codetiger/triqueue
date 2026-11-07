@@ -38,16 +38,22 @@ def esc(name: str) -> str:
     return name.replace("[", "\\[").replace("]", "\\]").replace(".", "\\.")
 
 
-def flatten_saif(text: str) -> str:
+NET_LINE = re.compile(r"^\((\S+) \(T0 (\d+)\) \(T1 (\d+)\).*\(TC (\d+)\)\)$")
+
+
+def flatten_saif(text: str):
     """Rewrite Verilator's nested SAIF as one tq_top instance with dotted net names.
 
     The routed netlist is flat (Yosys flattens), so a register bit tq_top/u_core/u_array/x[3]
     is the net \\u_core.u_array.x[3] there. OpenSTA reads one top-level instance only, so the
     $rootio and tq_pkg instances Verilator also writes are dropped (tq_top has its own ports).
+
+    Also returns {plain dotted name: (T0, T1, TC)} for every bit, which power.tcl uses to
+    annotate register output pins directly (see register_activity).
     """
     lines = text.splitlines()
     head = next(i for i, l in enumerate(lines) if l.lstrip().startswith("(INSTANCE "))
-    out, stack, nets = lines[:head], [], []
+    out, stack, nets, bits = lines[:head], [], [], {}
     for line in lines[head:]:
         t = line.strip()
         if t.startswith("(INSTANCE "):
@@ -63,22 +69,40 @@ def flatten_saif(text: str) -> str:
                 continue
             prefix = "".join(esc(n) + "\\." for n in path[1:])
             nets.append("   (" + prefix + t[1:])
+            m = NET_LINE.match(t)
+            if m:
+                plain = ".".join(path[1:] + [m.group(1).replace("\\", "")])
+                bits[plain] = tuple(int(g) for g in m.group(2, 3, 4))
     out += [" (INSTANCE tq_top", "  (NET", *nets, "  )", " )", ")"]
-    return "\n".join(out) + "\n"
+    return "\n".join(out) + "\n", bits
+
+
+def register_activity(bits, cycles, dst: Path):
+    """Tcl dict: RTL bit name -> {toggles per clock cycle, fraction of time at 1}.
+
+    Net names alone miss register outputs whose net was renamed or absorbed: on asap7 every
+    flop has only QN, and ABC folds the inverter into the next gate, so the register's named
+    net does not exist. power.tcl looks registers up by cell name instead (the cell keeps the
+    RTL bit name plus a Yosys suffix such as $_DFFE_PN0P_) and sets QN to the inverted duty.
+    """
+    rows = [f"  {{{name}}} {{{tc / cycles:.9g} {t1 / max(t0 + t1, 1):.9g}}}"
+            for name, (t0, t1, tc) in bits.items()]
+    dst.write_text("set tq_bits [dict create \\\n" + " \\\n".join(rows) + "\n]\n")
 
 
 def rescale_saif(src: Path, dst: Path, period_ps: float):
     """Flatten the SAIF and scale all times so that the testbench clock period (TB_PERIOD_PS)
-    becomes period_ps. Returns the number of simulated cycles."""
+    becomes period_ps. Writes the register activity table next to it. Returns cycles."""
     text = src.read_text()
     assert "(TIMESCALE 1ps)" in text, "expected a 1 ps SAIF timescale"
     duration = int(re.search(r"\(DURATION (\d+)\)", text).group(1))
     cycles = round(duration / TB_PERIOD_PS)
     f = period_ps / TB_PERIOD_PS
-    text = TIME_FIELD.sub(lambda m: "(%s %d)" % (m.group(1), round(int(m.group(2)) * f)),
-                          flatten_saif(text))
+    flat, bits = flatten_saif(text)
+    text = TIME_FIELD.sub(lambda m: "(%s %d)" % (m.group(1), round(int(m.group(2)) * f)), flat)
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(text)
+    register_activity(bits, duration / TB_PERIOD_PS, dst.with_suffix(".regs.tcl"))
     return cycles
 
 
@@ -114,7 +138,8 @@ def main():
     rpt = ROOT / rel / "power" / f"{workload}.rpt"
     rc = orfs_make(platform, config, "run", 4, f"power/{workload}.log", env=dict(
         RUN_SCRIPT=f"{WORK}/flow/power.tcl", RUN_LOG_NAME_STEM=f"power_{workload}",
-        TQ_SAIF=f"{WORK}/{rel}/power/{workload}.saif", TQ_POWER_RPT=f"{WORK}/{rel}/power/{workload}.rpt"),
+        TQ_SAIF=f"{WORK}/{rel}/power/{workload}.saif",
+        TQ_REGS=f"{WORK}/{rel}/power/{workload}.regs.tcl", TQ_POWER_RPT=f"{WORK}/{rel}/power/{workload}.rpt"),
         native=native)
     if rc or not rpt.exists():
         print(f"[power] {platform} {config} {workload}: failed, see {rel}/power/{workload}.log")

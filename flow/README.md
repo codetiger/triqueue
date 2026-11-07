@@ -31,7 +31,7 @@ cmake --build tools/yosys/build --target install -j
 | `ppa.py` | Configurations (`CONFIGS`), platforms with their target clocks (`PLATFORMS`), and the ORFS driver. Runs work in `build/orfs_native/<platform>/<config>/` (`build/orfs_docker/` with `--docker`). |
 | `constraint.sdc` | Clock on `clk_i` (period from `ppa.py`), 20% of the period as I/O delay, `rst_ni` untimed (asynchronous, synchronized in the SoC). |
 | `activity.py` | Runs one workload in Verilator through the cocotb testbench (checked against the cycle model) and dumps SAIF. |
-| `power.py`, `power.tcl` | Flattens the SAIF to the routed netlist's names, scales it to the flow clock, and reads it into OpenSTA with the routed parasitics. Reports power and energy per MAC. |
+| `power.py`, `power.tcl` | Flattens the SAIF to the routed netlist's names, scales it to the flow clock, writes a register activity table, and reads both into OpenSTA with the routed parasitics. Reports power and energy per MAC. |
 
 ## Usage
 
@@ -46,5 +46,5 @@ python3 flow/power.py sky130hd t8_csa gemm64         # after the flow: activity-
 
 - **Area:** post-route standard-cell area of `tq_top`. The operand SRAM is outside `tq_top`, so this is the engine only.
 - **Timing:** post-route STA at the target clock in `PLATFORMS`, typical corner of the platform.
-- **Power:** OpenSTA with SAIF from an RTL simulation of the workload. Every register output is annotated from the simulation (those driving ports through the port's net); combinational nets are propagated by OpenSTA. Operands are uniform random int8, which switches more than real data. The SAIF is re-simulated whenever the RTL is newer.
+- **Power:** OpenSTA with SAIF from an RTL simulation of the workload. Nets that kept their RTL names are annotated from the SAIF, and every register's output pin is annotated by its cell name (the RTL bit plus a Yosys suffix), with the duty inverted on `QN`. That covers flops whose named net is gone, such as asap7's QN-only flops after ABC absorbs the inverter. Other combinational nets are propagated by OpenSTA. Operands are uniform random int8, which switches more than real data. The SAIF is re-simulated whenever the RTL is newer.
 - **Energy:** average power × the whole simulated window (the run plus a few dozen setup cycles), charged to the workload's useful MACs (M × N × K).
