@@ -1,0 +1,23 @@
+group,m,n,k,tags,why
+square,16,16,16,model,fixed start/end overhead dominates
+square,32,32,32,model;amx,one AMX tile; 16 Tri-Queue tiles
+square,64,64,64,model;amx,headline design point
+square,128,128,128,model;amx,
+square,256,256,256,model;amx,largest size the Python model runs quickly
+square,512,512,512,amx,
+square,1024,1024,1024,amx,
+square,2048,2048,2048,amx,
+irregular,60,60,60,model;amx,edge tiles; K padded 60 -> 64
+irregular,65,65,65,model;amx,1-row/1-col remainder; K padded 65 -> 72
+irregular,100,100,100,model;amx,
+k_sweep,64,64,8,amx,drain not hidden (Kp < 16)
+k_sweep,64,64,16,amx,drain-hiding threshold
+k_sweep,64,64,32,amx,
+k_sweep,64,64,128,amx,
+k_sweep,64,64,1024,model;amx,long K: steady state
+edge,64,4,1024,amx,8x4x2 shape only
+edge,4,64,1024,amx,4x8x2 shape only
+edge,4,4,1024,amx,4x4x4 shape only
+gemv,1,512,512,model;amx,matrix-vector; port-bound
+gemv,512,1,512,model;amx,matrix-vector; port-bound
+tiny,3,3,3,model,smallest legal shape

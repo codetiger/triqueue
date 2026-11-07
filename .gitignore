@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
+
+# AMX benchmark binaries (built from bench/reference/amx/*.c)
+bench/reference/amx/amx_peak
+bench/reference/amx/amx_gemm
+bench/reference/amx/sgemm_sweep
+
+# RTL / flow outputs (later phases)
+obj_dir/
+sim_build/
+*.vcd
+*.fst
+results.xml
+flow/**/runs/

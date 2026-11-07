@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  model-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Bit-exact and structural tests
+        working-directory: model
+        run: python -m pytest -q
+
+  model-results-up-to-date:
+    # Regenerates model/results.md and fails if the committed copy is stale.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Regenerate cycle-model results
+        working-directory: model
+        run: python bench.py > /dev/null
+      - name: Check committed results match
+        run: git diff --exit-code -- model/results.md
