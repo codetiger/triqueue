@@ -51,6 +51,8 @@ In order of strictness:
 1. **Results:** `mem_final.hex` must match exactly. Bit-exact, always required.
 2. **Transactions:** the sequence of `port rd` (s, addr, n) and of `port wr` (addr, n, data) must match exactly, compared as two separate ordered lists. Required.
 3. **Counters:** `instructions`, `beats`, `read_vectors`, `write_vectors` and `mac_ops` must match exactly. Required.
-4. **Cycles:** the total, and the cycle of each `mac start` and `port wr`, should match when the testbench SRAM has the model's fixed latency and always grants. A difference is either an RTL bug or a model assumption the RTL doesn't hold. Either way it gets explained and recorded, never ignored.
+4. **Cycles:** the total, and the cycle of each `mac start` and `port wr`, should match when the testbench SRAM always grants and answers L cycles after the request, with the model run at `mem_latency = L + 1`. The extra cycle is the operand FIFO write. A difference is either an RTL bug or a model assumption the RTL doesn't hold. Either way it gets explained and recorded, never ignored.
+
+The RTL regression (`verif/`) applies checks 1–4 to every case. With random `gnt` back-pressure, which the model doesn't have, it applies 1 and 3 plus the order of writes and MAC shapes.
 
 The trace exposes no internal state (FIFO contents, sum/carry values), so an RTL that keeps the accumulator in a different internal form ([decision 0006](../decisions/0006-accumulator-form.md)) checks against the same vectors.

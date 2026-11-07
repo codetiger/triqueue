@@ -6,26 +6,41 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The goal is an **open-source RTL matrix coprocessor for RISC-V**, comparable to Apple AMX, that is easy to integrate into larger SoCs and is benchmarked fairly against other open designs. In priority order: performance per watt, performance per component (area, kGE, state bits per MAC), design reusability (parameterized, interface-agnostic core with thin adapters), and overall efficiency (utilization across a workload suite). Peak throughput is a size parameter, not a goal.
 
-- `README.md` covers the goals, `docs/roadmap.md` the phased plan (Phase 1 done; Phase 2, RTL v0, is next), and `docs/metrics.md` how every number must be computed.
+- `README.md` covers the goals, `docs/roadmap.md` the phased plan (Phases 0–2 done; Phase 3, first area/power/Fmax numbers with Yosys + OpenROAD, is next), and `docs/metrics.md` how every number must be computed.
 - `docs/decisions/` holds the decision records. Already decided: SystemVerilog RTL (0001), SHL-2.1 for hardware and Apache-2.0 for software (0002), int8 only through Phase 4 (0003), a register-port host interface with thin adapters (0004), OBI-style memory ports with W-aligned bases (0005), carry-save accumulator for v0 (0006), requantization deferred (0007), and RTL parameterized by T with T = 8 first (0008). When a new design or project decision is made, add a record there rather than only editing the spec. Records are not rewritten; add a dated follow-up or a superseding record.
-- Efficiency claims are only valid once RTL has been through synthesis. Until then, only utilization is known; don't present model numbers as power or area results.
+- Efficiency claims are only valid once RTL has been through synthesis and place-and-route (Phase 3). Until then only utilization is known. Don't present model numbers or generic Yosys gate counts as power or area results.
 
 ## Current state
 
-Pre-RTL. The architecture is the **Tri-Queue**: an int8 outer-product engine with a T×T int32 carry-save accumulator tile (double-banked), T² 9×9 multipliers and one 2T-byte SRAM read port. T is a parameter; the spec's design point and all spec figures are T = 8 (64 MACs, 128-bit port).
+RTL v0 exists and matches the model cycle for cycle. The architecture is the **Tri-Queue**: an int8 outer-product engine with a T×T int32 carry-save accumulator tile (double-banked), T² 9×9 multipliers and one 2T-byte SRAM read port. T is a parameter; the spec's design point and all spec figures are T = 8 (64 MACs, 128-bit port).
 
 - `docs/spec/tri_queue_matrix_core_design.md`: the current spec (rev 4) and the source of truth. `docs/spec/trace_format.md` is the golden-vector and trace contract between the model and the RTL testbenches. `docs/history/` holds the original Tri-Stack spec and the comparison that led to the redesign. Treat those as history; don't update them.
 - `model/`: a cycle-level Python model of the spec that runs the real instruction bytes and checks every result bit-exact against numpy. It is the golden reference for the RTL.
+- `rtl/`: SystemVerilog, top `tq_top`, sources in compile order in `rtl/files.f`. `rtl/README.md` covers parameters, the register and memory port contracts, the block map and the Yosys-compatible coding rules.
+- `verif/`: cocotb + Verilator regression against the model (`test_rtl.py` holds the configurations and cases; `tb/` the testbench), plus SymbiYosys proofs in `formal/`.
 - `bench/workloads/gemm.csv`: the single list of GEMM shapes. Benchmarks select rows by tag (`model`, `amx`, `dse`). Add shapes there, never hard-coded in a script.
 - `bench/reference/amx/`: real-hardware Apple AMX (M2 Pro) measurements and scripts comparing them with the model.
 
 The spec's performance numbers come from the model. If you change the model or the spec's claims, keep them in sync: regenerate `model/results.md` and `model/dse.md` and update the matching spec sections (§6 ISA, §7 performance, §7.3 scaling). CI fails if either committed file differs from a fresh `bench.py` / `dse.py` run. Any model change must leave the T = 8 results byte-identical unless the change is intended to move them.
 
+**The RTL and the model must stay cycle-exact.** The RTL's per-cycle evaluation order mirrors the model's (memory responses → MAC unit → ports → front end): later stages see earlier stages' pops in the same cycle, and halt detection uses this cycle's post-update state, like the model's `all_idle`. An SRAM latency of L in the testbench corresponds to model `mem_latency = L + 1`. A behaviour change goes into the model first (spec + tests), then the RTL. `make rtl-test` must stay green, with exact cycle counts, in every configuration. The spec rules that keep the hardware simple are enforced by the model too: at most one `ZERO_C`/`SWAP_C` per MAC cycle, and loop bodies contain only 1-byte instructions.
+
 Every source file starts with an SPDX header: `Apache-2.0` for software, and `Apache-2.0 WITH SHL-2.1` for files under `rtl/`, `verif/` and `flow/`.
 
 ## Commands
 
-Setup: `pip install -r requirements.txt` (Python 3.10+).
+Setup: `pip install -r requirements.txt` (Python 3.10+). RTL work also needs Verilator ≥ 5, Yosys, SymbiYosys and Yices (`brew install verilator yosys sby yices2`).
+
+From the repo root:
+
+```
+make                  # everything below
+make rtl-lint         # verilator -Wall in 6 configurations + Yosys elaboration (both must be warning-free)
+make rtl-test         # cocotb regression, all configurations (~40 s); builds go to build/rtl/<config>/
+python3 -m pytest verif -q -k t8_default    # one RTL configuration
+make formal           # SymbiYosys proofs (verif/formal/tq_fifo.sby)
+make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets
+```
 
 Run model commands from `model/` (`pytest.ini` sets `pythonpath = .`, so imports are `from tri_queue...`):
 
@@ -69,3 +84,11 @@ Properties the model enforces and the tests check:
 - The modelling assumptions are listed in both `model/README.md` and the `core.py` docstring: 1 instruction decoded per cycle, zero-overhead loops, `ZERO_C`/`SWAP_C` take no MAC cycle, `VOUTER_MAC` waits for all its operand bytes, pipelined SRAM reads with fixed latency and no `gnt` stalls, no bank conflicts. If you change an assumption, update both places.
 
 `bench.py` writes `results.md` section by section and labels each spec claim ✅/❌ against the simulated value. When you add a claim to the spec, add a row for it there.
+
+## RTL architecture (`rtl/core/`)
+
+`tq_top` = `tq_regs` (register port, program buffer, perf counters) + `tq_core`. Inside `tq_core`: `tq_frontend` (decoder, 2-level loop stack, tile walker; tile addresses are kept as running offsets, so there are no multipliers outside the array) pushes into the MAC command queue and two stream command queues. `tq_stream` turns stream commands into W-byte reads (round-robin A/B, credit-based so responses never back-pressure, a tag FIFO routes in-order responses to QA/QB). The MAC control in `tq_core` pops operands for a beat; `tq_mac_array` does per-quadrant operand select, T² 9×9 multiplies into a product register, then carry-save accumulation into one of two banks the next cycle. `tq_drain` drains the idle bank through T/2 CPA lanes and a staging register into aligned writes, then clears it.
+
+Yosys-compatible SV subset (Verilator accepts more, so lint with both): no `import`, so write `tq_pkg::NAME`; no `return`, so assign to the function name; no `$bits(type)`, so use the widths in `tq_pkg` (`MCMD_W`, `SCMD_W`); no `break`. Packed structs, enums and packed 2-D arrays are fine. Simulation-only assertions go under `ifndef SYNTHESIS`, and formal properties under `ifdef FORMAL`.
+
+cocotb (2.x) can't see fields of packed structs through VPI. Monitor flat signals instead (e.g. `u_core.beat_rf`, not `mc.rfull`). The runner passes `sys.path` of the pytest process to the simulator as `PYTHONPATH`, so `verif/test_rtl.py` adds `verif/tb` to `sys.path`.

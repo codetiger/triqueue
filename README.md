@@ -2,7 +2,7 @@
 
 An open-source RTL matrix-multiply coprocessor for RISC-V SoCs, in the same class as Apple's AMX, Arm SME and Gemmini. It is designed to drop into a larger chip and to be measured honestly against the alternatives.
 
-**Status:** pre-RTL. The architecture is specified and checked by a cycle-level Python model that is bit-exact against numpy. No RTL exists yet. See [`docs/roadmap.md`](docs/roadmap.md).
+**Status:** RTL v0. The SystemVerilog core matches the cycle-level Python model cycle for cycle and is bit-exact against numpy across 643 regression cases. Area, power and clock numbers come next (Phase 3). See [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Why
 
@@ -35,16 +35,18 @@ Peak throughput is a parameter, set by tile size and port width. It is not a goa
 | `docs/decisions/` | Decision records (RTL language, licensing, scope, ...) |
 | `docs/history/` | The original Tri-Stack spec and the architecture comparison that led to this design |
 | `model/` | Cycle-level Python model: runs the real instruction bytes, bit-exact against numpy. This will be the golden reference for RTL. |
+| `rtl/` | SystemVerilog RTL (`tq_top`), parameterized by tile size; see `rtl/README.md` for interfaces |
+| `verif/` | cocotb + Verilator regression against the model, SymbiYosys proofs |
 | `bench/workloads/` | The shared list of GEMM shapes that every benchmark uses |
 | `bench/reference/amx/` | Apple AMX (M2 Pro) measurements used as a real-silicon reference |
 
-`rtl/`, `verif/`, `sw/`, `bench/designs/`, `flow/` and `results/` get added in later phases (see the roadmap).
+`sw/`, `bench/designs/`, `flow/` and `results/` get added in later phases (see the roadmap).
 
-Quick start (Python 3.10+):
+Quick start (Python 3.10+; RTL targets need Verilator 5, Yosys and SymbiYosys):
 
 ```
 pip install -r requirements.txt
-cd model && python3 -m pytest -q && python3 bench.py
+make              # model tests, RTL lint, RTL regression, formal proofs, synthesis check
 ```
 
 ## License

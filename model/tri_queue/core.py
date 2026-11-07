@@ -14,7 +14,9 @@ Per-cycle order: memory responses land -> MAC unit -> memory port(s) -> front en
 
 Modelling assumptions (stated in model/README.md):
   * Front end decodes 1 instruction/cycle; loops are zero-overhead (loop buffer).
-  * ZERO_C and SWAP_C are bank-pointer operations that take no MAC cycle.
+  * ZERO_C and SWAP_C are bank-pointer operations that take no MAC cycle. Per cycle the MAC unit
+    consumes at most one of them, followed by at most one VOUTER_MAC.
+  * Loop bodies contain only 1-byte instructions (no CFG).
   * VOUTER_MAC needs all of its operand bytes present when it starts, and pops them at the start.
   * SRAM reads are fully pipelined with a fixed latency, one W-byte read per cycle.
 """
@@ -178,10 +180,11 @@ class TriQueueCore:
 
     # ---- front end ------------------------------------------------------------------------
     def _body_bytes(self, pc, n):
-        start = pc
-        for _ in range(n):
-            pc += isa.decode(self.prog, pc)[3]
-        return pc - start
+        """Loop bodies hold only 1-byte instructions (no CFG), so the body is n bytes long."""
+        for i in range(n):
+            if isa.decode(self.prog, pc + i)[3] != 1:
+                raise ValueError(f"CFG inside a loop body at {pc + i:#x}")
+        return n
 
     def all_idle(self):
         return (not self.macq and self.cur is None and not self.scmd["A"] and not self.scmd["B"]
@@ -326,14 +329,18 @@ class TriQueueCore:
             self.do_beat()
             st["busy"] += 1
             return
+        ctl = False                                   # at most one ZERO_C / SWAP_C per cycle
         while self.macq:
             cmd = self.macq[0]
+            if cmd[0] in ("ZERO", "SWAP") and ctl:
+                break
             if cmd[0] == "ZERO":
                 assert self.drain is None
                 self.sum[:] = 0
                 self.carry[:] = 0
                 self.macq.popleft()
                 self.ev("mac", "zero")
+                ctl = True
                 continue
             if cmd[0] == "SWAP":
                 if self.drain is not None:          # idle bank still draining
@@ -346,6 +353,7 @@ class TriQueueCore:
                 self.macq.popleft()
                 self.ev("mac", "swap", tile=cmd[1], active=self.active)
                 self.start_drain(old, cmd[1])
+                ctl = True
                 continue
             _, r, c, d = cmd
             if self.p.banks == 1 and self.drain is not None:   # the only bank is draining

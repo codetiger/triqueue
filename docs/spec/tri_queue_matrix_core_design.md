@@ -8,7 +8,7 @@ Derived from `docs/history/tri_stack_simd_matrix_architecture_specification.md` 
 
 **Rev 2 changes:** operands are now int8 or uint8, with int32 accumulation. The core has 64 multipliers instead of 16 and the same 128-bit port. Variable arity returns as a *k-depth reduction*, which keeps edge tiles efficient.
 
-**Rev 4 changes:** the tile size is now a parameter T (T×T tile, T² multipliers, port width W = 2T bytes). The design point is unchanged at T = 8, and §7.3 covers T = 16 and 32. Base addresses and `C_LD` must be multiples of W (§6.1). Host and memory interfaces are settled in `docs/decisions/` 0004–0008. The figures throughout this document are for T = 8.
+**Rev 4 changes:** the tile size is now a parameter T (T×T tile, T² multipliers, port width W = 2T bytes). The design point is unchanged at T = 8, and §7.3 covers T = 16 and 32. Base addresses and `C_LD` must be multiples of W (§6.1). Host and memory interfaces are settled in `docs/decisions/` 0004–0008. The figures throughout this document are for T = 8. Two execution rules make the hardware exact (§5.2, §6): the MAC unit takes at most one `ZERO_C`/`SWAP_C` per cycle, and loop bodies contain only 1-byte instructions. **RTL v0** (`rtl/`) implements this spec and matches the cycle model cycle for cycle (`verif/`).
 
 **Rev 3 changes:** the numbers are replaced with cycle-model results, and three errors are fixed: the `AUTO` shape rule (§4.2), per-quadrant operand selection (§4.1) and the kernel size (§6.2). The drain-hiding and FIFO-latency conditions are tightened, and §7.1 records what the model found.
 
@@ -245,7 +245,7 @@ write port              [d0]        [d1]       [d2]
 
 At int8 a `VOUTER_MAC` lasts only 2 cycles, so the four bookkeeping instructions per tile (`STREAM_A`, `STREAM_B`, `LOOP_K`, `SWAP_C`) could open a bubble between tiles. Two mechanisms prevent it:
 
-- **MAC command queue (depth 4).** The decoder issues one instruction per cycle, and each `VOUTER_MAC` executes for 2 cycles, so the decoder runs ahead and fills the queue. At the end of a tile the queue holds about 8 cycles of work, which covers the bookkeeping instructions. `SWAP_C` goes through the same queue, so the bank swap lands exactly between the last op of one tile and the first op of the next. In the cycle model, utilization at 64³ is 94.8% with depth 1, 97.7% with depth 2, and 99.2% with depth 3 or more. Depth 4 leaves margin.
+- **MAC command queue (depth 4).** The decoder issues one instruction per cycle, and each `VOUTER_MAC` executes for 2 cycles, so the decoder runs ahead and fills the queue. At the end of a tile the queue holds about 8 cycles of work, which covers the bookkeeping instructions. `SWAP_C` goes through the same queue, so the bank swap lands exactly between the last op of one tile and the first op of the next. In the cycle model, utilization at 64³ is 94.8% with depth 1, 97.7% with depth 2, and 99.2% with depth 3 or more. Depth 4 leaves margin. Each cycle the MAC unit consumes at most one `ZERO_C` or `SWAP_C` from the head of the queue, then at most one `VOUTER_MAC`. A `SWAP_C` and the next tile's first `VOUTER_MAC` therefore issue in the same cycle, with no bubble.
 - **Stream prefetch.** `STREAM_A/B` go into the stream engine's own command queue (depth 2 per stream). The kernel issues them for tile *t+1* **before** computing tile *t*, so the engine moves straight from one panel to the next. Commands past the last tile are ignored.
 
 ### 5.3 Memory layout (host packing)
@@ -272,7 +272,7 @@ Encoding: `opcode [7:4] | arg [3:0]`. `CFG` is the only multi-byte instruction.
 | `0x4` | `ZERO_C` | 1 | Clears both SC banks (used once at start) |
 | `0x5` | `VOUTER_MAC s` | 1 | 2-beat outer-product MAC of shape `s` into the active bank. Stalls only if a queue is empty. |
 | `0x6` | `SWAP_C` | 1 | Swaps the active and idle banks, then drains and clears the finished bank in the background. Stalls only if the idle bank is still draining. |
-| `0x7` | `LOOP_K n` | 1 | Repeats the next n instructions Kp / 2d times, with zero overhead. d comes from the current tile's `AUTO` shape. |
+| `0x7` | `LOOP_K n` | 1 | Repeats the next n instructions Kp / 2d times, with zero overhead. d comes from the current tile's `AUTO` shape. Loop bodies may contain only 1-byte instructions (no `CFG`), so the body is n bytes long. Loops nest 2 deep, with at most one `LOOP_T`. |
 | `0x8` | `LOOP_T n` | 1 | Repeats the next n instructions once per output tile. The tile walker advances. |
 | `0x9` | `FENCE` | 1 | Waits until all streams and drains finish (synchronizes with the host) |
 
@@ -471,5 +471,5 @@ The project-level plan is in `docs/roadmap.md`. The items below are the design-s
 2. ~~Add a cycle-level model, and check the 64³ figure, the drain condition and the queue depths.~~ Done: `model/results.md`.
 3. ~~Measure the AMX utilization curve on the M2 Pro as a real-hardware reference, and test the double-bank claim without depending on precision.~~ Done: `bench/reference/amx/`, §7.2. Open: the integer (`mac16`) path.
 4. ~~Generalize the model to any tile size, export golden vectors and traces for RTL, and sweep T = 8/16/32.~~ Done: `model/dse.md`, §7.3, `docs/spec/trace_format.md`.
-5. Write RTL, simulate it in Verilator, and synthesize it with Yosys + OpenROAD. Compare it against Gemmini configured with an 8×8 int8 mesh in the same flow. Use the Python model as the golden reference for RTL traces.
+5. ~~Write RTL and simulate it in Verilator against the Python model.~~ Done: `rtl/`, `verif/`. 643 cases in 7 configurations, cycle-exact. Next: synthesize with Yosys + OpenROAD, and compare against Gemmini configured with an 8×8 int8 mesh in the same flow (roadmap Phases 3 and 5).
 6. Build the visual explainer (outer-product walkthrough, beat schedule, k-depth arity, overlap timeline). It can replay traces from the simulator.

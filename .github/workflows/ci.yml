@@ -33,3 +33,19 @@ jobs:
           python dse.py > /dev/null
       - name: Check committed results match
         run: git diff --exit-code -- model/results.md model/dse.md
+
+  rtl:
+    # Lint (Verilator + Yosys), RTL-vs-model regression (cocotb + Verilator), formal (SymbiYosys),
+    # and a generic synthesizability check.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: YosysHQ/setup-oss-cad-suite@v3
+      - run: pip install -r requirements.txt
+      - run: make rtl-lint
+      - run: make rtl-test
+      - run: make formal
+      - run: make synth-check

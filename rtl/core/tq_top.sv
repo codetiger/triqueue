@@ -1,0 +1,67 @@
+// SPDX-FileCopyrightText: 2026 Harishankar Narayanan
+// SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+//
+// Tri-Queue top level: register port + core. This is the unit an SoC integrates, through an
+// adapter for its bus (decision 0004) and its memory (decision 0005).
+
+module tq_top #(
+    parameter int T           = 8,
+    parameter int FIFO_DEPTH  = 8,
+    parameter int MACQ_DEPTH  = 4,
+    parameter int SCMD_DEPTH  = 2,
+    parameter bit SHARED_PORT = 1'b0,
+    parameter int PROG_BYTES  = 64,
+    localparam int W  = 2 * T,
+    localparam int VB = W * 8
+) (
+    input  logic          clk_i,
+    input  logic          rst_ni,
+    // register port (32-bit)
+    input  logic          reg_req_i,
+    output logic          reg_gnt_o,
+    input  logic [11:0]   reg_addr_i,
+    input  logic          reg_we_i,
+    input  logic [3:0]    reg_be_i,
+    input  logic [31:0]   reg_wdata_i,
+    output logic          reg_rvalid_o,
+    output logic [31:0]   reg_rdata_o,
+    output logic          irq_o,
+    // memory read port (W bytes)
+    output logic          rd_req_o,
+    output logic [31:0]   rd_addr_o,
+    input  logic          rd_gnt_i,
+    input  logic          rd_rvalid_i,
+    input  logic [VB-1:0] rd_rdata_i,
+    // memory write port (W bytes, byte enables)
+    output logic          wr_req_o,
+    output logic [31:0]   wr_addr_o,
+    output logic [W-1:0]  wr_be_o,
+    output logic [VB-1:0] wr_wdata_o,
+    input  logic          wr_gnt_i
+);
+  logic                    start, abort, busy, done, error;
+  logic [3:0]              err_code;
+  logic [PROG_BYTES*8-1:0] prog;
+  logic [8*32-1:0]         cfg;
+  logic [31:0]             p_cyc, p_ret, p_beat, p_rd, p_wr;
+
+  tq_regs #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SHARED_PORT(SHARED_PORT),
+            .PROG_BYTES(PROG_BYTES)) u_regs (
+      .clk_i, .rst_ni,
+      .reg_req_i, .reg_gnt_o, .reg_addr_i, .reg_we_i, .reg_be_i, .reg_wdata_i,
+      .reg_rvalid_o, .reg_rdata_o, .irq_o,
+      .start_o(start), .abort_o(abort), .prog_o(prog),
+      .busy_i(busy), .done_i(done), .error_i(error), .err_code_i(err_code), .cfg_i(cfg),
+      .perf_i({p_wr, p_rd, p_beat, p_ret, p_cyc}));
+
+  tq_core #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
+            .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES)) u_core (
+      .clk_i, .rst_ni,
+      .start_i(start), .abort_i(abort), .prog_i(prog),
+      .busy_o(busy), .done_o(done), .error_o(error), .err_code_o(err_code), .cfg_o(cfg),
+      .perf_cycles_o(p_cyc), .perf_instret_o(p_ret), .perf_beats_o(p_beat),
+      .perf_reads_o(p_rd), .perf_writes_o(p_wr),
+      .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i,
+      .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i);
+
+endmodule

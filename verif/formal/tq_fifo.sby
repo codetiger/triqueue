@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+#
+# Unbounded proof (k-induction) of tq_fifo: occupancy/pointer invariant, no overflow or underflow
+# under legal use, and ordering + data integrity of every entry. Run: sby -f tq_fifo.sby
+# Depths cover the instances in the core: 2 (stream commands), 3 (non power of two),
+# 4 (MAC commands), 8 (operand FIFOs) and 16 (read tags).
+
+[tasks]
+d2
+d3
+d4
+d8
+d16
+
+[options]
+mode prove
+depth 24
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -sv -formal tq_fifo.sv
+d2:  chparam -set WIDTH 4 -set DEPTH 2 tq_fifo
+d3:  chparam -set WIDTH 4 -set DEPTH 3 tq_fifo
+d4:  chparam -set WIDTH 4 -set DEPTH 4 tq_fifo
+d8:  chparam -set WIDTH 4 -set DEPTH 8 tq_fifo
+d16: chparam -set WIDTH 4 -set DEPTH 16 tq_fifo
+prep -top tq_fifo
+
+[files]
+../../rtl/common/tq_fifo.sv

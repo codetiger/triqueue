@@ -1,0 +1,9 @@
+rtl/core/tq_pkg.sv
+rtl/common/tq_fifo.sv
+rtl/core/tq_frontend.sv
+rtl/core/tq_mac_array.sv
+rtl/core/tq_drain.sv
+rtl/core/tq_stream.sv
+rtl/core/tq_core.sv
+rtl/core/tq_regs.sv
+rtl/core/tq_top.sv
