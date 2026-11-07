@@ -30,7 +30,8 @@ Peak throughput is a parameter, set by tile size and port width. It is not a goa
 | Path | Contents |
 | --- | --- |
 | `docs/benchmarks.md` | Summary of every completed benchmark, with links to the generated results |
-| `docs/spec/` | The design spec (`tri_queue_matrix_core_design.md`, including the host and memory interfaces) and the golden-vector / trace format |
+| `docs/specification.md` | The design specification, including the host and memory interfaces |
+| `docs/golden-vectors.md` | Golden test-vector and trace format: the contract between the model and RTL testbenches |
 | `model/` | Cycle-level Python model: runs the real instruction bytes, bit-exact against numpy. This will be the golden reference for RTL. |
 | `rtl/` | SystemVerilog RTL (`tq_top`), parameterized by tile size; see `rtl/README.md` for interfaces |
 | `verif/` | cocotb + Verilator regression against the model, SymbiYosys proofs |

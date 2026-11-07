@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 //
 // Tri-Queue core: front end, MAC command queue, operand FIFOs, stream engine, MAC array, drain.
-// Spec: docs/spec/tri_queue_matrix_core_design.md. Golden model: model/tri_queue/core.py.
+// Spec: docs/specification.md. Golden model: model/tri_queue/core.py.
 //
 // The core matches the cycle model cycle for cycle when the memory always grants and returns
 // read data with a fixed latency (model mem_latency = SRAM latency + 1). The order of evaluation

@@ -1,6 +1,6 @@
 # Tri-Queue RTL
 
-Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/spec/tri_queue_matrix_core_design.md`). RTL v0: int8/uint8 operands, int32 results, T×T tile.
+Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specification.md`). RTL v0: int8/uint8 operands, int32 results, T×T tile.
 
 `rtl/files.f` lists the sources in compile order. The top level is `tq_top`.
 

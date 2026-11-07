@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 //
 // Tri-Queue shared definitions: opcodes, config register indices, internal command formats.
-// Spec: docs/spec/tri_queue_matrix_core_design.md section 6.
+// Spec: docs/specification.md section 6.
 
 package tq_pkg;
 

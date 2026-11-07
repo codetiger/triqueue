@@ -1,6 +1,6 @@
 # Tri-Queue cycle model
 
-Cycle-level Python model of the int8 Tri-Queue core in `docs/spec/tri_queue_matrix_core_design.md`.
+Cycle-level Python model of the int8 Tri-Queue core in `docs/specification.md`.
 
 ```
 python3 -m pytest -q     # functional + structural proofs (bit-exact vs numpy), ~3 s
@@ -9,7 +9,7 @@ python3 dse.py           # tile-size sweep T = 8/16/32, writes dse.md (~35 s)
 python3 -m tri_queue.vectors --m 16 --n 16 --k 16 -o ../build/vectors/16x16x16   # golden vectors for RTL
 ```
 
-Shapes for `bench.py` and `dse.py` come from `bench/workloads/gemm.csv`. The vector and trace formats are in `docs/spec/trace_format.md`.
+Shapes for `bench.py` and `dse.py` come from `bench/workloads/gemm.csv`. The vector and trace formats are in `docs/golden-vectors.md`.
 
 ## What it models
 

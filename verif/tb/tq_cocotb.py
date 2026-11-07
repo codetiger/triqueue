@@ -6,7 +6,7 @@ Cases and the RTL configuration come from environment variables set by verif/tes
   TQ_PARAMS  JSON of model Params fields matching the RTL parameters (tile, fifo_depth, ...)
   TQ_CASES   JSON list of {m, n, k, a, b, seed, lat}
 
-Checks per case (docs/spec/trace_format.md, "How the RTL is checked against the model"):
+Checks per case (docs/golden-vectors.md, "How the RTL is checked against the model"):
   1. final memory bit-exact (and C equal to numpy)
   2. read and write transaction sequences, with cycles
   3. MAC start cycles and shapes

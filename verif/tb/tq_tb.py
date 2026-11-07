@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """cocotb driver for tq_top: register-port host, SRAM model, and transaction monitors.
 
-Timing contract with the cycle model (docs/spec/trace_format.md):
+Timing contract with the cycle model (docs/golden-vectors.md):
   * model cycle 0 is the first cycle the core is busy;
   * the SRAM always grants and returns read data `mem_latency - 1` cycles after the request,
     so the data is in the operand FIFO `mem_latency` cycles after the request, as in the model.

@@ -5,7 +5,7 @@
     python3 -m tri_queue.vectors --m 16 --n 16 --k 16 -o vectors/16x16x16
     python3 -m tri_queue.vectors --m 20 --n 9 --k 33 --tile 16 --a u8 -o vectors/edge_t16
 
-File formats are specified in docs/spec/trace_format.md.
+File formats are specified in docs/golden-vectors.md.
 """
 import argparse
 import json

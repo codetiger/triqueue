@@ -1,4 +1,4 @@
-# Design: Tri-Queue Matrix Core
+# Tri-Queue Matrix Core: Specification
 
 **An int8 outer-product matrix coprocessor for RISC-V SoCs**
 

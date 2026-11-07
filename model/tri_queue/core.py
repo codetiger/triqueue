@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
-"""Cycle-level model of the Tri-Queue int8 matrix core (spec rev 4, docs/spec/).
+"""Cycle-level model of the Tri-Queue int8 matrix core (spec rev 4, docs/specification.md).
 
 The simulator executes the real instruction bytes. The arithmetic is done the way the hardware
 does it: 9x9 multiplies, per-quadrant operand selection for the k-depth arity modes, and
@@ -120,7 +120,7 @@ class ByteFifo:
 
 class TriQueueCore:
     def __init__(self, mem: np.ndarray, program: bytes, params: Params | None = None, trace=None):
-        """trace: None, or a list that receives one text line per event (see docs/spec/trace_format.md)."""
+        """trace: None, or a list that receives one text line per event (see docs/golden-vectors.md)."""
         self.mem, self.prog, self.p = mem, program, params or Params()
         self.T, self.W = self.p.tile, self.p.port_bytes
         self.h = self.T // 2
