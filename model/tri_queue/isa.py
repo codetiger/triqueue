@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tri-Queue ISA: opcodes, config registers, encoder and the reference GEMM kernel.
 
+The ISA does not depend on the tile size T: VOUTER_MAC shapes are encoded as full (T) or half (T/2)
+rows and columns, and the tile walker derives everything else from M, N, K.
+
 Encoding: one byte = opcode[7:4] | arg[3:0]. CFG is followed by a 32-bit little-endian immediate.
 """
 
@@ -29,12 +32,13 @@ def cfg(reg: int, imm: int) -> bytes:
     return enc(CFG, reg) + (imm & 0xFFFFFFFF).to_bytes(4, "little")
 
 
-def vouter(shape=None) -> bytes:
-    """shape=None -> AUTO, else (r, c) with r, c in {4, 8}."""
+def vouter(shape=None, tile: int = 8) -> bytes:
+    """shape=None -> AUTO, else (r, c) with r, c in {tile/2, tile}. arg[1] = full rows, arg[0] = full cols."""
     if shape is None:
         return enc(VOUTER_MAC, AUTO)
     r, c = shape
-    return enc(VOUTER_MAC, (2 if r == 8 else 0) | (1 if c == 8 else 0))
+    assert r in (tile // 2, tile) and c in (tile // 2, tile), (shape, tile)
+    return enc(VOUTER_MAC, (2 if r == tile else 0) | (1 if c == tile else 0))
 
 
 def gemm_kernel() -> bytes:
@@ -66,7 +70,7 @@ def decode(prog: bytes, pc: int):
     return op, arg, None, 1
 
 
-def disassemble(prog: bytes) -> list[str]:
+def disassemble(prog: bytes, tile: int = 8) -> list[str]:
     out, pc = [], 0
     while pc < len(prog):
         op, arg, imm, size = decode(prog, pc)
@@ -74,7 +78,7 @@ def disassemble(prog: bytes) -> list[str]:
         if op == CFG:
             out.append(f"{pc:04x}  {name} r{arg}, {imm:#x}")
         elif op == VOUTER_MAC:
-            out.append(f"{pc:04x}  {name} {'AUTO' if arg & AUTO else f'{8 if arg & 2 else 4}x{8 if arg & 1 else 4}'}")
+            out.append(f"{pc:04x}  {name} {'AUTO' if arg & AUTO else f'{tile if arg & 2 else tile // 2}x{tile if arg & 1 else tile // 2}'}")
         elif op in (LOOP_K, LOOP_T):
             out.append(f"{pc:04x}  {name} {arg}")
         else:

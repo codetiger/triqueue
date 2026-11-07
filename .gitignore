@@ -22,3 +22,6 @@ sim_build/
 *.fst
 results.xml
 flow/**/runs/
+
+# Generated golden vectors
+build/

@@ -50,8 +50,8 @@ s = gemm(64, 64, 64)
 w(f"| 64³ cycles (separate write port) | ≈ 4,120 (99.4%) | {s.cycles:,} ({pct(s.utilization)}) | "
   f"{'✅' if s.utilization > 0.99 else '❌'} |")
 w(f"| 64³ dynamic instructions | ≈ 2.3k (2,317) | {s.instructions:,} | {'✅' if s.instructions == 2317 else '❌'} |")
-w(f"| 64³ SRAM reads | 64 KB | {s.read_vectors * 16 // 1024} KB | {'✅' if s.read_vectors * 16 == 65536 else '❌'} |")
-w(f"| 64³ C writes | 16 KB (int32) | {s.write_vectors * 16 // 1024} KB | {'✅' if s.write_vectors * 16 == 16384 else '❌'} |")
+w(f"| 64³ SRAM reads | 64 KB | {s.read_bytes // 1024} KB | {'✅' if s.read_bytes == 65536 else '❌'} |")
+w(f"| 64³ C writes | 16 KB (int32) | {s.write_bytes // 1024} KB | {'✅' if s.write_bytes == 16384 else '❌'} |")
 w(f"| Program size | 49 B kernel + 40 B CFG | {s.program_bytes - 40} B kernel + 40 B CFG | ❌ doc miscounted (10 B) |")
 sh = gemm(64, 64, 64, Params(shared_port=True))
 w(f"| 64³ shared read/write port | ≈ 80% | {sh.cycles:,} ({pct(sh.utilization)}) | "

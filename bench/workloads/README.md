@@ -6,7 +6,7 @@
 | --- | --- |
 | `group` | Category: `square`, `irregular`, `k_sweep`, `edge`, `gemv`, `tiny` (later: layer shapes from real models) |
 | `m, n, k` | C is m×n, inner dimension k |
-| `tags` | `;`-separated list of the suites that run this row. `model` = `model/bench.py` size sweep, `amx` = AMX comparison table. |
+| `tags` | `;`-separated list of the suites that run this row. `model` = `model/bench.py` size sweep, `amx` = AMX comparison table, `dse` = tile-size sweep (`model/dse.py`). |
 | `why` | What the shape stresses |
 
 Python: `from workloads import shapes; shapes("model")`, with `bench/workloads` on `sys.path`.

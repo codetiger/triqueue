@@ -2,11 +2,13 @@
 
 **Revised Tri-Stack SIMD + Variable-Arity Matrix Compute Core**
 
-Nov 6, 2026 · @Harishankar · Status: draft, rev 3 (int8 default, checked by cycle model)
+Nov 7, 2026 · Harishankar Narayanan · Status: draft, rev 4 (int8, tile size parameterized, checked by cycle model)
 
 Derived from `docs/history/tri_stack_simd_matrix_architecture_specification.md` (the original spec) and `docs/history/matrix_engine_comparison.md` (the comparison). The performance figures come from the cycle-level model in `model/`, with full results in `model/results.md`. That model runs the real instruction bytes and checks every result bit-exact against numpy. These are model results, not RTL results.
 
 **Rev 2 changes:** operands are now int8 or uint8, with int32 accumulation. The core has 64 multipliers instead of 16 and the same 128-bit port. Variable arity returns as a *k-depth reduction*, which keeps edge tiles efficient.
+
+**Rev 4 changes:** the tile size is now a parameter T (T×T tile, T² multipliers, port width W = 2T bytes). The design point is unchanged at T = 8, and §7.3 covers T = 16 and 32. Base addresses and `C_LD` must be multiples of W (§6.1). Host and memory interfaces are settled in `docs/decisions/` 0004–0008. The figures throughout this document are for T = 8.
 
 **Rev 3 changes:** the numbers are replaced with cycle-model results, and three errors are fixed: the `AUTO` shape rule (§4.2), per-quadrant operand selection (§4.1) and the kernel size (§6.2). The drain-hiding and FIFO-latency conditions are tightened, and §7.1 records what the model found.
 
@@ -296,9 +298,11 @@ Encoding: `opcode [7:4] | arg [3:0]`. `CFG` is the only multi-byte instruction.
 | 4 | `K` | Inner dimension. Kp and the loop counts are derived from it. |
 | 5 | `M` | Rows of A and C: sets the tile count, `AUTO` shapes and edge masks |
 | 6 | `N` | Columns of B and C, used the same way |
-| 7 | `MODE` | bit 0: A signed, bit 1: B signed. Other bits are reserved (output requantization, §9). |
+| 7 | `MODE` | bit 0: A signed, bit 1: B signed. Other bits are reserved (output requantization, §10.1). |
 
-Tile walk: row-major over the ⌈M/8⌉ × ⌈N/8⌉ tiles. Tile (ti, tj) writes to `C_BASE + 8·ti·C_LD + 32·tj`.
+Tile walk: row-major over the ⌈M/T⌉ × ⌈N/T⌉ tiles. Tile (ti, tj) writes to `C_BASE + T·ti·C_LD + 4T·tj` (T = 8: `C_BASE + 8·ti·C_LD + 32·tj`).
+
+**Alignment:** `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` must be multiples of the port width W (16 bytes at T = 8). The host pads each C row to whole words, so every read and every drain write is one aligned word, and partial words use byte enables. The model asserts this rule ([decision 0005](../decisions/0005-memory-interface.md)).
 
 ### 6.2 Complete GEMM kernel
 
@@ -401,6 +405,24 @@ These measurements were taken on this machine (`bench/reference/amx/`). AMX is u
 - An integer-to-integer measurement. AMX `mac16` (int16) did not scale with independent chains in the peak benchmark, and that is unexplained.
 - Area and energy, which need RTL and synthesis.
 
+### 7.3 Scaling the tile (cycle model)
+
+The model takes T as a parameter (`model/dse.md`, [decision 0008](../decisions/0008-tile-size.md)). Every shape, the quadrant arity limits and the kernel stay the same: shapes become T or T/2 rows and columns with reduction depth 1, 2 or 4. All results are bit-exact.
+
+| | T = 8 | T = 16 | T = 32 |
+| --- | --- | --- | --- |
+| MACs/cycle, read port | 64, 128 b | 256, 256 b | 1024, 512 b |
+| State (bits per MAC) | 10.5 Kbit (164) | 37 Kbit (145) | 140 Kbit (136) |
+| Bytes read per MAC | 0.25 | 0.125 | 0.0625 |
+| Drain hidden when | Kp ≥ 24 | Kp ≥ 40 | Kp ≥ 72 |
+| 64³ / 256³ utilization | 99.2% / 100% | 95.3% / 99.9% | 75.1% / 99.5% |
+| Geometric mean over the `dse` workload shapes | 56.0% | 35.4% | 20.1% |
+
+- **The port must be exactly 2T bytes.** At T = 16, a 128-bit port gives 49.8% and a 512-bit port gives the same 99.6% as 256 bits.
+- **FIFO depth doesn't depend on T.** In W-byte vectors, depth 8 hides 8 cycles of latency at every size.
+- **Drain hiding needs Kp ≥ 2T + 8,** because each tile drains 2T words (T rows × 4T bytes ÷ W).
+- **Large tiles lose on small and narrow problems.** The half-width shapes recover only up to 50% of the array, so a 1-row remainder or a GEMV wastes more as T grows.
+
 ---
 
 ## 8. Hardware budget
@@ -430,6 +452,8 @@ At a high level, the Tri-Queue combines the **output-stationary outer-product da
 
 ## 10. Open decisions
 
+Items 1, 2 and 4 are now settled in decision records: 0007 (requantization deferred), 0006 (carry-save for v0, plain adder measured in Phase 3) and 0004 (register port plus adapters). The memory interface is in 0005.
+
 1. **Output requantization.** Adding scale, shift and clamp to int8 in the drain unit cuts the drain to 4 vectors per tile. That allows a shared read/write port at about 94% utilization, and it matches what int8 inference layers need anyway. `MODE` has reserved bits for it, and the scale and shift values would need either a 9th `CFG` register or a packed field.
 2. **Accumulator form.** Carry-save keeps the 1-cycle accumulate loop at a high Fmax but doubles SC to 8 Kbit. A plain 32-bit adder per cell halves SC (total state ≈ 6 Kbit) if the target clock allows a 32-bit add per cycle.
 3. **Other types.** int4 (2× the MACs per beat, so the tile would have to grow by the balance law), and fp16 or bf16 (these can't use carry-save accumulation and would need a separate accumulator design).
@@ -443,8 +467,9 @@ At a high level, the Tri-Queue combines the **output-stationary outer-product da
 The project-level plan is in `docs/roadmap.md`. The items below are the design-specific steps.
 
 
-1. ~~Build a Python simulator of this exact ISA that matches numpy bit-for-bit.~~ Done: `model/`, 198 tests.
+1. ~~Build a Python simulator of this exact ISA that matches numpy bit-for-bit.~~ Done: `model/`, 229 tests.
 2. ~~Add a cycle-level model, and check the 64³ figure, the drain condition and the queue depths.~~ Done: `model/results.md`.
 3. ~~Measure the AMX utilization curve on the M2 Pro as a real-hardware reference, and test the double-bank claim without depending on precision.~~ Done: `bench/reference/amx/`, §7.2. Open: the integer (`mac16`) path.
-4. Write RTL, simulate it in Verilator, and synthesize it with Yosys + OpenROAD. Compare it against Gemmini configured with an 8×8 int8 mesh in the same flow. Use the Python model as the golden reference for RTL traces.
-5. Build the visual explainer (outer-product walkthrough, beat schedule, k-depth arity, overlap timeline). It can replay traces from the simulator.
+4. ~~Generalize the model to any tile size, export golden vectors and traces for RTL, and sweep T = 8/16/32.~~ Done: `model/dse.md`, §7.3, `docs/spec/trace_format.md`.
+5. Write RTL, simulate it in Verilator, and synthesize it with Yosys + OpenROAD. Compare it against Gemmini configured with an 8×8 int8 mesh in the same flow. Use the Python model as the golden reference for RTL traces.
+6. Build the visual explainer (outer-product walkthrough, beat schedule, k-depth arity, overlap timeline). It can replay traces from the simulator.

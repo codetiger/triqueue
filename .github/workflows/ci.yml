@@ -18,7 +18,7 @@ jobs:
         run: python -m pytest -q
 
   model-results-up-to-date:
-    # Regenerates model/results.md and fails if the committed copy is stale.
+    # Regenerates model/results.md and model/dse.md and fails if the committed copy is stale.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +28,8 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Regenerate cycle-model results
         working-directory: model
-        run: python bench.py > /dev/null
+        run: |
+          python bench.py > /dev/null
+          python dse.py > /dev/null
       - name: Check committed results match
-        run: git diff --exit-code -- model/results.md
+        run: git diff --exit-code -- model/results.md model/dse.md
