@@ -34,13 +34,18 @@ Setup: `pip install -r requirements.txt` (Python 3.10+). RTL work also needs Ver
 From the repo root:
 
 ```
-make                  # everything below
+make                  # model-test, rtl-lint, rtl-test, formal, synth-check
+make model-test       # model pytest suite
+make model-results    # regenerate model/results.md and model/dse.md (bench.py + dse.py)
 make rtl-lint         # verilator -Wall in 6 configurations + Yosys elaboration (both must be warning-free)
 make rtl-test         # cocotb regression, all configurations (~40 s); builds go to build/rtl/<config>/
 python3 -m pytest verif -q -k t8_default    # one RTL configuration
 make formal           # SymbiYosys proofs (verif/formal/tq_fifo.sby)
-make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets
+make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets (stats in build/synth/)
+make clean            # removes build/ and SymbiYosys work dirs
 ```
+
+RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check.
 
 Run model commands from `model/` (`pytest.ini` sets `pythonpath = .`, so imports are `from tri_queue...`):
 
@@ -87,7 +92,7 @@ Properties the model enforces and the tests check:
 
 ## RTL architecture (`rtl/core/`)
 
-`tq_top` = `tq_regs` (register port, program buffer, perf counters) + `tq_core`. Inside `tq_core`: `tq_frontend` (decoder, 2-level loop stack, tile walker; tile addresses are kept as running offsets, so there are no multipliers outside the array) pushes into the MAC command queue and two stream command queues. `tq_stream` turns stream commands into W-byte reads (round-robin A/B, credit-based so responses never back-pressure, a tag FIFO routes in-order responses to QA/QB). The MAC control in `tq_core` pops operands for a beat; `tq_mac_array` does per-quadrant operand select, T² 9×9 multiplies into a product register, then carry-save accumulation into one of two banks the next cycle. `tq_drain` drains the idle bank through T/2 CPA lanes and a staging register into aligned writes, then clears it.
+`tq_top` = `tq_regs` (register port, program buffer, perf counters) + `tq_core`. Inside `tq_core`: `tq_frontend` (decoder, 2-level loop stack, tile walker; tile addresses are kept as running offsets, so there are no multipliers outside the array) pushes into the MAC command queue and two stream command queues. `tq_stream` turns stream commands into W-byte reads (round-robin A/B, credit-based so responses never back-pressure, a tag FIFO routes in-order responses to QA/QB). The MAC control in `tq_core` pops operands for a beat; `tq_mac_array` does per-quadrant operand select, T² 9×9 multiplies into a product register, then carry-save accumulation into one of two banks the next cycle. `tq_drain` drains the idle bank through T/2 CPA lanes and a staging register into aligned writes, then clears it. All queues use the shared `rtl/common/tq_fifo.sv`, which is the block the formal proof covers. When you add a source file, add it to `rtl/files.f` in compile order (`tq_pkg` first). The Makefile, lint and the cocotb runner all read that list.
 
 Yosys-compatible SV subset (Verilator accepts more, so lint with both): no `import`, so write `tq_pkg::NAME`; no `return`, so assign to the function name; no `$bits(type)`, so use the widths in `tq_pkg` (`MCMD_W`, `SCMD_W`); no `break`. Packed structs, enums and packed 2-D arrays are fine. Simulation-only assertions go under `ifndef SYNTHESIS`, and formal properties under `ifdef FORMAL`.
 
