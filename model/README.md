@@ -17,7 +17,7 @@ Shapes for `bench.py` and `dse.py` come from `bench/workloads/gemm.csv`. The vec
 - **Host packing.** Panels are packed exactly as in spec §5.3, and the stream engine reads them by address.
 - **Size parameters.** Tile T (T×T tile, T² multipliers; the spec's design point is 8) and port width W (default 2T), both set in `Params`. The ISA and kernel don't change with T.
 - **The multiplier array.** T² 9×9 multipliers with per-quadrant operand selection for the four k-depth shapes. It asserts that no accumulate cell ever sums more products than its quadrant's hardware arity (TL 4, TR 2, BL 2, BR 1).
-- **The accumulator.** 32-bit carry-save (sum, carry) using real 3:2 compressor reduction. The CPA happens at drain, and C is written to memory with C_LD strides and masked lanes.
+- **The accumulator.** 32-bit carry-save (sum, carry) using real 3:2 compressor reduction, with the CPA at drain. The RTL's default plain 32-bit adder (spec §10.2) gives the same values mod 2³² and the same cycles, so the model checks both forms. C is written to memory with C_LD strides and masked lanes.
 - **Timing.** One read port, an optional separate write port, fixed SRAM latency, QA/QB FIFO depth, the MAC command queue, the stream command queues, double-banked SC with drain and clear, `SWAP_C` stalls and `FENCE`.
 
 ## Assumptions

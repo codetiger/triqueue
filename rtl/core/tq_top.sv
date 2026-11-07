@@ -11,7 +11,7 @@ module tq_top #(
     parameter int SCMD_DEPTH  = 2,
     parameter bit SHARED_PORT = 1'b0,
     parameter int PROG_BYTES  = 64,
-    parameter int ACC_FORM    = tq_pkg::ACC_CSA,
+    parameter int ACC_FORM    = tq_pkg::ACC_CPA,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (

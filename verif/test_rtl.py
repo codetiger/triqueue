@@ -75,8 +75,8 @@ CONFIGS = {
         [case(m, n, k, lat=lat, stall=s) for (m, n, k) in ((20, 24, 27), (64, 64, 32), (9, 9, 9))
          for lat in (1, 3) for s in (0.2, 0.6)],
     ),
-    "t8_acc_cpa": (
-        dict(T=8, ACC_FORM=1),
+    "t8_acc_csa": (
+        dict(T=8, ACC_FORM=0),
         dict(tile=8),
         edge_cases(8, (1, 9, 33)) + signedness(8)
         + [case(64, 64, 64), case(64, 64, 8), case(1, 64, 64), case(20, 24, 27, lat=3, stall=0.4)],

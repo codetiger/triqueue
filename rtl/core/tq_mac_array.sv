@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 //
-// Multiplier array and double-banked carry-save accumulator (spec sections 3, 4.1, 2.1).
+// Multiplier array and double-banked accumulator (spec sections 3, 4.1, 2.1).
 // Model: TriQueueCore.do_beat (model/tri_queue/core.py).
 //
 // Pipeline for a beat issued in cycle n:
@@ -16,12 +16,12 @@
 //
 // ACC_FORM (spec 10.2) selects how a cell stores its running sum. Both give the same values
 // mod 2^32 and the same timing:
+//   tq_pkg::ACC_CPA  one 32-bit value, a carry-propagate adder in the loop, no drain CPA (default)
 //   tq_pkg::ACC_CSA  carry-save (sum, carry), 3:2 compressors in the loop, CPA lanes at the drain
-//   tq_pkg::ACC_CPA  one 32-bit value, a carry-propagate adder in the loop, no drain CPA
 
 module tq_mac_array #(
     parameter int T        = 8,
-    parameter int ACC_FORM = tq_pkg::ACC_CSA,
+    parameter int ACC_FORM = tq_pkg::ACC_CPA,
     localparam int H   = T / 2,
     localparam int L2T = $clog2(T),
     localparam int VB  = 2 * T * 8          // port word (vector) width in bits

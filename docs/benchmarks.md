@@ -35,7 +35,7 @@ Source: `model/dse.md` (`model/dse.py`). Port width 2T bytes.
 | Geometric-mean utilization over the `dse` shapes | 56.0% | 35.4% | 20.1% |
 | Useful MACs per cycle, same mean | 35.8 | 90.5 | 205.4 |
 | Bytes read per MAC | 0.25 | 0.125 | 0.0625 |
-| Architectural state per MAC | 167 bits | 146 bits | 136 bits |
+| Architectural state per MAC | 103 bits | 82 bits | 72 bits |
 
 **Real int8 networks** (`model/dse.md` §6): MLPerf Tiny and BERT-tiny layers at batch 1, lowered to GEMM with im2col (depthwise convolutions excluded). Utilization is weighted by MACs over all of a network's layers, run back to back.
 

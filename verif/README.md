@@ -26,7 +26,7 @@ Each configuration in `test_rtl.py` builds `tq_top` once (in `build/rtl/<name>/`
 | `t8_small_queues` | FIFO depth 2, MAC queue 2: maximum stalls | 77 |
 | `t8_backpressure` | Random `gnt` stalls (10–80%) on both ports | 51 |
 | `t8_shared_backpressure` | Shared port + stalls | 12 |
-| `t8_acc_cpa` | `ACC_FORM = CPA` (plain 32-bit accumulator): edge shapes, signedness, 64³, GEMV, stalls | 116 |
+| `t8_acc_csa` | `ACC_FORM = CSA` (carry-save accumulator, the non-default form): edge shapes, signedness, 64³, GEMV, stalls | 116 |
 | `t32` | T = 32 (1024 MACs) | 81 |
 | `t16` | T = 16 (256 MACs) | 116 |
 | `t4` | T = 4 | 148 |

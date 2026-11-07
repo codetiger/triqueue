@@ -18,7 +18,7 @@ module tq_core #(
     parameter int SCMD_DEPTH  = 2,     // stream command queues
     parameter bit SHARED_PORT = 1'b0,  // drain writes share the read port
     parameter int PROG_BYTES  = 64,
-    parameter int ACC_FORM    = tq_pkg::ACC_CSA,  // accumulator form (tq_mac_array, spec 10.2)
+    parameter int ACC_FORM    = tq_pkg::ACC_CPA,  // accumulator form (tq_mac_array, spec 10.2)
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (

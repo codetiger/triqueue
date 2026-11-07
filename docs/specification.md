@@ -31,7 +31,7 @@ The balance law says a core with **P** multipliers and a port that supplies **W*
 | Role-separated storage: QA for A, QB for B, the accumulator tile for C | No crossbar between storage and the multipliers |
 | QA and QB are FIFOs fed by a decoupled stream engine | Loads overlap compute; the next k step is prefetched behind the current one |
 | 64 MACs per beat (a full 8×8 outer product per k) | 16 bytes per cycle, exactly what a 128-bit port supplies; 4 MACs per element loaded |
-| 8×8 carry-save accumulator tile, two banks | Draining one tile hides under compute on the next |
+| 8×8 int32 accumulator tile, two banks | Draining one tile hides under compute on the next |
 | Variable-depth reduction into each accumulator (§4) | Edge tiles keep more multipliers busy |
 | Separate write port (shared port optional) | int32 results are 4× wider than the inputs |
 | `LOOP_T` hardware tile walker | The tile loop runs without the host |
@@ -82,12 +82,12 @@ The balance law says a core with **P** multipliers and a port that supplies **W*
 | --- | --- | --- | --- | --- |
 | **QA** | 8 vectors × 16 B | 1 Kbit | FIFO. Stream engine pushes, `VOUTER_MAC` pops | A column slices: one vector = 8 rows × 2 k steps |
 | **QB** | 8 vectors × 16 B | 1 Kbit | FIFO. Stream engine pushes, `VOUTER_MAC` pops | B row slices: one vector = 8 columns × 2 k steps |
-| **SC** | 2 banks × 8×8 × (sum + carry) 32 b | 8 Kbit | One bank active (MAC target), the other idle (draining) | The int32 output tile, held in place for all K steps |
+| **SC** | 2 banks × 8×8 × 32 b | 4 Kbit | One bank active (MAC target), the other idle (draining) | The int32 output tile, held in place for all K steps |
 | **CFG** | 8 × 32 b | 0.25 Kbit | Written by `CFG` | Bases, C stride, K, M, N, mode |
 | **MAC command queue** | 4 × 52 b | 208 b | In-order queue of `ZERO_C` / `VOUTER_MAC` / `SWAP_C`. A `SWAP_C` entry carries the finished tile's C address and size, computed by the front end. | Lets the decoder run ahead of execution (§5.2) |
-| **Total** | | **≈ 10.5 Kbit** | | |
+| **Total** | | **≈ 6.5 Kbit** | | |
 
-This is the architectural state (1 Kbit = 1024 bits). RTL v0 adds pipeline registers (the 64 × 18-bit product register and a 2 × 32-byte beat-1 operand register), the two stream command queues and the 64-byte program buffer: about 14k flip-flops in total at T = 8, from generic Yosys synthesis.
+This is the architectural state (1 Kbit = 1024 bits). RTL v0 adds pipeline registers (the 64 × 18-bit product register and a 2 × 32-byte beat-1 operand register), the two stream command queues and the 64-byte program buffer: 10,002 flip-flops in total at T = 8 after place and route. The carry-save option (§10.2) doubles SC to 8 Kbit (13,970 flip-flops).
 
 Each FIFO holds 16 k steps of operands. In the cycle model, depth 8 fully hides SRAM latency up to 8 cycles and still reaches 94% at 16 cycles. Depth 16 hides up to 16 cycles (`model/results.md` §5). Choose the depth from the target SRAM's latency.
 
@@ -132,13 +132,13 @@ beat 1:  SC[r][c] += A[r][k+1] × B[k+1][c]    for all 64 (r, c)
 ### 3.1 MAC pipeline
 
 ```
- issue → MUL: 9×9 signed multiply → 18-bit product → ACC: compress into SC (sum, carry)
+ issue → MUL: 9×9 signed multiply → 18-bit product → ACC: add into SC (32-bit)
 ```
 
 - **9×9 signed multipliers** cover int8 and uint8 alike. The 9th bit is the operand's sign or zero extension, chosen by `MODE`.
-- Products are only 18 bits wide, so a full carry-propagate add inside the multiplier is cheap. Each accumulate cell then compresses its products together with the stored (sum, carry). In 8×8 mode that is a 3:2 compression, completed in one cycle. Because the accumulate loop is one cycle, the core can update the same 64 accumulators every cycle with no forwarding and no stall.
+- Products are only 18 bits wide, so a full carry-propagate add inside the multiplier is cheap. Each accumulate cell then adds its products (1, 2 or 4 by quadrant, §4) to the stored 32-bit value with one carry-propagate adder, in one cycle. Because the accumulate loop is one cycle, the core can update the same 64 accumulators every cycle with no forwarding and no stall. After place and route the loop closes at 1 GHz on ASAP7 with slack to spare; the multiplier stage, not the accumulator, sets the clock (§10.2).
 - **Overflow:** |int8 × int8| ≤ 2¹⁴ and uint8 × uint8 < 2¹⁶. An int32 accumulator therefore cannot overflow for any K ≤ 32,768 in any signedness mode.
-- A carry-propagate add on the accumulator happens only once per output element, in the drain unit.
+- The drain reads finished int32 values directly. A carry-save option (§10.2) instead keeps (sum, carry) per cell and does the carry-propagate add once per output element in the drain.
 
 ---
 
@@ -399,7 +399,7 @@ These measurements were taken on an M2 Pro (`bench/reference/amx/`). AMX is undo
 - The second bank removes that loss: 46.7% → 91.3% at K = 16, and 77.8% → 99.2% at 64³.
 - This is the supported claim. **Double-banking the accumulator removes the per-tile drain stall that a production outer-product engine measurably pays.**
 
-**Why AMX doesn't double-bank.** The measured fp32 accumulate latency of about 4 ops means 4 independent accumulators must be in flight, and Z holds exactly 4 fp32 tiles. Splitting Z into two halves that take turns would cap compute at the measured 2-chain rate, about 50%. This limit comes from floating point. The Tri-Queue's 1-cycle carry-save int accumulate is what leaves room for a second bank, so **the advantage does not carry over to an fp32 Tri-Queue**.
+**Why AMX doesn't double-bank.** The measured fp32 accumulate latency of about 4 ops means 4 independent accumulators must be in flight, and Z holds exactly 4 fp32 tiles. Splitting Z into two halves that take turns would cap compute at the measured 2-chain rate, about 50%. This limit comes from floating point. The Tri-Queue's 1-cycle int accumulate is what leaves room for a second bank, so **the advantage does not carry over to an fp32 Tri-Queue**.
 
 **Still open:**
 
@@ -413,7 +413,7 @@ The model and the RTL take T as a parameter (`model/dse.md`). The RTL is verifie
 | | T = 8 | T = 16 | T = 32 |
 | --- | --- | --- | --- |
 | MACs/cycle, read port | 64, 128 b | 256, 256 b | 1024, 512 b |
-| State (bits per MAC) | 10.5 Kbit (167) | 36.5 Kbit (146) | 136.5 Kbit (136) |
+| State (bits per MAC) | 6.5 Kbit (103) | 20.5 Kbit (82) | 72.5 Kbit (72) |
 | Bytes read per MAC | 0.25 | 0.125 | 0.0625 |
 | Drain hidden when | Kp ≥ 24 | Kp ≥ 40 | Kp ≥ 72 |
 | 64³ / 256³ utilization | 99.2% / 100% | 95.3% / 99.9% | 75.1% / 99.5% |
@@ -431,10 +431,10 @@ The model and the RTL take T as a parameter (`model/dse.md`). The RTL is verifie
 | Block | Contents |
 | --- | --- |
 | Multiplier array | 64 × 9×9 signed multipliers, 18-bit output, 1 pipeline stage |
-| Accumulate cells | 64 cells, shared by both banks: 16 × 6:2 (TL), 32 × 4:2 (TR, BL), 16 × 3:2 (BR) |
-| Accumulator storage | 2 banks × 64 × (32-bit sum + 32-bit carry) flops |
+| Accumulate cells | 64 cells, shared by both banks, each a 32-bit adder of its products and the stored value: 16 × 4 products (TL), 32 × 2 (TR, BL), 16 × 1 (BR) |
+| Accumulator storage | 2 banks × 64 × 32-bit flops |
 | Operand routing | Per-quadrant mux selecting 4 A bytes and 4 B bytes from up to 4 k offsets (k-depth modes) |
-| Drain unit | 4 × 32-bit CPA, edge-mask byte enables, C address generator |
+| Drain unit | Staging register, edge-mask byte enables, C address generator (4 × 32-bit CPA in the carry-save option) |
 | Stream engine | 2 increment-only panel walkers, A/B arbiter on one read port, 2-deep command queues |
 | Pipeline registers | Product register (64 × 18 b) and beat-1 operand register (2 × 32 B), so a beat's multiply and accumulate take one stage each |
 | Control | 4-bit opcode decoder, 4-deep MAC command queue, 2-level loop counters, 64-byte program buffer (holds `CFG` + kernel, so the loop body is never refetched), tile walker with running address offsets (no multipliers), AUTO shape logic |
@@ -455,8 +455,8 @@ At a high level, the Tri-Queue combines the **output-stationary outer-product da
 ## 10. Design choices and open questions
 
 1. **Output requantization (deferred).** Scale, shift and clamp to int8 in the drain would cut drain write traffic 4×, which int8 inference layers need anyway. But the drain has two costs: write-port traffic, which requantization cuts, and bank occupancy, which depends on the number of CPA lanes (W/4 today) and not on the output width. Unless the lanes also grow 4×, the bank stays busy just as long and the drain-hiding threshold (Kp ≥ 2T + 8) doesn't move, so a gain on a shared port (estimated at about 94%) is unverified. The current core writes int32. The drain is a pipeline with a slot between the CPA and the write formatter for a later requantization stage, and `MODE` bits 2 and above are reserved. It will be modelled (output width and lane count) before any hardware is added.
-2. **Accumulator form (carry-save).** Carry-save keeps the 1-cycle accumulate loop short at a high Fmax, but it doubles SC to 8 Kbit and is about 128 of the ~167 state bits per MAC. A plain 32-bit adder per cell halves SC (total state ≈ 6.5 Kbit) if a 32-bit add with up to 4 products fits in a cycle at the target clock. The RTL implements both behind the `ACC_FORM` parameter, with carry-save as the default; synthesis results decide which becomes the default. Both give identical results and cycles, so the same golden vectors check either.
-3. **Data types.** int8 and uint8 with int32 accumulation only. int4 doubles the MACs per beat, so by the balance law the tile has to grow. fp16 and bf16 can't use carry-save accumulation: floating-point accumulate latency removes the double-bank advantage (§7.2), so they need their own accumulator design.
+2. **Accumulator form (settled: plain adder).** Each cell either keeps one 32-bit value with a carry-propagate adder in the loop (`ACC_CPA`, the default) or a carry-save (sum, carry) pair with 3:2 compressors in the loop and the carry-propagate add in the drain (`ACC_CSA`). Carry-save shortens the accumulate loop but doubles SC to 8 Kbit. Placed and routed at T = 8 on sky130hd (100 MHz target) and ASAP7 (1 GHz target), the plain adder is about 20% smaller and uses 17–20% less energy per MAC on every workload measured, at the same clock: its loop closes with slack, both forms are limited by the multiplier stage, and carry-save moves the critical add into the drain. Carry-save stays available behind `ACC_FORM` for clocks where the 32-bit add would limit. Both give identical results and cycles, so the same golden vectors check either.
+3. **Data types.** int8 and uint8 with int32 accumulation only. int4 doubles the MACs per beat, so by the balance law the tile has to grow. fp16 and bf16 need a floating-point accumulator: its accumulate latency removes the double-bank advantage (§7.2), so they need their own accumulator design.
 4. **Host interface (settled).** A register port with thin adapters (§6.4), so one core works with every host.
 5. **Packing.** Operands are pre-packed by the host. A strided stream mode that reads unpacked row-major data would save the packing pass, at the cost of more address logic, SRAM bank-conflict risk, and losing the one-aligned-word-per-read property (§6.3).
 6. **Matrix-vector work (M = 1).** Every element of the matrix is used once, so the port caps it at 16 MACs per cycle (25% of peak) in any mode. The current design reaches 16.7%. A dedicated mode could reach the cap by keeping the vector in QA instead of re-streaming it for each tile.

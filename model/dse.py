@@ -36,13 +36,15 @@ def pct(x):
 
 
 MCMD_BITS = 52   # MAC command queue entry in RTL v0 (rtl/core/tq_pkg.sv, MCMD_W)
+ACC_BITS = 32    # accumulator bits per cell and bank: plain 32-bit adder, the RTL default
+                 # (ACC_FORM = ACC_CPA, spec 10.2); the carry-save form stores 64 (sum + carry)
 
 
 def state_bits(p: Params):
     """Architectural state in bits (spec section 2.1 generalized to T, W): operand FIFOs, accumulator
     banks, CFG and the MAC command queue. Pipeline registers and the program buffer are excluded."""
     fifos = 2 * p.fifo_depth * p.port_bytes * 8      # QA + QB
-    sc = p.banks * p.tile * p.tile * 64               # sum + carry, 32 b each
+    sc = p.banks * p.tile * p.tile * ACC_BITS
     cfg = 8 * 32
     macq = p.mac_queue_depth * MCMD_BITS
     return fifos, sc, fifos + sc + cfg + macq

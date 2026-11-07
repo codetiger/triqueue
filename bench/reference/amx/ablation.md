@@ -59,5 +59,5 @@ Express each engine's exposed drain in units of its own k step. Then utilization
 - Measured fma32 latency ≈ 4 ops, so full rate needs 4 independent accumulators.
 - Z holds exactly 4 fp32 16×16 tiles (4 KB). A 32×32 tile uses all of them.
 - Splitting Z into two 32×16 halves that take turns leaves 2 chains per half, which caps compute at about 50% (the 2-chain peak measurement: 50.5%).
-- This limit comes from floating point: the accumulate latency forces 4 accumulators. The Tri-Queue's 1-cycle carry-save int accumulate needs only one per tile, which leaves room for a second bank. An fp32 Tri-Queue would face the same limit as AMX.
+- This limit comes from floating point: the accumulate latency forces 4 accumulators. The Tri-Queue's 1-cycle int accumulate needs only one per tile, which leaves room for a second bank. An fp32 Tri-Queue would face the same limit as AMX.
 

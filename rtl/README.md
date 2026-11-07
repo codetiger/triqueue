@@ -14,7 +14,7 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specifica
 | `SCMD_DEPTH` | 2 | Stream command queue depth |
 | `SHARED_PORT` | 0 | 1: drain writes share the read port (single-port SRAM); the core never requests both in one cycle |
 | `PROG_BYTES` | 64 | Program buffer size (8 `CFG` + 10-byte kernel = 50 bytes) |
-| `ACC_FORM` | `tq_pkg::ACC_CSA` | Accumulator cell (spec §10.2): `ACC_CSA` carry-save (sum, carry) with CPA lanes at the drain, or `ACC_CPA` one 32-bit value with a carry-propagate adder in the loop (half the accumulator state). Same results and cycle timing. |
+| `ACC_FORM` | `tq_pkg::ACC_CPA` | Accumulator cell (spec §10.2): `ACC_CPA` one 32-bit value with a carry-propagate adder in the loop (the default: smaller and lower energy after place and route), or `ACC_CSA` carry-save (sum, carry) with CPA lanes at the drain (twice the accumulator state). Same results and cycle timing. |
 
 ## Interfaces
 
@@ -39,7 +39,7 @@ Requests never depend combinationally on `gnt`, and an ungranted request stays a
 | `common/tq_fifo.sv` | Ring-buffer FIFO, 1 push / up to 2 pops per cycle. Formally proved (`verif/formal`). |
 | `core/tq_frontend.sv` | Decoder, 2-level zero-overhead loop stack, tile walker, stream command counters. No multipliers: tile addresses are running offsets. |
 | `core/tq_stream.sv` | A/B panel walkers, round-robin read arbitration with credits, response tags, shared-port arbitration |
-| `core/tq_mac_array.sv` | Per-quadrant operand select, T² 9×9 multipliers, product register, carry-save accumulator cells (2 banks), drain read port with T/2 CPA lanes |
+| `core/tq_mac_array.sv` | Per-quadrant operand select, T² 9×9 multipliers, product register, accumulator cells (2 banks; 32-bit adders, or carry-save with T/2 CPA lanes on the drain read port) |
 | `core/tq_drain.sv` | Drain sequencer: one CPA stage, staging register, aligned writes with byte enables, bank clear |
 | `core/tq_core.sv` | MAC command control (at most one `ZERO_C`/`SWAP_C` plus one `VOUTER_MAC` per cycle), halt detection, errors, performance counters |
 | `core/tq_regs.sv` | Register port and program buffer |

@@ -10,8 +10,8 @@ YOSYS     ?= yosys
 SBY       ?= sby
 
 RTL       := $(shell cat rtl/files.f)
-LINT_CFGS := "" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=1"
-ACC_FORMS := csa:0 cpa:1
+LINT_CFGS := "" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
+ACC_FORMS := cpa:1 csa:0
 
 .PHONY: all model-test model-results rtl-lint rtl-test formal formal-nightly synth-check clean
 

@@ -20,7 +20,7 @@ module tq_core_env #(
     parameter int  MACQ_DEPTH  = 2,
     parameter int  SCMD_DEPTH  = 2,
     parameter bit  SHARED_PORT = 1'b0,
-    parameter int  ACC_FORM    = 0,
+    parameter int  ACC_FORM    = 1,          // tq_pkg::ACC_CPA, as tq_top
     parameter int  PROG_BYTES  = 32,
     parameter bit  KERNEL      = 1'b0,
     localparam int W  = 2 * T,
