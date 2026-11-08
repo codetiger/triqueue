@@ -5,6 +5,7 @@
 Cases and the RTL configuration come from environment variables set by verif/test_rtl.py:
   TQ_PARAMS  JSON of model Params fields matching the RTL parameters (tile, fifo_depth, ...)
   TQ_CASES   JSON list of {m, n, k, a, b, seed, lat}
+  TQ_HOST    "axil": the top level is tq_top_axil, registers are reached through AXI4-Lite
 
 Checks per case (docs/golden-vectors.md, "How the RTL is checked against the model"):
   1. final memory bit-exact (and C equal to numpy)
@@ -23,7 +24,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "model"))
 from tri_queue.core import Params, TriQueueCore, build_gemm, read_c, reference  # noqa: E402
 
-from tq_tb import TqTb  # noqa: E402
+from tq_tb import TqTb, TqTbAxil  # noqa: E402
 
 DT = {"s8": np.int8, "u8": np.uint8}
 
@@ -76,7 +77,7 @@ def first_diff(xs, ys):
 async def gemm_cases(dut):
     params = json.loads(os.environ["TQ_PARAMS"])
     cases = json.loads(os.environ["TQ_CASES"])
-    tb = TqTb(dut, params["tile"])
+    tb = (TqTbAxil if os.environ.get("TQ_HOST") == "axil" else TqTb)(dut, params["tile"])
     await tb.start()
     failures = []
     for case in cases:

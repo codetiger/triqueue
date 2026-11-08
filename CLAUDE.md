@@ -19,6 +19,8 @@ RTL v0 exists and matches the model cycle for cycle. The architecture is the **T
 - `rtl/`: SystemVerilog, top `tq_top`, sources in compile order in `rtl/files.f`. `rtl/README.md` covers parameters, the register and memory port contracts, the block map and the Yosys-compatible coding rules.
 - `verif/`: cocotb + Verilator regression against the model (`test_rtl.py` holds the configurations and cases; `tb/` the testbench), plus SymbiYosys proofs in `formal/`.
 - `flow/`: physical design with OpenROAD-flow-scripts (`flow/README.md`). The reference is a native ORFS build pinned to `ORFS_COMMIT` in `flow/ppa.py`; never mix its numbers with the `--docker` flow's. `ppa.py run` (RTL to routed layout), `power.py` (activity-based power per workload), `results.py collect` (records a run in `flow/records/`, committed). `flow/results.md` is generated from the records only, and CI checks it.
+- `rtl/adapters/`: bus adapters (Phase 4). `tq_axil_regs` (AXI4-Lite to the register port) and `tq_top_axil`.
+- `sw/`: freestanding C driver (`tq.h`, `tq.c`), tested against the model's program builder and packing (`make sw-test`).
 - `bench/workloads/gemm.csv`: the single list of GEMM shapes. Benchmarks select rows by tag (`model`, `amx`, `dse`). Add shapes there, never hard-coded in a script.
 - `bench/reference/amx/`: real-hardware Apple AMX (M2 Pro) measurements and scripts comparing them with the model.
 
@@ -35,20 +37,21 @@ Setup: `pip install -r requirements.txt` (Python 3.10+). RTL work also needs Ver
 From the repo root:
 
 ```
-make                  # model-test, rtl-lint, rtl-test, formal, synth-check
+make                  # model-test, sw-test, rtl-lint, rtl-test, formal, synth-check
 make model-test       # model pytest suite
+make sw-test          # C driver against the model
 make model-results    # regenerate model/results.md and model/dse.md (bench.py + dse.py)
 make rtl-lint         # verilator -Wall in 7 configurations + Yosys elaboration (both must be warning-free)
 make rtl-test         # cocotb regression, all configurations (~60 s); builds go to build/rtl/<config>/
 python3 -m pytest verif -q -k t8_default    # one RTL configuration
-make formal           # SymbiYosys: FIFO proof (tq_fifo.sby) + unbounded core proof, split port (tq_core.sby split, ~3 min)
+make formal           # SymbiYosys: FIFO proof (tq_fifo.sby), AXI4-Lite adapter (tq_axil_regs.sby), unbounded core proof, split port (tq_core.sby split, ~3 min)
 make formal-nightly   # core proof, shared port (tq_core.sby shared, 1-80 min, varies widely)
 make flow-results     # rewrite flow/results.md from flow/records/ (no flow run)
 make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets (stats in build/synth/)
 make clean            # removes build/ and SymbiYosys work dirs
 ```
 
-RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t32`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs on every push: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
+RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t32`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs on every push: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
 
 Run model commands from `model/` (`pytest.ini` sets `pythonpath = .`, so imports are `from tri_queue...`):
 

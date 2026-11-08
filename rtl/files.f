@@ -9,3 +9,5 @@ rtl/core/tq_stream.sv
 rtl/core/tq_core.sv
 rtl/core/tq_regs.sv
 rtl/core/tq_top.sv
+rtl/adapters/tq_axil_regs.sv
+rtl/adapters/tq_top_axil.sv

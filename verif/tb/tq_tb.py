@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from tri_queue.core import GrantSource
 from cocotb.clock import Clock
-from cocotb.triggers import FallingEdge, RisingEdge
+from cocotb.triggers import FallingEdge, ReadOnly, RisingEdge
 
 REG_CTRL, REG_STATUS = 0x008, 0x00C
 REG_PERF = {"cycles": 0x020, "instret": 0x024, "beats": 0x028, "reads": 0x02C, "writes": 0x030}
@@ -37,15 +37,25 @@ class RunRecord:
 
 
 class TqTb:
+    """Drives tq_top through its native register port."""
+
     def __init__(self, dut, tile: int):
         self.dut = dut
         self.T = tile
         self.W = 2 * tile
+        self.core = self.core_handle()
+
+    def core_handle(self):
+        return self.dut.u_core
+
+    def host_inputs(self):
+        d = self.dut
+        return (d.reg_req_i, d.reg_we_i, d.reg_addr_i, d.reg_be_i, d.reg_wdata_i)
 
     async def start(self):
         d = self.dut
         Clock(d.clk_i, 10, unit="ns").start()
-        for s in (d.reg_req_i, d.reg_we_i, d.reg_addr_i, d.reg_be_i, d.reg_wdata_i, d.rd_rvalid_i, d.rd_rdata_i):
+        for s in (*self.host_inputs(), d.rd_rvalid_i, d.rd_rdata_i):
             s.value = 0
         d.rd_gnt_i.value = 1
         d.wr_gnt_i.value = 1
@@ -61,6 +71,10 @@ class TqTb:
         d.reg_be_i.value, d.reg_wdata_i.value = be, data
         await FallingEdge(d.clk_i)
         d.reg_req_i.value, d.reg_we_i.value = 0, 0
+
+    async def start_cmd(self):
+        """Write CTRL.START and return at the falling edge after the core took it."""
+        await self.reg_write(REG_CTRL, 1)
 
     async def reg_read(self, addr: int) -> int:
         d = self.dut
@@ -84,9 +98,9 @@ class TqTb:
         padded = prog + bytes(-len(prog) % 4)
         for i in range(0, len(padded), 4):
             await self.reg_write(REG_PROG + i, int.from_bytes(padded[i:i + 4], "little"))
-        await self.reg_write(REG_CTRL, 1)                      # START: the core is busy from the next cycle
+        await self.start_cmd()                                 # START: the core is busy from the next cycle
 
-        core = d.u_core
+        core = self.core
         rec = RunRecord()
         pending = []                                           # (due absolute cycle, data int)
         absc, cyc, started = 0, -1, False
@@ -150,3 +164,73 @@ class TqTb:
         for k, a in REG_PERF.items():
             rec.perf[k] = await self.reg_read(a)
         return rec
+
+
+class TqTbAxil(TqTb):
+    """Drives tq_top_axil: the same runs, with the registers reached through AXI4-Lite. The
+    AXI side is checked for the protocol rules a master relies on (VALID held until READY,
+    exactly one response per request)."""
+
+    def core_handle(self):
+        return self.dut.u_tq.u_core
+
+    def host_inputs(self):
+        d = self.dut
+        return (d.s_awaddr_i, d.s_awprot_i, d.s_awvalid_i, d.s_wdata_i, d.s_wstrb_i, d.s_wvalid_i,
+                d.s_bready_i, d.s_araddr_i, d.s_arprot_i, d.s_arvalid_i, d.s_rready_i)
+
+    async def _handshake(self, sig, what):
+        """Called at a falling edge with this side's VALID/READY driven: wait until `sig` (the other
+        side) is 1 in a cycle, then return at the falling edge after that cycle's rising edge."""
+        for _ in range(20):
+            await ReadOnly()
+            ok = val(sig)
+            await FallingEdge(self.dut.clk_i)
+            if ok:
+                return
+        raise TimeoutError(what)
+
+    async def _write_addr(self, addr: int, data: int, be: int):
+        """Present AW and W until accepted; return at the falling edge after the handshake."""
+        d = self.dut
+        d.s_awaddr_i.value, d.s_awvalid_i.value = addr, 1
+        d.s_wdata_i.value, d.s_wstrb_i.value, d.s_wvalid_i.value = data, be, 1
+        await self._handshake(d.s_awready_o, "AXI write not accepted")
+        d.s_awvalid_i.value, d.s_wvalid_i.value = 0, 0
+
+    async def _write_resp(self):
+        d = self.dut
+        d.s_bready_i.value = 1
+        assert val(d.s_bresp_o) == 0
+        await self._handshake(d.s_bvalid_o, "no AXI write response")
+        d.s_bready_i.value = 0
+        assert not val(d.s_bvalid_o), "second write response"
+
+    async def reg_write(self, addr: int, data: int, be: int = 0xF):
+        await self._write_addr(addr, data, be)
+        await self._write_resp()
+
+    async def start_cmd(self):
+        """START reaches the core in the AW/W handshake cycle; the B response is taken while
+        the core runs (BREADY stays high), so cycle counting starts as with the native port."""
+        await self._write_addr(REG_CTRL, 1, 0xF)
+        self.dut.s_bready_i.value = 1
+
+    async def reg_read(self, addr: int) -> int:
+        d = self.dut
+        d.s_bready_i.value = 0
+        d.s_araddr_i.value, d.s_arvalid_i.value, d.s_rready_i.value = addr, 1, 1
+        await self._handshake(d.s_arready_o, "AXI read not accepted")
+        d.s_arvalid_i.value = 0
+        for _ in range(20):                                     # R: data is taken in the handshake cycle
+            await ReadOnly()
+            ok, data, resp = val(d.s_rvalid_o), val(d.s_rdata_o), val(d.s_rresp_o)
+            await FallingEdge(d.clk_i)
+            if ok:
+                break
+        else:
+            raise TimeoutError("no AXI read response")
+        assert resp == 0
+        d.s_rready_i.value = 0
+        assert not val(d.s_rvalid_o), "second read response"
+        return data

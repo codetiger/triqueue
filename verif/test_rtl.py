@@ -91,6 +91,11 @@ CONFIGS = {
         dict(tile=8),
         edge_cases(8, (1, 9)) + [case(64, 64, 64), case(20, 24, 27, lat=3, stall=0.4)],
     ),
+    "t8_axil": (
+        dict(T=8),
+        dict(tile=8),
+        edge_cases(8, (9,))[::4] + [case(64, 64, 64), case(20, 24, 27, lat=3, stall=0.4)],
+    ),
     "t32": (
         dict(T=32),
         dict(tile=32),
@@ -110,28 +115,34 @@ CONFIGS = {
 }
 
 
+# configurations whose top level is not tq_top (the testbench host driver follows it)
+TOPS = {"t8_axil": ("tq_top_axil", "axil")}
+
+
 @pytest.mark.parametrize("name", list(CONFIGS))
 def test_rtl(name):
     from cocotb_tools.runner import get_runner
 
     rtl_params, model_params, cases = CONFIGS[name]
+    top, host = TOPS.get(name, ("tq_top", "native"))
     build_dir = ROOT / "build" / "rtl" / name
     runner = get_runner("verilator")
     runner.build(
         sources=SOURCES,
-        hdl_toplevel="tq_top",
+        hdl_toplevel=top,
         parameters=rtl_params,
         build_dir=build_dir,
         build_args=["-Wno-fatal", "--assert", "-O3", "--x-assign", "fast", "--x-initial", "fast"],
     )
     results = runner.test(
-        hdl_toplevel="tq_top",
+        hdl_toplevel=top,
         test_module="tq_cocotb",
         test_dir=build_dir,
         build_dir=build_dir,
         extra_env={
             "TQ_PARAMS": json.dumps(model_params),
             "TQ_CASES": json.dumps(cases),
+            "TQ_HOST": host,
         },
     )
     from cocotb_tools.runner import get_results

@@ -47,6 +47,8 @@ Requests never depend combinationally on `gnt`, and an ungranted request stays a
 | `core/tq_core.sv` | MAC command control (at most one `ZERO_C`/`SWAP_C` plus one `VOUTER_MAC` per cycle), halt detection, errors, performance counters |
 | `core/tq_regs.sv` | Register port and program buffer |
 | `core/tq_top.sv` | Registers + core |
+| `adapters/tq_axil_regs.sv` | AXI4-Lite slave to the register port: one transaction at a time, reads and writes alternate when both wait, B / R after the register port's response. Formally proved (`verif/formal/tq_axil_regs.sby`). |
+| `adapters/tq_top_axil.sv` | `tq_top` with the AXI4-Lite register port; memory ports native (for tightly coupled SRAM). Regression configuration `t8_axil`. |
 
 ## Coding rules
 

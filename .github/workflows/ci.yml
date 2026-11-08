@@ -16,6 +16,8 @@ jobs:
       - name: Bit-exact and structural tests
         working-directory: model
         run: python -m pytest -q
+      - name: C driver against the model
+        run: python -m pytest sw -q
 
   model-results-up-to-date:
     # Regenerates model/results.md, model/dse.md and flow/results.md (from the committed run
