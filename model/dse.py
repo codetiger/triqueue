@@ -26,7 +26,10 @@ def gemm(m, n, k, p: Params):
         a = rng.integers(-128, 128, (m, k)).astype(np.int8)
         b = rng.integers(-128, 128, (k, n)).astype(np.int8)
         c, s = run_gemm(a, b, p)
-        assert np.array_equal(c, reference(a, b)), (m, n, k, p)
+        ref = reference(a, b)
+        if p.out_bytes == 1:                      # requantization study (section 8)
+            ref = np.clip(ref >> p.out_shift, -128, 127).astype(np.int8)
+        assert np.array_equal(c, ref), (m, n, k, p)
         _cache[key] = s
     return _cache[key]
 
@@ -205,6 +208,41 @@ for m, n, k in shapes("dse"):
     s0, s1 = gemm(m, n, k, Params(tile=8)), gemm(m, n, k, Params(tile=8, panel_bytes=PANEL[8]))
     w(f"| {m}×{n}×{k} | {8 * kp(k)} | {pct(s0.utilization)} | {pct(s1.utilization)} | "
       f"{s0.read_bytes / 1024:.1f} | {s1.read_bytes / 1024:.1f} |")
+w("")
+
+# 8. output requantization (decision 0007, spec 10.1): int8 C and the drain's lanes
+OUTS = (("int32, W/4 lanes (RTL)", dict()), ("int8, W/4 lanes", dict(out_bytes=1)),
+        ("int8, T lanes", None))
+w("## 8. Output requantization (spec §10.1)\n")
+w("C written as int8 (a saturating shift stands in for the scale; model only) and the number of values "
+  "the drain reads per cycle. W/4 lanes is the RTL's drain (one port word of int32 per cycle); T lanes "
+  "drains one tile row per cycle. Utilization, and drain write transactions per tile.\n")
+w("| T | Port | M×N×K | " + " | ".join(name for name, _ in OUTS) + " | Writes per tile (int32 → int8, T lanes) |")
+w("| --- | --- | --- |" + " --- |" * len(OUTS) + " --- |")
+for t in TILES[:2]:
+    for shared in (False, True):
+        for k in (8, 16, 64):
+            m = n = 8 * t
+            cells, writes = [], []
+            for name, kw in OUTS:
+                kw = dict(out_bytes=1, drain_lanes=t) if kw is None else kw
+                st = gemm(m, n, k, Params(tile=t, shared_port=shared, **kw))
+                cells.append(pct(st.utilization))
+                writes.append(st.write_vectors // ((m // t) * (n // t)))
+            w(f"| {t} | {'shared' if shared else 'split'} | {m}×{n}×{k} | " + " | ".join(cells)
+              + f" | {writes[0]} → {writes[2]} |")
+w("")
+w("Real networks (tag `layers`), split port, MAC-weighted utilization:\n")
+w("| Network | T | int32 (RTL) | int8, T lanes |")
+w("| --- | --- | --- | --- |")
+for net in nets:
+    rs = [r for r in layers if r["group"] == net]
+    macs = sum(r["count"] * r["m"] * r["n"] * r["k"] for r in rs)
+    for t in TILES[:2]:
+        c0 = sum(r["count"] * gemm(r["m"], r["n"], r["k"], Params(tile=t)).cycles for r in rs)
+        c1 = sum(r["count"] * gemm(r["m"], r["n"], r["k"], Params(tile=t, out_bytes=1, drain_lanes=t)).cycles
+                 for r in rs)
+        w(f"| `{net}` | {t} | {pct(macs / (t * t * c0))} | {pct(macs / (t * t * c1))} |")
 w("")
 
 text = "\n".join(out)

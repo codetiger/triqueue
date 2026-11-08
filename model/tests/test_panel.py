@@ -65,3 +65,24 @@ def test_off_by_default():
     a, b = rand(rng, (20, 24), np.int8), rand(rng, (24, 27), np.int8)
     _, s = run_gemm(a, b, Params())
     assert s.panel_hits == 0 and s.panel_vectors == 0
+
+
+# ---- output requantization study knobs (decision 0007; model only) -----------------------------
+@pytest.mark.parametrize("lanes", [0, 8, 16])
+@pytest.mark.parametrize("shared", [False, True])
+def test_int8_output_is_requantized_c(lanes, shared):
+    rng = np.random.default_rng(lanes + shared)
+    a, b = rand(rng, (37, 64), np.int8), rand(rng, (64, 41), np.int8)
+    p = Params(out_bytes=1, out_shift=6, drain_lanes=lanes, shared_port=shared)
+    c, s = run_gemm(a, b, p)
+    want = np.clip(reference(a, b) >> 6, -128, 127).astype(np.int8)
+    assert np.array_equal(c, want)
+    assert s.write_bytes == 37 * 41
+
+
+def test_int32_default_unchanged_by_study_knobs():
+    rng = np.random.default_rng(5)
+    a, b = rand(rng, (20, 24), np.int8), rand(rng, (24, 27), np.int8)
+    _, s0 = run_gemm(a, b, Params())
+    _, s1 = run_gemm(a, b, Params(out_bytes=4, drain_lanes=0))
+    assert (s0.cycles, s0.write_vectors) == (s1.cycles, s1.write_vectors)

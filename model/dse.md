@@ -159,3 +159,37 @@ Per shape (tag `dse`), T = 8, 4 KiB:
 | 512×1×512 | 4096 | 16.7% | 16.7% | 384.0 | 384.0 |
 | 3×3×3 | 64 | 1.8% | 1.8% | 0.1 | 0.1 |
 
+## 8. Output requantization (spec §10.1)
+
+C written as int8 (a saturating shift stands in for the scale; model only) and the number of values the drain reads per cycle. W/4 lanes is the RTL's drain (one port word of int32 per cycle); T lanes drains one tile row per cycle. Utilization, and drain write transactions per tile.
+
+| T | Port | M×N×K | int32, W/4 lanes (RTL) | int8, W/4 lanes | int8, T lanes | Writes per tile (int32 → int8, T lanes) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 8 | split | 64×64×8 | 46.0% | 46.0% | 85.2% | 16 → 8 |
+| 8 | split | 64×64×16 | 91.3% | 91.3% | 97.5% | 16 → 8 |
+| 8 | split | 64×64×64 | 99.2% | 99.2% | 99.4% | 16 → 8 |
+| 8 | shared | 64×64×8 | 33.1% | 33.1% | 49.5% | 16 → 8 |
+| 8 | shared | 64×64×16 | 49.7% | 49.7% | 66.2% | 16 → 8 |
+| 8 | shared | 64×64×64 | 79.8% | 79.8% | 88.7% | 16 → 8 |
+| 16 | split | 128×128×8 | 24.0% | 24.0% | 46.0% | 32 → 16 |
+| 16 | split | 128×128×16 | 47.7% | 47.7% | 91.3% | 32 → 16 |
+| 16 | split | 128×128×64 | 98.8% | 98.8% | 99.2% | 32 → 16 |
+| 16 | shared | 128×128×8 | 19.9% | 19.9% | 33.1% | 32 → 16 |
+| 16 | shared | 128×128×16 | 33.2% | 33.2% | 49.7% | 32 → 16 |
+| 16 | shared | 128×128×64 | 66.5% | 66.5% | 79.8% | 32 → 16 |
+
+Real networks (tag `layers`), split port, MAC-weighted utilization:
+
+| Network | T | int32 (RTL) | int8, T lanes |
+| --- | --- | --- | --- |
+| `kws_dscnn` | 8 | 97.1% | 97.1% |
+| `kws_dscnn` | 16 | 94.8% | 95.5% |
+| `vww_mbv1` | 8 | 85.4% | 89.0% |
+| `vww_mbv1` | 16 | 67.6% | 74.6% |
+| `ic_resnet8` | 8 | 99.1% | 99.2% |
+| `ic_resnet8` | 16 | 97.1% | 98.6% |
+| `ad_fcae` | 8 | 16.6% | 16.6% |
+| `ad_fcae` | 16 | 8.2% | 8.2% |
+| `bert_tiny` | 8 | 99.9% | 100.0% |
+| `bert_tiny` | 16 | 99.7% | 99.8% |
+
