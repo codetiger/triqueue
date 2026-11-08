@@ -55,7 +55,7 @@ class TqTb:
     async def start(self):
         d = self.dut
         Clock(d.clk_i, 10, unit="ns").start()
-        for s in (*self.host_inputs(), d.rd_rvalid_i, d.rd_rdata_i):
+        for s in (*self.host_inputs(), d.rd_rvalid_i, d.rd_rdata_i, d.wr_done_i):
             s.value = 0
         d.rd_gnt_i.value = 1
         d.wr_gnt_i.value = 1
@@ -85,11 +85,13 @@ class TqTb:
         return val(d.reg_rdata_o)
 
     async def run(self, mem: np.ndarray, prog: bytes, mem_latency: int, max_cycles: int = 2_000_000,
-                  stall: float = 0.0, seed: int = 0) -> RunRecord:
+                  stall: float = 0.0, seed: int = 0, wr_resp_latency=None) -> RunRecord:
         """Load `prog`, start, serve memory from `mem` (modified in place) until the core is idle.
 
         stall > 0 withholds each read and write grant with that probability (OBI back-pressure),
-        drawn exactly as the model's GrantSource(stall, seed) draws them.
+        drawn exactly as the model's GrantSource(stall, seed) draws them. wr_resp_latency (for a
+        core built with WR_ACK) answers each granted write with a wr_done_i pulse that many
+        cycles after its grant, like the model's wr_resp_latency.
         """
         gnt = GrantSource(stall, seed)
         d, W, H = self.dut, self.W, self.T // 2
@@ -105,6 +107,7 @@ class TqTb:
         pending = []                                           # (due absolute cycle, data int)
         absc, cyc, started = 0, -1, False
         held_rd = held_wr = None                               # OBI: ungranted request to repeat
+        wr_due = []                                            # absolute cycles of write responses
         while True:
             busy = val(core.busy_o)
             if busy:
@@ -142,6 +145,13 @@ class TqTb:
                         n = j + 1
                 assert be == (1 << n) - 1, f"non-contiguous byte enables {be:#x}"
                 rec.writes.append((cyc, addr, n, raw[:n]))
+                if wr_resp_latency is not None:
+                    wr_due.append(absc + wr_resp_latency)
+            # write responses for this cycle (one grant per cycle, so at most one is due)
+            done = bool(wr_due) and wr_due[0] == absc
+            if done:
+                wr_due.pop(0)
+            d.wr_done_i.value = int(done)
             # MAC starts (internal, for the cycle-level comparison)
             if val(core.mac_start):
                 rf, cf = val(core.beat_rf), val(core.beat_cf)    # packed struct fields are not visible
@@ -156,7 +166,9 @@ class TqTb:
             assert not pending or pending[0][0] > absc
             await FallingEdge(d.clk_i)
             absc += 1
+        assert not wr_due, "core finished with write responses outstanding"
         d.rd_rvalid_i.value = 0
+        d.wr_done_i.value = 0
         d.rd_gnt_i.value = 1
         d.wr_gnt_i.value = 1
         rec.cycles = cyc + 1
@@ -234,3 +246,112 @@ class TqTbAxil(TqTb):
         d.s_rready_i.value = 0
         assert not val(d.s_rvalid_o), "second read response"
         return data
+
+
+class TqTbAxi(TqTbAxil):
+    """Drives tq_top_axi: registers over AXI4-Lite, memory as an AXI4 slave. AR / AW / W ready
+    come from the model's GrantSource draws (as the native port's gnt), R returns mem_latency - 1
+    cycles after AR, and B returns wr_resp_latency (>= 1) cycles after the write, so the run is
+    cycle-exact with the model (wr_ack). Checks the AXI rules a slave relies on: VALID and its
+    payload held until READY, single-beat INCR of one port word, AW and W of a write together."""
+
+    def core_handle(self):
+        return self.dut.u_tq.u_tq.u_core
+
+    def host_inputs(self):
+        d = self.dut
+        return (*super().host_inputs(), d.m_rvalid_i, d.m_rdata_i, d.m_rresp_i, d.m_rlast_i,
+                d.m_bvalid_i, d.m_bresp_i)
+
+    async def start(self):
+        d = self.dut
+        Clock(d.clk_i, 10, unit="ns").start()
+        for s in self.host_inputs():
+            s.value = 0
+        d.m_rlast_i.value = 1
+        d.m_arready_i.value = d.m_awready_i.value = d.m_wready_i.value = 1
+        d.rst_ni.value = 0
+        for _ in range(3):
+            await RisingEdge(d.clk_i)
+        await FallingEdge(d.clk_i)
+        d.rst_ni.value = 1
+
+    async def run(self, mem, prog, mem_latency, max_cycles=2_000_000, stall=0.0, seed=0, wr_resp_latency=None):
+        gnt = GrantSource(stall, seed)
+        d, W, H = self.dut, self.W, self.T // 2
+        assert mem_latency >= 1 and wr_resp_latency is not None and wr_resp_latency >= 1
+        sram_lat = mem_latency - 1
+        size = W.bit_length() - 1
+        padded = prog + bytes(-len(prog) % 4)
+        for i in range(0, len(padded), 4):
+            await self.reg_write(REG_PROG + i, int.from_bytes(padded[i:i + 4], "little"))
+        await self.start_cmd()
+
+        core = self.core
+        rec = RunRecord()
+        r_due, b_due = [], []
+        absc, cyc, started = 0, -1, False
+        held_ar = held_aw = held_w = None
+        while True:
+            busy = val(core.busy_o)
+            if busy:
+                started = True
+                cyc += 1
+            elif started:
+                break
+            if cyc > max_cycles:
+                raise TimeoutError("core did not finish")
+            rd_gnt, wr_gnt = (int(g) for g in gnt.next()) if busy else (1, 1)
+            d.m_arready_i.value = rd_gnt
+            d.m_awready_i.value = d.m_wready_i.value = wr_gnt
+            arv, awv, wv = val(d.m_arvalid_o), val(d.m_awvalid_o), val(d.m_wvalid_o)
+            ar = (val(d.m_araddr_o), val(d.m_arlen_o), val(d.m_arsize_o), val(d.m_arburst_o)) if arv else None
+            aw = (val(d.m_awaddr_o), val(d.m_awlen_o), val(d.m_awsize_o), val(d.m_awburst_o)) if awv else None
+            w = (val(d.m_wdata_o), val(d.m_wstrb_o), val(d.m_wlast_o)) if wv else None
+            for name, now, held in (("AR", ar, held_ar), ("AW", aw, held_aw), ("W", w, held_w)):
+                assert held is None or now == held, f"cycle {cyc}: {name} changed or dropped before READY"
+            for x in (ar, aw):
+                assert x is None or (x[1], x[2], x[3]) == (0, size, 1), f"cycle {cyc}: not a 1-beat INCR of W bytes"
+            assert w is None or w[2] == 1
+            held_ar = ar if ar and not rd_gnt else None
+            held_aw = aw if aw and not wr_gnt else None
+            held_w = w if w and not wr_gnt else None
+            if ar and rd_gnt:
+                addr = ar[0]
+                r_due.append((absc + sram_lat, int.from_bytes(mem[addr:addr + W].tobytes(), "little")))
+                rec.reads.append((cyc, addr))
+            if (aw and wr_gnt) or (w and wr_gnt):
+                assert aw and w, f"cycle {cyc}: AW and W of a write accepted in different cycles"
+                addr, (data, be, _) = aw[0], w
+                raw = data.to_bytes(W, "little")
+                n = 0
+                for j in range(W):
+                    if be >> j & 1:
+                        mem[addr + j] = raw[j]
+                        n = j + 1
+                assert be == (1 << n) - 1, f"non-contiguous byte enables {be:#x}"
+                rec.writes.append((cyc, addr, n, raw[:n]))
+                b_due.append(absc + wr_resp_latency)
+            if val(core.mac_start):
+                rf, cf = val(core.beat_rf), val(core.beat_cf)
+                r, c = (self.T if rf else H), (self.T if cf else H)
+                rec.mac_starts.append((cyc, f"{r}x{c}x{self.T * self.T // (r * c)}"))
+            if r_due and r_due[0][0] == absc:
+                d.m_rvalid_i.value = 1
+                d.m_rdata_i.value = r_due.pop(0)[1]
+            else:
+                d.m_rvalid_i.value = 0
+            d.m_bvalid_i.value = int(bool(b_due) and b_due[0] == absc)
+            if b_due and b_due[0] == absc:
+                b_due.pop(0)
+            assert val(d.m_rready_o) and val(d.m_bready_o)
+            await FallingEdge(d.clk_i)
+            absc += 1
+        assert not b_due and not r_due, "core finished with AXI responses outstanding"
+        d.m_rvalid_i.value = d.m_bvalid_i.value = 0
+        d.m_arready_i.value = d.m_awready_i.value = d.m_wready_i.value = 1
+        rec.cycles = cyc + 1
+        rec.status = await self.reg_read(REG_STATUS)
+        for k, a in REG_PERF.items():
+            rec.perf[k] = await self.reg_read(a)
+        return rec

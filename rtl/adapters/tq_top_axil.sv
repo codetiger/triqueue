@@ -13,6 +13,8 @@ module tq_top_axil #(
     parameter int PROG_BYTES  = 64,
     parameter int ACC_FORM    = tq_pkg::ACC_CPA,
     parameter bit CLK_GATE    = 1'b1,
+    parameter bit WR_ACK      = 1'b0,
+    parameter int WR_OUT_MAX  = 15,
     parameter int ADDR_W      = 12,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
@@ -51,7 +53,8 @@ module tq_top_axil #(
     output logic [31:0]       wr_addr_o,
     output logic [W-1:0]      wr_be_o,
     output logic [VB-1:0]     wr_wdata_o,
-    input  logic              wr_gnt_i
+    input  logic              wr_gnt_i,
+    input  logic              wr_done_i
 );
   logic        reg_req, reg_gnt, reg_we, reg_rvalid;
   logic [11:0] reg_addr;
@@ -70,12 +73,12 @@ module tq_top_axil #(
 
   tq_top #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
            .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
-           .CLK_GATE(CLK_GATE)) u_tq (
+           .CLK_GATE(CLK_GATE), .WR_ACK(WR_ACK), .WR_OUT_MAX(WR_OUT_MAX)) u_tq (
       .clk_i, .rst_ni,
       .reg_req_i(reg_req), .reg_gnt_o(reg_gnt), .reg_addr_i(reg_addr), .reg_we_i(reg_we),
       .reg_be_i(reg_be), .reg_wdata_i(reg_wdata), .reg_rvalid_o(reg_rvalid), .reg_rdata_o(reg_rdata),
       .irq_o,
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i,
-      .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i);
+      .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i, .wr_done_i);
 
 endmodule

@@ -10,7 +10,7 @@ YOSYS     ?= yosys
 SBY       ?= sby
 
 RTL       := $(shell cat rtl/files.f)
-LINT_CFGS := "" "-GCLK_GATE=0" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
+LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
 ACC_FORMS := cpa:1 csa:0
 
 .PHONY: all model-test sw-test model-results flow-results rtl-lint rtl-test formal formal-nightly synth-check clean
@@ -37,9 +37,11 @@ rtl-lint:
 	  echo "verilator lint $$p"; \
 	  $(VERILATOR) --lint-only -Wall -f rtl/files.f --top-module tq_top $$p || exit 1; \
 	done
-	@echo "verilator lint tq_top_axil"; $(VERILATOR) --lint-only -Wall -f rtl/files.f --top-module tq_top_axil
-	@echo "yosys elaborate tq_top_axil"; $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); \
-	  hierarchy -check -top tq_top_axil; proc; check -assert"
+	@for t in tq_top_axil tq_top_axi; do \
+	  echo "verilator lint $$t"; $(VERILATOR) --lint-only -Wall -f rtl/files.f --top-module $$t || exit 1; \
+	  echo "yosys elaborate $$t"; $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); \
+	    hierarchy -check -top $$t; proc; check -assert" || exit 1; \
+	done
 	@for f in $(ACC_FORMS); do \
 	  echo "yosys elaborate ACC_FORM=$${f#*:}"; \
 	  $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); chparam -set ACC_FORM $${f#*:} tq_top; \
@@ -51,10 +53,10 @@ rtl-test:
 
 # formal: FIFO proof + AXI4-Lite adapter proof + core proof, split port. formal-nightly: core proof, shared port (1-80 min, varies widely).
 formal:
-	cd verif/formal && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_core.sby split
+	cd verif/formal && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_axi_mem.sby cover && $(SBY) -f tq_core.sby split
 
 formal-nightly:
-	cd verif/formal && $(SBY) -f tq_core.sby shared
+	cd verif/formal && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_axi_mem.sby prove
 
 # Synthesizability check with generic Yosys cells: no latches, no loops, no undriven nets.
 # The clock-gating cell (tq_icg, a latch by design) is kept as its own module and is the only
@@ -71,4 +73,4 @@ synth-check:
 	done
 
 clean:
-	rm -rf build verif/formal/tq_fifo verif/formal/tq_fifo_* verif/formal/tq_core verif/formal/tq_core_*/ verif/formal/tq_axil_regs
+	rm -rf build verif/formal/tq_fifo verif/formal/tq_fifo_* verif/formal/tq_core verif/formal/tq_core_*/ verif/formal/tq_axil_regs verif/formal/tq_axil_regs_*/ verif/formal/tq_axi_mem verif/formal/tq_axi_mem_*/

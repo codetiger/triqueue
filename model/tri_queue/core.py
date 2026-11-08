@@ -24,6 +24,10 @@ Modelling assumptions (stated in model/README.md):
     A request that is not granted is held unchanged until it is (OBI/AXI request stability):
     no re-arbitration of the read stream, and on a shared port no read/write swap.
   * No SRAM bank conflicts.
+  * Write completion: by default a write is complete when granted (SRAM). With wr_ack (an
+    interconnect such as AXI, where a write completes at its B response) each granted write
+    completes wr_resp_latency cycles later, FENCE waits until none is outstanding, and no new
+    write is requested while wr_out_max are outstanding.
 """
 import math
 from collections import deque, defaultdict
@@ -52,6 +56,9 @@ class Params:
     banks: int = 2               # 1: ablation - compute must wait while the only SC bank drains
     gnt_stall: float = 0.0       # probability that a port's gnt is withheld in a cycle (OBI back-pressure)
     gnt_seed: int = 0            # seed of the grant generator (see GrantSource)
+    wr_ack: bool = False         # writes complete at a response (wr_done), not at the grant
+    wr_resp_latency: int = 0     # with wr_ack: cycles from a write's grant to its response (0: same cycle)
+    wr_out_max: int = 15         # with wr_ack: most writes granted and not yet complete
 
     def __post_init__(self):
         if not self.port_bytes:
@@ -59,6 +66,7 @@ class Params:
         assert self.tile >= 4 and self.tile % 2 == 0, "tile must be even and >= 4"
         assert self.port_bytes >= 4 and self.port_bytes % 4 == 0, "port must hold whole int32 lanes"
         assert 0.0 <= self.gnt_stall < 1.0, "gnt_stall must be in [0, 1)"
+        assert self.wr_resp_latency >= 0 and self.wr_out_max >= 1
 
 
 @dataclass
@@ -181,6 +189,8 @@ class TriQueueCore:
         self.gnt = GrantSource(self.p.gnt_stall, self.p.gnt_seed)
         self.rd_pend = None             # stream of a read request held for gnt
         self.wr_pend = False            # a write request held for gnt
+        self.wr_out = 0                 # writes granted and not yet complete (wr_ack)
+        self.wr_done_at = deque()       # completion cycles of those writes
 
     def ev(self, unit, event, **kv):
         if self.trace is not None:
@@ -219,7 +229,7 @@ class TriQueueCore:
     def all_idle(self):
         return (not self.macq and self.cur is None and not self.scmd["A"] and not self.scmd["B"]
                 and self.stream["A"] is None and self.stream["B"] is None and not self.inflight
-                and self.drain is None)
+                and self.drain is None and self.wr_out == 0)
 
     def step_front(self):
         if self.halted:
@@ -457,6 +467,9 @@ class TriQueueCore:
         self.wr_pend = not gnt
         if gnt:
             self._issue_write()
+            if self.p.wr_ack:
+                self.wr_out += 1
+                self.wr_done_at.append(self.cycle + self.p.wr_resp_latency)
         else:
             self.stats.port_stall["wr"] += 1
 
@@ -473,17 +486,21 @@ class TriQueueCore:
         shared port a held read or write keeps the port."""
         rd_gnt, wr_gnt = self.gnt.next()
         cand = self.rd_pend or self._read_candidate()
-        can_write = self.drain is not None and self.cycle >= self.drain["ready"]
+        room = self.wr_pend or not self.p.wr_ack or self.wr_out < self.p.wr_out_max
+        can_write = self.drain is not None and self.cycle >= self.drain["ready"] and room
         if not self.p.shared_port:
             if can_write:
                 self._try_write(wr_gnt)
             if cand:
                 self._try_read(cand, rd_gnt)
-            return
-        if self.wr_pend or (not self.rd_pend and can_write and (self.swap_wait or cand is None)):
+        elif self.wr_pend or (not self.rd_pend and can_write and (self.swap_wait or cand is None)):
             self._try_write(wr_gnt)
         elif cand:
             self._try_read(cand, rd_gnt)
+        # write responses due this cycle (wr_ack)
+        while self.wr_done_at and self.wr_done_at[0] <= self.cycle:
+            self.wr_done_at.popleft()
+            self.wr_out -= 1
 
     def arrivals(self):
         while self.inflight and self.inflight[0][0] <= self.cycle:

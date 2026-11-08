@@ -25,6 +25,7 @@ module tq_core_env #(
     parameter int  ACC_FORM    = 1,          // tq_pkg::ACC_CPA, as tq_top
     parameter int  PROG_BYTES  = 32,
     parameter bit  KERNEL      = 1'b0,
+    parameter bit  WR_ACK      = 1'b0,       // 1: writes complete at a free wr_done_i (any latency)
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -35,7 +36,8 @@ module tq_core_env #(
     input  logic          rd_gnt_i,
     input  logic          rd_rvalid_i,
     input  logic [VB-1:0] rd_rdata_i,
-    input  logic          wr_gnt_i
+    input  logic          wr_gnt_i,
+    input  logic          wr_done_i
 );
   (* anyconst *) logic [PROG_BYTES*8-1:0] any_prog;
   (* anyconst *) logic [4:0] k_dim, m_dim, n_dim;
@@ -62,13 +64,21 @@ module tq_core_env #(
 
   tq_core #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
             .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
-            .CLK_GATE(1'b0)) dut (
+            .CLK_GATE(1'b0), .WR_ACK(WR_ACK), .WR_OUT_MAX(3)) dut (
       .clk_i, .rst_ni, .start_i, .abort_i, .prog_i(prog),
       .busy_o(busy), .done_o(done), .error_o(error), .err_code_o(err_code), .cfg_o(cfg),
       .perf_cycles_o(p_cyc), .perf_instret_o(p_ret), .perf_beats_o(p_beat),
       .perf_reads_o(p_rd), .perf_writes_o(p_wr),
       .rd_req_o(rd_req), .rd_addr_o(rd_addr), .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i,
-      .wr_req_o(wr_req), .wr_addr_o(wr_addr), .wr_be_o(wr_be), .wr_wdata_o(wr_wdata), .wr_gnt_i);
+      .wr_req_o(wr_req), .wr_addr_o(wr_addr), .wr_be_o(wr_be), .wr_wdata_o(wr_wdata), .wr_gnt_i,
+      .wr_done_i(WR_ACK && wr_done_i));
+  // write responses only for granted, not yet completed writes (any latency, including 0)
+  logic [2:0] wr_open_q;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) wr_open_q <= '0;
+    else         wr_open_q <= wr_open_q + 3'(wr_req && wr_gnt_i) - 3'(WR_ACK && wr_done_i);
+  end
+  always_comb if (rst_ni && WR_ACK && wr_done_i) assume (32'(wr_open_q) + 32'(wr_req && wr_gnt_i) > 0);
 
   logic past_valid = 1'b0;
   always_ff @(posedge clk_i) past_valid <= 1'b1;

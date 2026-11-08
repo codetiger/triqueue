@@ -20,6 +20,8 @@ module tq_core #(
     parameter int PROG_BYTES  = 64,
     parameter int ACC_FORM    = tq_pkg::ACC_CPA,  // accumulator form (tq_mac_array, spec 10.2)
     parameter bit CLK_GATE    = 1'b1,  // clock gates on the wide register groups (tq_cg)
+    parameter bit WR_ACK      = 1'b0,  // 1: a write completes at wr_done_i, not at its grant (AXI)
+    parameter int WR_OUT_MAX  = 15,    // WR_ACK: most writes granted and not yet complete
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -51,7 +53,8 @@ module tq_core #(
     output logic [31:0]             wr_addr_o,
     output logic [W-1:0]            wr_be_o,
     output logic [VB-1:0]           wr_wdata_o,
-    input  logic                    wr_gnt_i
+    input  logic                    wr_gnt_i,
+    input  logic                    wr_done_i    // WR_ACK: one pulse per completed write, in order
 );
   // ---------------------------------------------------------------- run control
   logic running_q, err_q;
@@ -210,6 +213,26 @@ module tq_core #(
       .clear_bank_o(clear_bank), .clear_bank_sel_o(clear_bank_sel),
       .active_o(drain_act), .active_next_o(drain_act_next), .align_err_o(drain_align_err));
 
+  // ---------------------------------------------------------------- write completion
+  // With WR_ACK, a granted write stays outstanding until its wr_done_i pulse (same cycle or
+  // later). FENCE waits for none outstanding, and no new write is requested while WR_OUT_MAX
+  // are; a request already waiting for gnt is held (OBI). Not cleared by START / ABORT: writes
+  // in flight still complete. Model: wr_ack, wr_resp_latency, wr_out_max.
+  localparam int OW = $clog2(WR_OUT_MAX + 2);
+  logic [OW-1:0] wr_out_q, wr_out_n;
+  logic          wr_hold_q, wr_room, wr_pending_room;
+  assign wr_room         = !WR_ACK || wr_hold_q || 32'(wr_out_q) < WR_OUT_MAX;
+  assign wr_pending_room = wr_pending && wr_room;
+  assign wr_out_n        = WR_ACK ? wr_out_q + OW'(wr_fire) - OW'(wr_done_i) : '0;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      wr_out_q <= '0; wr_hold_q <= 1'b0;
+    end else begin
+      wr_out_q  <= wr_out_n;
+      wr_hold_q <= wr_req_o && !wr_gnt_i;
+    end
+  end
+
   // ---------------------------------------------------------------- stream engine + ports
   logic stream_idle, stream_align_err, rd_fire, wr_req;
   tq_stream #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .SCMD_DEPTH(SCMD_DEPTH), .SHARED_PORT(SHARED_PORT),
@@ -219,7 +242,7 @@ module tq_core #(
       .scmd_b_push_i(scmd_b_push), .scmd_b_i(scmd_b_in),
       .scmd_a_full_o(scmd_a_full), .scmd_b_full_o(scmd_b_full),
       .qa_pop_i(qa_pop), .qb_pop_i(qb_pop),
-      .wr_pending_i(wr_pending), .swap_wait_i(swap_wait), .wr_gnt_i, .wr_req_o(wr_req), .wr_fire_o(wr_fire),
+      .wr_pending_i(wr_pending_room), .swap_wait_i(swap_wait), .wr_gnt_i, .wr_req_o(wr_req), .wr_fire_o(wr_fire),
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i, .rd_fire_o(rd_fire),
       .qa_push_o(qa_push), .qb_push_o(qb_push), .q_data_o(q_data),
       .idle_o(stream_idle), .align_err_o(stream_align_err));
@@ -231,7 +254,8 @@ module tq_core #(
   // in flight, mid-instruction or draining (model: all_idle, evaluated in the front-end stage).
   logic idle, halt, err_now;
   logic [3:0] err_now_code;
-  assign idle = (32'(macq_cnt) - 32'(macq_pop) == 0) && !mac_start && stream_idle && !drain_act_next;
+  assign idle = (32'(macq_cnt) - 32'(macq_pop) == 0) && !mac_start && stream_idle && !drain_act_next
+             && wr_out_n == '0;
   assign halt = running_q && fence && idle;
 
   always_comb begin
@@ -305,6 +329,15 @@ module tq_core #(
       if (is_zero) assert (!drain_act) else $error("ZERO_C during a drain");
     end
   end
+  // write responses, checked at the clock edge (inputs may change between edges)
+  /* verilator lint_off SYNCASYNCNET */
+  always_ff @(posedge clk_i) begin
+    if (rst_ni && WR_ACK) begin
+      assert (!(wr_done_i && 32'(wr_out_q) + 32'(wr_fire) == 0)) else $error("wr_done without a write");
+      assert (32'(wr_out_n) <= WR_OUT_MAX) else $error("more than WR_OUT_MAX writes outstanding");
+    end
+  end
+  /* verilator lint_on SYNCASYNCNET */
 `endif
 
 `ifdef FORMAL
@@ -312,6 +345,13 @@ module tq_core #(
   // For any program: an accumulate never targets the bank being drained.
   always_comb begin
     if (rst_ni && running_q) assert (!(prod_valid && drain_act && prod_bank == rd_bank));
+  end
+  // A request dropped at START / ABORT is followed by a cycle without requests, so an adapter
+  // that must finish a dropped transaction (tq_axi_mem) can tell it from a new one.
+  logic past_clear_q = 1'b0;
+  always_ff @(posedge clk_i) past_clear_q <= rst_ni && clear;
+  always_comb begin
+    if (rst_ni && past_clear_q) assert (!rd_req_o && !wr_req_o);
   end
 `endif
 

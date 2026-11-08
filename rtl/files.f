@@ -11,3 +11,5 @@ rtl/core/tq_regs.sv
 rtl/core/tq_top.sv
 rtl/adapters/tq_axil_regs.sv
 rtl/adapters/tq_top_axil.sv
+rtl/adapters/tq_axi_mem.sv
+rtl/adapters/tq_top_axi.sv

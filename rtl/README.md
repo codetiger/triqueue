@@ -14,6 +14,8 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specifica
 | `SCMD_DEPTH` | 2 | Stream command queue depth |
 | `SHARED_PORT` | 0 | 1: drain writes share the read port (single-port SRAM); the core never requests both in one cycle |
 | `PROG_BYTES` | 64 | Program buffer size (8 `CFG` + 10-byte kernel = 50 bytes) |
+| `WR_ACK` | 0 | 1: a write is complete at its `wr_done_i` pulse, not at its grant (AXI B). FENCE waits for every write response. 0: `wr_done_i` is ignored (tie it to 0 for an SRAM). |
+| `WR_OUT_MAX` | 15 | With `WR_ACK`: most writes granted and not yet complete; the core holds back new writes at the limit. |
 | `CLK_GATE` | 1 | 1: clock gates (`tq_cg`) on the wide register groups: accumulator banks (one gate per bank and quadrant, open only for a clear or an accumulate that reaches the quadrant), product register, beat-1 operands, every queue entry at least 16 bits wide, drain staging register and each program-buffer byte (102 gates at T = 8). 0: plain enable flops. Same results and cycle timing. |
 | `ACC_FORM` | `tq_pkg::ACC_CPA` | Accumulator cell (spec §10.2): `ACC_CPA` one 32-bit value with a carry-propagate adder in the loop (the default: smaller and lower energy after place and route), or `ACC_CSA` carry-save (sum, carry) with CPA lanes at the drain (twice the accumulator state). Same results and cycle timing. |
 
@@ -26,7 +28,7 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specifica
 | Port | Signals | Rules |
 | --- | --- | --- |
 | Read | `rd_req_o`, `rd_addr_o` → `rd_gnt_i`; `rd_rvalid_i`, `rd_rdata_i` | A request is accepted in a cycle where `req && gnt`. Responses come back in order, any number of cycles later (including the same cycle). `rvalid` has no backpressure: the core only requests when it has room for the response. |
-| Write | `wr_req_o`, `wr_addr_o`, `wr_be_o`, `wr_wdata_o` → `wr_gnt_i` | Accepted when `req && gnt`. Byte enables are contiguous from the low byte. |
+| Write | `wr_req_o`, `wr_addr_o`, `wr_be_o`, `wr_wdata_o` → `wr_gnt_i`; `wr_done_i` | Accepted when `req && gnt`. Byte enables are contiguous from the low byte. `wr_done_i`: one pulse per completed write when `WR_ACK = 1`, else tie to 0. |
 
 Requests never depend combinationally on `gnt`, and an ungranted request stays asserted with the same address and data until granted (OBI request stability; START or ABORT drops it). All addresses are W-aligned: the program must keep `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` multiples of W, otherwise the core stops with `ERR_ALIGN`.
 
@@ -48,6 +50,8 @@ Requests never depend combinationally on `gnt`, and an ungranted request stays a
 | `core/tq_regs.sv` | Register port and program buffer |
 | `core/tq_top.sv` | Registers + core |
 | `adapters/tq_axil_regs.sv` | AXI4-Lite slave to the register port: one transaction at a time, reads and writes alternate when both wait, B / R after the register port's response. Formally proved (`verif/formal/tq_axil_regs.sby`). |
+| `adapters/tq_axi_mem.sv` | AXI4 master for the memory ports: single-beat INCR per port word, RREADY / BREADY always 1, AR and AW+W handshakes as `gnt`, `wr_done` from B. Finishes and discards a request the core drops at START / ABORT. Formally proved (`verif/formal/tq_axi_mem.sby`). |
+| `adapters/tq_top_axi.sv` | `tq_top` for an AXI SoC: AXI4-Lite registers + AXI4 memory master, `WR_ACK = 1`. Regression configuration `t8_axi`. |
 | `adapters/tq_top_axil.sv` | `tq_top` with the AXI4-Lite register port; memory ports native (for tightly coupled SRAM). Regression configuration `t8_axil`. |
 
 ## Coding rules

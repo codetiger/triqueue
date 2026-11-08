@@ -13,6 +13,8 @@ module tq_top #(
     parameter int PROG_BYTES  = 64,
     parameter int ACC_FORM    = tq_pkg::ACC_CPA,
     parameter bit CLK_GATE    = 1'b1,
+    parameter bit WR_ACK      = 1'b0,
+    parameter int WR_OUT_MAX  = 15,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -39,7 +41,8 @@ module tq_top #(
     output logic [31:0]   wr_addr_o,
     output logic [W-1:0]  wr_be_o,
     output logic [VB-1:0] wr_wdata_o,
-    input  logic          wr_gnt_i
+    input  logic          wr_gnt_i,
+    input  logic          wr_done_i      // write response (WR_ACK = 1); tie 0 for an SRAM
 );
   logic                    start, abort, busy, done, error;
   logic [3:0]              err_code;
@@ -58,14 +61,14 @@ module tq_top #(
 
   tq_core #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
             .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
-            .CLK_GATE(CLK_GATE)) u_core (
+            .CLK_GATE(CLK_GATE), .WR_ACK(WR_ACK), .WR_OUT_MAX(WR_OUT_MAX)) u_core (
       .clk_i, .rst_ni,
       .start_i(start), .abort_i(abort), .prog_i(prog),
       .busy_o(busy), .done_o(done), .error_o(error), .err_code_o(err_code), .cfg_o(cfg),
       .perf_cycles_o(p_cyc), .perf_instret_o(p_ret), .perf_beats_o(p_beat),
       .perf_reads_o(p_rd), .perf_writes_o(p_wr),
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i,
-      .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i);
+      .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i, .wr_done_i);
 
 `ifndef SYNTHESIS
   initial begin

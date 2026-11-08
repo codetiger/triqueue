@@ -301,16 +301,18 @@ The core has two native ports, W = 2T bytes wide, with OBI-style (OpenHW Open Bu
 | Port | Signals | Rules |
 | --- | --- | --- |
 | Read | `rd_req`, `rd_addr` → `rd_gnt`; `rd_rvalid`, `rd_rdata` | A request is accepted when `req && gnt`. Responses return in order, any number of cycles later (including the request cycle). The stream engine only requests when the destination FIFO has room for the response, so `rvalid` never needs backpressure. |
-| Write | `wr_req`, `wr_addr`, `wr_be`, `wr_wdata` → `wr_gnt` | Drain writes, accepted when `req && gnt`. Byte enables are contiguous from the low byte. With `SHARED_PORT` the core never requests both ports in one cycle, so both can share a single-port SRAM (§5.1). |
+| Write | `wr_req`, `wr_addr`, `wr_be`, `wr_wdata` → `wr_gnt`; `wr_done` | Drain writes, accepted when `req && gnt`. Byte enables are contiguous from the low byte. With `SHARED_PORT` the core never requests both ports in one cycle, so both can share a single-port SRAM (§5.1). `wr_done` is the write response, used when the core is built with `WR_ACK` (below). |
 
 - Requests never depend combinationally on `gnt`, and a request that isn't granted stays asserted with the same address and data until it is (OBI, and AXI `xVALID`, request stability). START or ABORT drops it.
 - Every read and every drain write is one aligned W-byte word (alignment rule, §6.1). C rows are padded to whole words, which wastes at most W − 4 bytes per row.
 - With an SRAM that always grants and answers L cycles after the request, the RTL matches the cycle model run with `mem_latency = L + 1`. The extra cycle is the operand FIFO write. SRAM latency costs only FIFO depth: depth 8 hides up to 8 cycles at every T (`model/dse.md` §5).
+- **Write completion.** On an SRAM a write is complete when it is granted, and `wr_done` is tied to 0. Behind an interconnect such as AXI a write is complete only at its response, so the core is built with `WR_ACK = 1`: each granted write stays outstanding until its `wr_done` pulse (in order, in the grant cycle or later), `FENCE` (and so `DONE`) waits until none is outstanding, and no new write is requested while `WR_OUT_MAX` are. When software sees `DONE`, C is in memory. With responses in the grant cycle the timing is that of an SRAM; the cycle model has the same option (`wr_ack`, `wr_resp_latency`).
+- **AXI.** `tq_axi_mem` turns the two ports into an AXI4 master with a W-byte data bus: one single-beat INCR transaction per port word, `RREADY` and `BREADY` always 1 (the core never back-pressures a response), AR and AW/W ready acting as `gnt`. AXI does not allow a VALID to be withdrawn, so a request the core drops at START or ABORT is finished by the adapter and its response discarded. `tq_top_axi` combines it with the AXI4-Lite register port (§6.4) and `WR_ACK = 1`.
 - `gnt` back-pressure is supported and part of the cycle model: an ungranted request holds the port: the read keeps its stream (no re-arbitration and no panel loads meanwhile), and on a shared port a held read or write keeps the port. The RTL matches the model cycle for cycle under random stalls of up to 80% on both ports.
 
 ### 6.4 Host interface
 
-The core exposes one 32-bit register port (OBI-style: always grants, read data one cycle after the request) and an interrupt. Bus or CPU attachment is a thin adapter on this port: AXI4-Lite or APB for any SoC, CV-X-IF for custom-instruction issue from CVA6 or CV32E40X, or RoCC for Chipyard. A GEMM is 50 bytes of program, after which the host only waits, so the interface carries very little traffic.
+The core exposes one 32-bit register port (OBI-style: always grants, read data one cycle after the request) and an interrupt. Bus or CPU attachment is a thin adapter on this port: AXI4-Lite (`tq_axil_regs`, implemented) or APB for any SoC, CV-X-IF for custom-instruction issue from CVA6 or CV32E40X, or RoCC for Chipyard. A GEMM is 50 bytes of program, after which the host only waits, so the interface carries very little traffic.
 
 | Offset | Name | Access | Contents |
 | --- | --- | --- | --- |

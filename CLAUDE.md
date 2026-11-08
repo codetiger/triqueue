@@ -19,7 +19,7 @@ RTL v0 exists and matches the model cycle for cycle. The architecture is the **T
 - `rtl/`: SystemVerilog, top `tq_top`, sources in compile order in `rtl/files.f`. `rtl/README.md` covers parameters, the register and memory port contracts, the block map and the Yosys-compatible coding rules.
 - `verif/`: cocotb + Verilator regression against the model (`test_rtl.py` holds the configurations and cases; `tb/` the testbench), plus SymbiYosys proofs in `formal/`.
 - `flow/`: physical design with OpenROAD-flow-scripts (`flow/README.md`). The reference is a native ORFS build pinned to `ORFS_COMMIT` in `flow/ppa.py`; never mix its numbers with the `--docker` flow's. `ppa.py run` (RTL to routed layout), `power.py` (activity-based power per workload), `results.py collect` (records a run in `flow/records/`, committed). `flow/results.md` is generated from the records only, and CI checks it.
-- `rtl/adapters/`: bus adapters (Phase 4). `tq_axil_regs` (AXI4-Lite to the register port) and `tq_top_axil`.
+- `rtl/adapters/`: bus adapters (Phase 4). `tq_axil_regs` (AXI4-Lite to the register port), `tq_axi_mem` (AXI4 master for the memory ports; needs the core's `WR_ACK = 1`), and the tops `tq_top_axil` (AXI4-Lite only) and `tq_top_axi` (both).
 - `sw/`: freestanding C driver (`tq.h`, `tq.c`), tested against the model's program builder and packing (`make sw-test`).
 - `bench/workloads/gemm.csv`: the single list of GEMM shapes. Benchmarks select rows by tag (`model`, `amx`, `dse`). Add shapes there, never hard-coded in a script.
 - `bench/reference/amx/`: real-hardware Apple AMX (M2 Pro) measurements and scripts comparing them with the model.
@@ -45,13 +45,13 @@ make rtl-lint         # verilator -Wall in 7 configurations + Yosys elaboration 
 make rtl-test         # cocotb regression, all configurations (~60 s); builds go to build/rtl/<config>/
 python3 -m pytest verif -q -k t8_default    # one RTL configuration
 make formal           # SymbiYosys: FIFO proof (tq_fifo.sby), AXI4-Lite adapter (tq_axil_regs.sby), unbounded core proof, split port (tq_core.sby split, ~3 min)
-make formal-nightly   # core proof, shared port (tq_core.sby shared, 1-80 min, varies widely)
+make formal-nightly   # core proofs, shared port and WR_ACK (tq_core.sby shared/ack), AXI4 master proof (tq_axi_mem.sby prove, ~10 min)
 make flow-results     # rewrite flow/results.md from flow/records/ (no flow run)
 make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets (stats in build/synth/)
 make clean            # removes build/ and SymbiYosys work dirs
 ```
 
-RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t32`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs on every push: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
+RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_write_ack`, `t8_write_ack_shared`, `t32`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs on every push: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
 
 Run model commands from `model/` (`pytest.ini` sets `pythonpath = .`, so imports are `from tri_queue...`):
 
@@ -92,7 +92,7 @@ Properties the model enforces and the tests check:
 - Arithmetic is done the hardware way: 9×9 multiplies with sign extension per `MODE`, and 32-bit wrapping 3:2 carry-save accumulation (`_csa_reduce`). The carry-propagate add happens only at drain. The RTL's default plain adder gives the same values mod 2³², so this checks both forms. Don't replace this with a plain numpy matmul inside the core; the tests compare against `reference()`.
 - Per-quadrant arity limits (`HW_CELL_ARITY`: TL 4, TR 2, BL 2, BR 1) are asserted, so a shape/operand-selection bug fails loudly.
 - `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` must be multiples of W (asserted). C rows are padded to whole words, so `C_LD` is not always `4·N`; use `read_c` to extract C.
-- The modelling assumptions are listed in both `model/README.md` and the `core.py` docstring: 1 instruction decoded per cycle, zero-overhead loops, `ZERO_C`/`SWAP_C` take no MAC cycle, `VOUTER_MAC` waits for all its operand bytes, pipelined SRAM reads with fixed latency, ports always granted unless `gnt_stall` > 0 (seeded random `gnt` back-pressure that the RTL testbench reproduces through the shared `GrantSource`; an ungranted request is held unchanged until granted), no bank conflicts. If you change an assumption, update both places.
+- The modelling assumptions are listed in both `model/README.md` and the `core.py` docstring: 1 instruction decoded per cycle, zero-overhead loops, `ZERO_C`/`SWAP_C` take no MAC cycle, `VOUTER_MAC` waits for all its operand bytes, pipelined SRAM reads with fixed latency, ports always granted unless `gnt_stall` > 0 (seeded random `gnt` back-pressure that the RTL testbench reproduces through the shared `GrantSource`; an ungranted request is held unchanged until granted), writes complete at their grant unless `wr_ack` (then after `wr_resp_latency`, FENCE waits for them), no bank conflicts. If you change an assumption, update both places.
 
 `bench.py` writes `results.md` section by section and labels each spec claim ✅/❌ against the simulated value. When you add a claim to the spec, add a row for it there.
 

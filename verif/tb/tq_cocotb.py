@@ -5,7 +5,8 @@
 Cases and the RTL configuration come from environment variables set by verif/test_rtl.py:
   TQ_PARAMS  JSON of model Params fields matching the RTL parameters (tile, fifo_depth, ...)
   TQ_CASES   JSON list of {m, n, k, a, b, seed, lat}
-  TQ_HOST    "axil": the top level is tq_top_axil, registers are reached through AXI4-Lite
+  TQ_HOST    "axil": the top level is tq_top_axil, registers are reached through AXI4-Lite;
+             "axi": tq_top_axi, AXI4-Lite registers and an AXI4 memory slave
 
 Checks per case (docs/golden-vectors.md, "How the RTL is checked against the model"):
   1. final memory bit-exact (and C equal to numpy)
@@ -24,7 +25,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "model"))
 from tri_queue.core import Params, TriQueueCore, build_gemm, read_c, reference  # noqa: E402
 
-from tq_tb import TqTb, TqTbAxil  # noqa: E402
+from tq_tb import TqTb, TqTbAxi, TqTbAxil  # noqa: E402
 
 DT = {"s8": np.int8, "u8": np.uint8}
 
@@ -77,21 +78,25 @@ def first_diff(xs, ys):
 async def gemm_cases(dut):
     params = json.loads(os.environ["TQ_PARAMS"])
     cases = json.loads(os.environ["TQ_CASES"])
-    tb = (TqTbAxil if os.environ.get("TQ_HOST") == "axil" else TqTb)(dut, params["tile"])
+    tb = {"axil": TqTbAxil, "axi": TqTbAxi}.get(os.environ.get("TQ_HOST"), TqTb)(dut, params["tile"])
     await tb.start()
     failures = []
     for case in cases:
         stall = case.get("stall", 0.0)
-        p = Params(**params, mem_latency=case["lat"], gnt_stall=stall, gnt_seed=case["seed"])
+        p = Params(**params, mem_latency=case["lat"], gnt_stall=stall, gnt_seed=case["seed"],
+                   **({"wr_resp_latency": case["wr_lat"]} if "wr_lat" in case else {}))
         a, b = operands(case)
         mem0, prog, layout, mem_model, s, ev = model_run(a, b, p)
         mem = mem0.copy()
         name = f"{case['m']}x{case['n']}x{case['k']} {case['a']}/{case['b']} lat={case['lat']}"
         if case.get("stall"):
             name += f" stall={case['stall']}"
+        if "wr_lat" in case:
+            name += f" wr_lat={case['wr_lat']}"
         try:
             rec = await tb.run(mem, prog, case["lat"], max_cycles=2 * s.cycles + 200,
-                               stall=stall, seed=case["seed"])
+                               stall=stall, seed=case["seed"],
+                               wr_resp_latency=p.wr_resp_latency if p.wr_ack else None)
         except TimeoutError:
             failures.append(f"{name}: hang (model finishes in {s.cycles} cycles)")
             dut._log.error("%s: hang (model %d cycles)", name, s.cycles)

@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+#
+# Unbounded proof (ABC PDR) of the AXI4 memory master (tq_axi_mem, W = 4, 3 transactions in
+# flight) for any core request sequence that keeps OBI rules but may drop a waiting request, and
+# any in-order AXI slave (tq_axi_mem_env.sv): AXI VALID and payload held until READY, the core
+# gets exactly its own responses in order with the right data, wr_done only for its writes.
+# Covers: a dropped read and a dropped write complete. Run: sby -f tq_axi_mem.sby
+
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+cover: mode cover
+cover: depth 16
+
+[engines]
+prove: abc pdr
+cover: smtbmc yices
+
+[script]
+read_verilog -sv -formal tq_icg.sv tq_cg.sv tq_fifo.sv tq_axi_mem.sv tq_axi_mem_env.sv
+prep -top tq_axi_mem_env
+flatten
+opt_clean
+# out-of-range part-select fill (x) becomes a free value, so the abc engine can take the model
+techmap t:$shiftx
+setundef -anyseq
+
+[files]
+../../rtl/common/tq_icg.sv
+../../rtl/common/tq_cg.sv
+../../rtl/common/tq_fifo.sv
+../../rtl/adapters/tq_axi_mem.sv
+tq_axi_mem_env.sv

@@ -166,3 +166,22 @@ def test_gnt_request_stability(m, n, k, stall, shared):
             held += 1
             assert by_port[port].get(cyc + 1) == req, f"{port} request changed after cycle {cyc}"
     assert held > 0
+
+
+@pytest.mark.parametrize("shared", [False, True])
+@pytest.mark.parametrize("lat,out_max", [(0, 15), (1, 15), (5, 15), (12, 2), (30, 1)])
+def test_write_ack(lat, out_max, shared):
+    """wr_ack: results unchanged, FENCE waits for every write response, and with latency 0 the
+    timing equals the default (write complete at its grant)."""
+    rng = np.random.default_rng(lat * 7 + out_max)
+    a, b = rand(rng, (37, 64), np.int8), rand(rng, (64, 41), np.int8)
+    base = Params(shared_port=shared, gnt_stall=0.3, gnt_seed=5)
+    c0, s0 = run_gemm(a, b, base)
+    p = Params(shared_port=shared, gnt_stall=0.3, gnt_seed=5, wr_ack=True, wr_resp_latency=lat, wr_out_max=out_max)
+    c1, s1 = run_gemm(a, b, p)
+    assert np.array_equal(c1, reference(a, b)) and np.array_equal(c0, c1)
+    assert s1.write_vectors == s0.write_vectors
+    if lat == 0:
+        assert s1.cycles == s0.cycles
+    else:
+        assert s1.cycles >= s0.cycles + lat - 1       # the last response arrives lat cycles after its grant

@@ -96,6 +96,26 @@ CONFIGS = {
         dict(tile=8),
         edge_cases(8, (9,))[::4] + [case(64, 64, 64), case(20, 24, 27, lat=3, stall=0.4)],
     ),
+    "t8_write_ack": (
+        dict(T=8, WR_ACK=1, WR_OUT_MAX=2),
+        dict(tile=8, wr_ack=True, wr_out_max=2),
+        [dict(c, wr_lat=wl) for c in edge_cases(8, (9,))[::5] for wl in (0, 1, 4)]
+        + [dict(case(m, n, k, lat=lat, stall=s), wr_lat=wl) for (m, n, k) in ((20, 24, 27), (64, 64, 16))
+           for lat, s, wl in ((1, 0.0, 9), (2, 0.4, 3), (3, 0.6, 12))],
+    ),
+    "t8_write_ack_shared": (
+        dict(T=8, WR_ACK=1, WR_OUT_MAX=1, SHARED_PORT=1),
+        dict(tile=8, wr_ack=True, wr_out_max=1, shared_port=True),
+        [dict(case(m, n, k, lat=lat, stall=s), wr_lat=wl) for (m, n, k) in ((20, 24, 27), (9, 9, 9), (64, 64, 16))
+         for lat, s, wl in ((1, 0.0, 0), (2, 0.3, 2), (3, 0.5, 7))],
+    ),
+    "t8_axi": (
+        dict(T=8),
+        dict(tile=8, wr_ack=True, wr_out_max=16),
+        [dict(c, wr_lat=wl) for c in edge_cases(8, (9,))[::4] for wl in (1, 3)]
+        + [dict(case(m, n, k, lat=lat, stall=s), wr_lat=wl) for (m, n, k) in ((64, 64, 64), (20, 24, 27))
+           for lat, s, wl in ((2, 0.0, 1), (3, 0.5, 6), (1, 0.8, 20))],
+    ),
     "t32": (
         dict(T=32),
         dict(tile=32),
@@ -116,7 +136,7 @@ CONFIGS = {
 
 
 # configurations whose top level is not tq_top (the testbench host driver follows it)
-TOPS = {"t8_axil": ("tq_top_axil", "axil")}
+TOPS = {"t8_axil": ("tq_top_axil", "axil"), "t8_axi": ("tq_top_axi", "axi")}
 
 
 @pytest.mark.parametrize("name", list(CONFIGS))
