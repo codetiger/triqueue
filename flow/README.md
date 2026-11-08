@@ -31,6 +31,7 @@ cmake --build tools/yosys/build --target install -j
 | `ppa.py` | Configurations (`CONFIGS`), platforms with their target clocks (`PLATFORMS`), and the ORFS driver. Runs work in `build/orfs_native/<platform>/<config>/` (`build/orfs_docker/` with `--docker`). |
 | `constraint.sdc` | Clock on `clk_i` (period from `ppa.py`), 20% of the period as I/O delay, `rst_ni` untimed (asynchronous, synchronized in the SoC). |
 | `activity.py` | Runs one workload in Verilator through the cocotb testbench (checked against the cycle model) and dumps SAIF. |
+| `results.py` | `collect` condenses a finished native run and its power results into `records/<platform>/<config>.json` (committed); without arguments it writes `results.md` from the records. CI checks that `results.md` matches them. |
 | `power.py`, `power.tcl` | Flattens the SAIF to the routed netlist's names, scales it to the flow clock, writes a register activity table, and reads both into OpenSTA with the routed parasitics. Reports power and energy per MAC. |
 
 ## Usage
@@ -40,11 +41,14 @@ python3 flow/ppa.py list
 python3 flow/ppa.py run sky130hd t8_csa              # full flow
 python3 flow/ppa.py run asap7 t8_cpa --to synth      # stop after a stage
 python3 flow/power.py sky130hd t8_csa gemm64         # after the flow: activity-based power
+python3 flow/results.py collect sky130hd t8_csa      # record the run, rewrite results.md
 ```
+
+`collect` refuses a run whose synthesis is older than `rtl/`, or when `rtl/` has uncommitted changes, so a record always names the RTL commit it was built from. A run made before an RTL change that cannot affect its netlist (a comment, or the default of a parameter the configuration sets) can be recorded with `--force`; say so in the commit.
 
 ## How the numbers are produced
 
-- **Area:** post-route standard-cell area of `tq_top`. The operand SRAM is outside `tq_top`, so this is the engine only.
-- **Timing:** post-route STA at the target clock in `PLATFORMS`, typical corner of the platform.
+- **Area:** post-route standard-cell area of `tq_top` (logic, flops, clock tree, buffers, taps; no fill). The operand SRAM is outside `tq_top`, so this is the engine only. kGE divides it by the PDK's smallest NAND2 (`NAND2_UM2` in `results.py`).
+- **Timing:** post-route STA at the target clock in `PLATFORMS`, typical corner of the platform. Fmax is 1 ÷ (period − worst setup slack), from ORFS.
 - **Power:** OpenSTA with SAIF from an RTL simulation of the workload. Nets that kept their RTL names are annotated from the SAIF, and every register's output pin is annotated by its cell name (the RTL bit plus a Yosys suffix), with the duty inverted on `QN`. That covers flops whose named net is gone, such as asap7's QN-only flops after ABC absorbs the inverter. Other combinational nets are propagated by OpenSTA. Operands are uniform random int8, which switches more than real data. The SAIF is re-simulated whenever the RTL is newer.
 - **Energy:** average power × the whole simulated window (the run plus a few dozen setup cycles), charged to the workload's useful MACs (M × N × K).

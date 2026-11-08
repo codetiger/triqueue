@@ -1,0 +1,115 @@
+{
+  "flow": "native",
+  "orfs_commit": "d0e5b3c13",
+  "openroad": "f131605",
+  "yosys": "0.68+ a5af9d690",
+  "host": "macOS 27.0.1 arm64",
+  "rtl_commit": "0861352",
+  "platform": "asap7",
+  "config": "t8_cpa",
+  "params": {
+    "T": 8,
+    "ACC_FORM": 1
+  },
+  "clock_period_ps": 1000.0,
+  "core_utilization_pct": 45,
+  "cell_area_um2": 14319.3,
+  "area_split_um2": {
+    "sequential": 3470.33,
+    "logic": 9372.126,
+    "clock tree": 354.032,
+    "timing buffers": 752.736,
+    "other": 370.113
+  },
+  "core_area_um2": 29701.4,
+  "placement_density": 0.48211,
+  "cells": 122725,
+  "flops": 10002,
+  "nand2_cell": "NAND2xp33_ASAP7_75t_R",
+  "nand2_um2": 0.058320000000000004,
+  "setup_ws_ps": -71.1573,
+  "setup_tns_ps": -12709.3,
+  "hold_ws_ps": 20.7166,
+  "fmax_hz": 933570000.0,
+  "drc_errors": 0,
+  "power": {
+    "gemm64": {
+      "shape": [
+        64,
+        64,
+        64
+      ],
+      "cycles": 4152,
+      "useful_macs": 262144,
+      "utilization": 0.9865125240847784,
+      "power_w": {
+        "internal": 0.04271745,
+        "switching": 0.02783982,
+        "leakage": 9.769263e-06,
+        "total": 0.07056703
+      },
+      "power_groups_w": {
+        "sequential": 0.01892078,
+        "combinational": 0.03585249,
+        "clock": 0.01579371,
+        "macro": 0.0,
+        "pad": 0.0
+      },
+      "energy_j": 2.9299430856000005e-07,
+      "pj_per_mac": 1.1176845877075197,
+      "tops_per_w": 1.7894135984304798
+    },
+    "resnet8_conv32": {
+      "shape": [
+        256,
+        32,
+        288
+      ],
+      "cycles": 36920,
+      "useful_macs": 2359296,
+      "utilization": 0.9984832069339111,
+      "power_w": {
+        "internal": 0.04227702,
+        "switching": 0.02738677,
+        "leakage": 9.808929e-06,
+        "total": 0.06967359
+      },
+      "power_groups_w": {
+        "sequential": 0.01880106,
+        "combinational": 0.03507875,
+        "clock": 0.01579371,
+        "macro": 0.0,
+        "pad": 0.0
+      },
+      "energy_j": 2.5723489427999995e-06,
+      "pj_per_mac": 1.090303608703613,
+      "tops_per_w": 1.8343514448952702
+    },
+    "mbv1_pw8_16": {
+      "shape": [
+        2304,
+        16,
+        8
+      ],
+      "cycles": 9840,
+      "useful_macs": 294912,
+      "utilization": 0.4682926829268293,
+      "power_w": {
+        "internal": 0.04062722,
+        "switching": 0.02535375,
+        "leakage": 9.775204e-06,
+        "total": 0.06599075
+      },
+      "power_groups_w": {
+        "sequential": 0.017463,
+        "combinational": 0.03273409,
+        "clock": 0.01579371,
+        "macro": 0.0,
+        "pad": 0.0
+      },
+      "energy_j": 6.4934898e-07,
+      "pj_per_mac": 2.201839803059896,
+      "tops_per_w": 0.9083312951380936
+    }
+  }
+}

@@ -13,7 +13,7 @@ RTL       := $(shell cat rtl/files.f)
 LINT_CFGS := "" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
 ACC_FORMS := cpa:1 csa:0
 
-.PHONY: all model-test model-results rtl-lint rtl-test formal formal-nightly synth-check clean
+.PHONY: all model-test model-results flow-results rtl-lint rtl-test formal formal-nightly synth-check clean
 
 all: model-test rtl-lint rtl-test formal synth-check
 
@@ -22,6 +22,11 @@ model-test:
 
 model-results:
 	cd model && $(PYTHON) bench.py > /dev/null && $(PYTHON) dse.py > /dev/null
+
+# Rewrites flow/results.md from the committed run records (flow/records/). Running the physical
+# design flow itself is manual: flow/ppa.py, flow/power.py, then flow/results.py collect.
+flow-results:
+	$(PYTHON) flow/results.py > /dev/null
 
 rtl-lint:
 	@for p in $(LINT_CFGS); do \

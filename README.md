@@ -2,7 +2,7 @@
 
 An open-source RTL matrix-multiply coprocessor for RISC-V SoCs, in the same class as Apple's AMX, Arm SME and Gemmini. It is designed to drop into a larger chip and to be measured honestly against the alternatives.
 
-**Status:** RTL v0. The SystemVerilog core matches the cycle-level Python model cycle for cycle and is bit-exact against numpy across 840 regression cases. Area, power and clock frequency have not been measured yet.
+**Status:** RTL v0. The SystemVerilog core matches the cycle-level Python model cycle for cycle and is bit-exact against numpy across 840 regression cases. The T = 8 core has been placed and routed with OpenROAD on sky130hd and ASAP7, with power from simulated workload activity (engine only, without the operand SRAM): 14,319 µm² and 1.09–2.20 pJ per int8 MAC on ASAP7 (1 GHz target, 934 MHz reached after routing). See `docs/benchmarks.md`.
 
 ## Why
 
@@ -35,6 +35,7 @@ Peak throughput is a parameter, set by tile size and port width. It is not a goa
 | `model/` | Cycle-level Python model: runs the real instruction bytes, bit-exact against numpy. It is the golden reference for the RTL. |
 | `rtl/` | SystemVerilog RTL (`tq_top`), parameterized by tile size; see `rtl/README.md` for interfaces |
 | `verif/` | cocotb + Verilator regression against the model, SymbiYosys proofs |
+| `flow/` | Physical design: OpenROAD-flow-scripts driver, activity-based power, post-route results |
 | `bench/workloads/` | The shared list of GEMM shapes that every benchmark uses |
 | `bench/reference/amx/` | Apple AMX (M2 Pro) measurements used as a real-silicon reference |
 

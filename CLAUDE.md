@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The goal is an **open-source RTL matrix coprocessor for RISC-V**, comparable to Apple AMX, that is easy to integrate into larger SoCs and is benchmarked fairly against other open designs. In priority order: performance per watt, performance per component (area, kGE, state bits per MAC), design reusability (parameterized, interface-agnostic core with thin adapters), and overall efficiency (utilization across a workload suite). Peak throughput is a size parameter, not a goal.
 
-- `README.md` covers the goals. `docs/` is public and holds only the final design: the spec (`docs/specification.md`), its golden-vector/trace contract (`docs/golden-vectors.md`), and `docs/benchmarks.md` (a summary of completed results; update it when a generated result it quotes changes). Benchmark results live next to the scripts that generate them (`model/results.md`, `model/dse.md`, `bench/reference/amx/*.md`).
+- `README.md` covers the goals. `docs/` is public and holds only the final design: the spec (`docs/specification.md`), its golden-vector/trace contract (`docs/golden-vectors.md`), and `docs/benchmarks.md` (a summary of completed results; update it when a generated result it quotes changes). Benchmark results live next to the scripts that generate them (`model/results.md`, `model/dse.md`, `flow/results.md`, `bench/reference/amx/*.md`).
 - Planning material is private and gitignored, in `private/` (only present in the author's checkout): `roadmap.md` (phased plan), `decisions/` (decision records), `metrics.md` (how efficiency numbers must be computed), `history/` (superseded specs). Keep progress tracking, phase status and decision history there, never in public files. Public docs must not link to `private/`. When a decision is made, record it in `private/decisions/` and put the resulting final design in the spec.
 - Efficiency claims are only valid once RTL has been through synthesis and place-and-route. Until then only utilization is known. Don't present model numbers or generic Yosys gate counts as power or area results.
 
@@ -18,10 +18,11 @@ RTL v0 exists and matches the model cycle for cycle. The architecture is the **T
 - `model/`: a cycle-level Python model of the spec that runs the real instruction bytes and checks every result bit-exact against numpy. It is the golden reference for the RTL.
 - `rtl/`: SystemVerilog, top `tq_top`, sources in compile order in `rtl/files.f`. `rtl/README.md` covers parameters, the register and memory port contracts, the block map and the Yosys-compatible coding rules.
 - `verif/`: cocotb + Verilator regression against the model (`test_rtl.py` holds the configurations and cases; `tb/` the testbench), plus SymbiYosys proofs in `formal/`.
+- `flow/`: physical design with OpenROAD-flow-scripts (`flow/README.md`). The reference is a native ORFS build pinned to `ORFS_COMMIT` in `flow/ppa.py`; never mix its numbers with the `--docker` flow's. `ppa.py run` (RTL to routed layout), `power.py` (activity-based power per workload), `results.py collect` (records a run in `flow/records/`, committed). `flow/results.md` is generated from the records only, and CI checks it.
 - `bench/workloads/gemm.csv`: the single list of GEMM shapes. Benchmarks select rows by tag (`model`, `amx`, `dse`). Add shapes there, never hard-coded in a script.
 - `bench/reference/amx/`: real-hardware Apple AMX (M2 Pro) measurements and scripts comparing them with the model.
 
-The spec's performance numbers come from the model. If you change the model or the spec's claims, keep them in sync: regenerate `model/results.md` and `model/dse.md` and update the matching spec sections (§6 ISA, §7 performance, §7.3 scaling). CI fails if either committed file differs from a fresh `bench.py` / `dse.py` run. Any model change must leave the T = 8 results byte-identical unless the change is intended to move them.
+The spec's performance numbers come from the model. If you change the model or the spec's claims, keep them in sync: regenerate `model/results.md` and `model/dse.md` and update the matching spec sections (§6 ISA, §7 performance, §7.3 scaling). CI fails if either committed file differs from a fresh `bench.py` / `dse.py` run, or if `flow/results.md` differs from `python3 flow/results.py` (regenerated from the records; the flow itself is too slow for CI). Any model change must leave the T = 8 results byte-identical unless the change is intended to move them.
 
 **The RTL and the model must stay cycle-exact.** The RTL's per-cycle evaluation order mirrors the model's (memory responses → MAC unit → ports → front end): later stages see earlier stages' pops in the same cycle, and halt detection uses this cycle's post-update state, like the model's `all_idle`. An SRAM latency of L in the testbench corresponds to model `mem_latency = L + 1`. A behaviour change goes into the model first (spec + tests), then the RTL. `make rtl-test` must stay green, with exact cycle counts, in every configuration. The spec rules that keep the hardware simple are enforced by the model too: at most one `ZERO_C`/`SWAP_C` per MAC cycle, and loop bodies contain only 1-byte instructions.
 
@@ -42,6 +43,7 @@ make rtl-test         # cocotb regression, all configurations (~60 s); builds go
 python3 -m pytest verif -q -k t8_default    # one RTL configuration
 make formal           # SymbiYosys: FIFO proof (tq_fifo.sby) + unbounded core proof, split port (tq_core.sby split, ~3 min)
 make formal-nightly   # core proof, shared port (tq_core.sby shared, 1-80 min, varies widely)
+make flow-results     # rewrite flow/results.md from flow/records/ (no flow run)
 make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets (stats in build/synth/)
 make clean            # removes build/ and SymbiYosys work dirs
 ```
