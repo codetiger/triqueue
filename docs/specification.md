@@ -365,7 +365,7 @@ Confirmed: the 99% steady state, exactly 4 MACs per element loaded, the instruct
 Not predicted by the analytic model:
 
 - **Small GEMMs pay a fixed 34 cycles,** which is 37% of a 16³ multiply. Back-to-back GEMMs without a `FENCE` in between would hide it (§10).
-- **K padding to a multiple of 8 wastes up to 7/Kp** of the compute, for example 11% at K = 65.
+- **K padding to a multiple of 8 wastes up to 7/Kp** of the compute, for example 11% at K = 65. On the real network layers (MLPerf Tiny, BERT-tiny) it costs at most 1.4% of a network's MACs, all from the first 3×3×3 convolution (K = 27 → 32), so a per-shape Kp, which would change packing and the meaning of K in the ISA, is not worth it.
 - **Odd M or N costs more than the edge-shape table suggests,** because a 1-row remainder still occupies a 4-wide tile.
 
 A comparison against other int8 designs at the same MAC count (for example Gemmini with an 8×8 int8 mesh, an int8 register-tile engine, and RVV with int8 dot products) has not been made yet. To be fair it needs the same synthesis flow and workloads for every design.
