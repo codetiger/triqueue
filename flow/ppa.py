@@ -47,7 +47,7 @@ CONFIGS = {
 # that cannot close the platform clock is recorded at one it closes, so its energy is measured
 # at a clock it really runs at (found with `ppa.py sweep`).
 PERIOD_OVERRIDE = {
-    ("asap7", "t16_cpa"): 1200,
+    ("asap7", "t16_cpa"): 1350,
 }
 
 # name: clock period (platform time unit), floorplan utilization (%), Docker thread cap, extra
