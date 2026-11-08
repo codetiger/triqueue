@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "workloads.h"
+
 #define AMX_NOP_OP_IMM5(op, imm5) \
     __asm volatile("nop\nnop\nnop\n.word (0x201000 + (%0 << 5) + %1)" : : "i"(op), "i"(imm5) : "memory")
 #define AMX_OP_GPR(op, gpr) \
@@ -106,16 +108,11 @@ static void bench(int m, int n, int k) {
     free(a); free(b); free(ap); free(bp); free(c); free(zbuf);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
-    static const int sizes[][3] = {
-        {32, 32, 32}, {64, 64, 64}, {128, 128, 128}, {256, 256, 256}, {512, 512, 512},
-        {64, 64, 8}, {64, 64, 16}, {64, 64, 24}, {64, 64, 32}, {64, 64, 128}, {64, 64, 1024},
-        {32, 32, 4096},
-        {32, 32, 8}, {32, 32, 16}, {32, 32, 32}, {32, 32, 128}, {32, 32, 1024},
-        {128, 128, 8}, {128, 128, 16}, {128, 128, 32}, {128, 128, 1024},
-    };
+    static int sizes[WORKLOADS_MAX][3];
+    int count = workload_shapes(argc > 1 ? argv[1] : WORKLOADS_CSV, "amx_hand", sizes);
     printf("m,n,k,sec_per_call,macs_per_s,max_abs_err\n");
-    for (size_t i = 0; i < sizeof sizes / sizeof sizes[0]; i++) bench(sizes[i][0], sizes[i][1], sizes[i][2]);
+    for (int i = 0; i < count; i++) bench(sizes[i][0], sizes[i][1], sizes[i][2]);
     return 0;
 }

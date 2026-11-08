@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "workloads.h"
+
 static double now_s(void) {
     static mach_timebase_info_data_t tb;
     if (!tb.denom) mach_timebase_info(&tb);
@@ -42,17 +44,11 @@ static void bench(int m, int n, int k) {
     free(a); free(b); free(c);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
-    static const int sizes[][3] = {
-        {16, 16, 16}, {32, 32, 32}, {64, 64, 64}, {128, 128, 128}, {256, 256, 256},
-        {512, 512, 512}, {1024, 1024, 1024}, {2048, 2048, 2048},
-        {60, 60, 60}, {65, 65, 65}, {100, 100, 100},
-        {64, 64, 8}, {64, 64, 16}, {64, 64, 24}, {64, 64, 32}, {64, 64, 128}, {64, 64, 1024},
-        {1, 512, 512}, {512, 1, 512}, {1, 4096, 4096},
-        {64, 4, 1024}, {4, 64, 1024}, {4, 4, 1024},
-    };
+    static int sizes[WORKLOADS_MAX][3];
+    int count = workload_shapes(argc > 1 ? argv[1] : WORKLOADS_CSV, "amx_sgemm", sizes);
     printf("m,n,k,sec_per_call,macs_per_s\n");
-    for (size_t i = 0; i < sizeof sizes / sizeof sizes[0]; i++) bench(sizes[i][0], sizes[i][1], sizes[i][2]);
+    for (int i = 0; i < count; i++) bench(sizes[i][0], sizes[i][1], sizes[i][2]);
     return 0;
 }

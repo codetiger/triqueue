@@ -4,15 +4,15 @@
 
 | Column | Meaning |
 | --- | --- |
-| `group` | Category: `square`, `irregular`, `k_sweep`, `edge`, `gemv`, `tiny`, or the network a layer comes from (see below) |
+| `group` | Category: `square`, `irregular`, `k_sweep`, `edge`, `gemv`, `tiny`, `amx_fit`, or the network a layer comes from (see below) |
 | `m, n, k` | C is m×n, inner dimension k |
 | `count` | How many times the shape occurs in its network (1 for synthetic shapes). Network-level figures weight each row by `count`. |
-| `tags` | `;`-separated list of the suites that run this row. `model` = `model/bench.py` size sweep, `amx` = AMX comparison table, `dse` = tile-size sweep (`model/dse.py`), `layers` = real int8 network layers (`model/dse.py` §6). |
+| `tags` | `;`-separated list of the suites that run this row. `model` = `model/bench.py` size sweep, `amx` = AMX comparison table, `dse` = tile-size sweep (`model/dse.py`), `layers` = real int8 network layers (`model/dse.py` §6), `amx_hand` / `amx_sgemm` = shapes measured by `bench/reference/amx/amx_gemm.c` / `sgemm_sweep.c`. |
 | `why` | What the shape stresses |
 
 Python: `from workloads import shapes; shapes("model")`, with `bench/workloads` on `sys.path`.
 
-**Not yet in sync:** `bench/reference/amx/amx_gemm.c` and `sgemm_sweep.c` still have their own size lists. `compare.py` shows `–` for any shape they don't measure.
+The AMX programs read this file too (`bench/reference/amx/workloads.h`): `amx_gemm.c` measures the rows tagged `amx_hand` (the hand kernel needs multiples of 32; the `amx_fit` group holds the extra shapes its timing fit in `ablation.py` uses), `sgemm_sweep.c` the rows tagged `amx_sgemm`. `compare.py` shows `–` for an `amx` shape they don't measure.
 
 **To do:** add layer shapes from real int8 models (MLPerf Tiny, a small transformer), with the source model and layer named in `why`.
 

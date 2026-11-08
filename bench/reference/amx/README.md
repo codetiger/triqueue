@@ -20,5 +20,6 @@ python3 ablation.py                                 # writes ablation.md
 | `amx_peak.c` | Peak outer-product throughput (fp32, fp16, int16) with no memory traffic, plus latency (dependent chains) and thread scaling (number of AMX units) |
 | `amx_gemm.c` | A hand-written fp32 GEMM on pre-packed operands with a 32×32 output tile in Z. It reads 0.25 bytes per MAC, the same byte intensity as the Tri-Queue (AMX: 16 MACs per fp32 element; Tri-Queue: 4 per int8 element). Every run is checked for exact results. |
 | `sgemm_sweep.c` | Accelerate `cblas_sgemm` (which runs on AMX), the production library path |
+| `workloads.h` | Reads the shapes from `bench/workloads/gemm.csv`: `amx_gemm` runs the rows tagged `amx_hand`, `sgemm_sweep` those tagged `amx_sgemm` (run from this directory, or pass the CSV path as the first argument) |
 | `ablation.py` | Precision-independent test: Tri-Queue simulator with 1 vs 2 accumulator banks, and one first-order model calibrated on both the simulator and the measured AMX kernel (with held-out validation) |
 | `compare.py` | Divides each measurement by the measured peak and puts it beside the Tri-Queue cycle model |

@@ -1,25 +1,36 @@
 group,m,n,k,count,tags,why
-square,16,16,16,1,model;dse,fixed start/end overhead dominates
-square,32,32,32,1,model;amx;dse,one AMX tile; 16 Tri-Queue tiles
-square,64,64,64,1,model;amx;dse,headline design point
-square,128,128,128,1,model;amx;dse,
-square,256,256,256,1,model;amx;dse,largest size the Python model runs quickly
-square,512,512,512,1,amx,
-square,1024,1024,1024,1,amx,
-square,2048,2048,2048,1,amx,
-irregular,60,60,60,1,model;amx;dse,edge tiles; K padded 60 -> 64
-irregular,65,65,65,1,model;amx;dse,1-row/1-col remainder; K padded 65 -> 72
-irregular,100,100,100,1,model;amx;dse,
-k_sweep,64,64,8,1,amx;dse,drain not hidden (Kp < 16)
-k_sweep,64,64,16,1,amx;dse,drain-hiding threshold
-k_sweep,64,64,32,1,amx;dse,
-k_sweep,64,64,128,1,amx;dse,
-k_sweep,64,64,1024,1,model;amx;dse,long K: steady state
-edge,64,4,1024,1,amx;dse,8x4x2 shape only
-edge,4,64,1024,1,amx;dse,4x8x2 shape only
-edge,4,4,1024,1,amx;dse,4x4x4 shape only
-gemv,1,512,512,1,model;amx;dse,matrix-vector; port-bound
-gemv,512,1,512,1,model;amx;dse,matrix-vector; port-bound
+square,16,16,16,1,model;dse;amx_sgemm,fixed start/end overhead dominates
+square,32,32,32,1,model;amx;dse;amx_hand;amx_sgemm,one AMX tile; 16 Tri-Queue tiles
+square,64,64,64,1,model;amx;dse;amx_hand;amx_sgemm,headline design point
+square,128,128,128,1,model;amx;dse;amx_hand;amx_sgemm,
+square,256,256,256,1,model;amx;dse;amx_hand;amx_sgemm,largest size the Python model runs quickly
+square,512,512,512,1,amx;amx_hand;amx_sgemm,
+square,1024,1024,1024,1,amx;amx_sgemm,
+square,2048,2048,2048,1,amx;amx_sgemm,
+irregular,60,60,60,1,model;amx;dse;amx_sgemm,edge tiles; K padded 60 -> 64
+irregular,65,65,65,1,model;amx;dse;amx_sgemm,1-row/1-col remainder; K padded 65 -> 72
+irregular,100,100,100,1,model;amx;dse;amx_sgemm,
+k_sweep,64,64,8,1,amx;dse;amx_hand;amx_sgemm,drain not hidden (Kp < 16)
+k_sweep,64,64,16,1,amx;dse;amx_hand;amx_sgemm,drain-hiding threshold
+k_sweep,64,64,32,1,amx;dse;amx_hand;amx_sgemm,
+k_sweep,64,64,128,1,amx;dse;amx_hand;amx_sgemm,
+k_sweep,64,64,1024,1,model;amx;dse;amx_hand;amx_sgemm,long K: steady state
+edge,64,4,1024,1,amx;dse;amx_sgemm,8x4x2 shape only
+edge,4,64,1024,1,amx;dse;amx_sgemm,4x8x2 shape only
+edge,4,4,1024,1,amx;dse;amx_sgemm,4x4x4 shape only
+gemv,1,512,512,1,model;amx;dse;amx_sgemm,matrix-vector; port-bound
+gemv,512,1,512,1,model;amx;dse;amx_sgemm,matrix-vector; port-bound
+amx_fit,32,32,8,1,amx_hand,AMX hand-kernel timing fit (ablation.py)
+amx_fit,32,32,16,1,amx_hand,AMX hand-kernel timing fit (ablation.py)
+amx_fit,32,32,128,1,amx_hand,AMX hand-kernel timing fit (ablation.py)
+amx_fit,32,32,1024,1,amx_hand,AMX hand-kernel timing fit (ablation.py)
+amx_fit,32,32,4096,1,amx_hand,AMX hand-kernel timing fit (ablation.py)
+amx_fit,64,64,24,1,amx_hand;amx_sgemm,AMX hand-kernel timing fit (ablation.py)
+gemv,1,4096,4096,1,amx_sgemm,large GEMV (AMX library only)
+amx_fit,128,128,8,1,amx_hand,AMX hand-kernel timing fit (ablation.py)
+amx_fit,128,128,16,1,amx_hand,AMX hand-kernel timing fit (ablation.py)
+amx_fit,128,128,32,1,amx_hand,AMX hand-kernel timing fit (ablation.py)
+amx_fit,128,128,1024,1,amx_hand,AMX hand-kernel timing fit (ablation.py)
 tiny,3,3,3,1,model;dse,smallest legal shape
 kws_dscnn,125,64,40,1,layers,conv 10x4 s2 1->64 (25x5 out)
 kws_dscnn,125,64,64,4,layers,pointwise 64->64 (25x5)

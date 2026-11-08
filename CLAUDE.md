@@ -79,7 +79,7 @@ python3 compare.py     # reads the CSVs, runs the model, writes results.md (~20 
 python3 ablation.py    # writes ablation.md (~40 s)
 ```
 
-`compare.py`, `ablation.py` and `model/bench.py` find `model/` and `bench/workloads/` through `sys.path` entries computed relative to their own file location. The checked-in CSVs are M2 Pro measurements; re-running on other hardware overwrites them. The C programs still have their own size lists, separate from `gemm.csv`. AMX encodings are undocumented and come from corsix/amx.
+`compare.py`, `ablation.py` and `model/bench.py` find `model/` and `bench/workloads/` through `sys.path` entries computed relative to their own file location. The checked-in CSVs are M2 Pro measurements; re-running on other hardware overwrites them. `amx_gemm` and `sgemm_sweep` read their shapes from `gemm.csv` (tags `amx_hand`, `amx_sgemm`; optional path argument, default `../../workloads/gemm.csv`) through `workloads.h`. AMX encodings are undocumented and come from corsix/amx.
 
 ## Model architecture (`model/tri_queue/`)
 
