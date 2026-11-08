@@ -32,6 +32,7 @@ cmake --build tools/yosys/build --target install -j
 | `constraint.sdc` | Clock on `clk_i` (period from `ppa.py`), 20% of the period as I/O delay, `rst_ni` untimed (asynchronous, synchronized in the SoC). |
 | `activity.py` | Runs one workload in Verilator through the cocotb testbench (checked against the cycle model) and dumps SAIF. |
 | `results.py` | `collect` condenses a finished native run and its power results into `records/<platform>/<config>.json` (committed); without arguments it writes `results.md` from the records. CI checks that `results.md` matches them. |
+| `fpga/` | ECP5 out-of-context build (Yosys + nextpnr-ecp5), an Fmax and resource sanity check, never mixed with these records (`fpga/README.md`). |
 | `power.py`, `power.tcl` | Flattens the SAIF to the routed netlist's names, scales it to the flow clock, writes a register activity table, and reads both into OpenSTA with the routed parasitics. Reports power and energy per MAC. |
 
 ## Usage

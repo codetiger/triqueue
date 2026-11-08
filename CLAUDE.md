@@ -48,6 +48,7 @@ make formal           # SymbiYosys: clock-gating template (check_cg_pattern.py +
 make formal-nightly   # core proofs, shared port, WR_ACK and panel buffer (tq_core.sby shared/ack/panel), AXI4 master proof (tq_axi_mem.sby prove, ~10 min)
 make flow-results     # rewrite flow/results.md from flow/records/ (no flow run)
 make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets (stats in build/synth/)
+make fpga             # ECP5 out-of-context synth + nextpnr (flow/fpga/; needs nextpnr-ecp5, not part of make)
 make clean            # removes build/ and SymbiYosys work dirs
 ```
 
