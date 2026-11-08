@@ -1,4 +1,6 @@
 rtl/core/tq_pkg.sv
+rtl/common/tq_icg.sv
+rtl/common/tq_cg.sv
 rtl/common/tq_fifo.sv
 rtl/core/tq_frontend.sv
 rtl/core/tq_mac_array.sv

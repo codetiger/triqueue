@@ -4,7 +4,7 @@
 # Unbounded proof (k-induction) of tq_fifo: occupancy/pointer invariant, no overflow or underflow
 # under legal use, and ordering + data integrity of every entry. Run: sby -f tq_fifo.sby
 # Depths cover the instances in the core: 2 (stream commands), 3 (non power of two),
-# 4 (MAC commands), 8 (operand FIFOs) and 16 (read tags).
+# 4 (MAC commands), 8 (operand FIFOs) and 16 (read tags). Clock gating off (CLK_GATE = 0, see tq_cg).
 
 [tasks]
 d2
@@ -21,13 +21,18 @@ depth 24
 smtbmc yices
 
 [script]
-read_verilog -sv -formal tq_fifo.sv
+read_verilog -sv -formal tq_icg.sv tq_cg.sv tq_fifo.sv
 d2:  chparam -set WIDTH 4 -set DEPTH 2 tq_fifo
 d3:  chparam -set WIDTH 4 -set DEPTH 3 tq_fifo
 d4:  chparam -set WIDTH 4 -set DEPTH 4 tq_fifo
 d8:  chparam -set WIDTH 4 -set DEPTH 8 tq_fifo
 d16: chparam -set WIDTH 4 -set DEPTH 16 tq_fifo
 prep -top tq_fifo
+# the pass-through clock gates (CLK_GATE = 0) must be flattened so the entries see clk_i
+flatten
+opt_clean
 
 [files]
+../../rtl/common/tq_icg.sv
+../../rtl/common/tq_cg.sv
 ../../rtl/common/tq_fifo.sv

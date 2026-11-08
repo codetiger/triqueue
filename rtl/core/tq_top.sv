@@ -12,6 +12,7 @@ module tq_top #(
     parameter bit SHARED_PORT = 1'b0,
     parameter int PROG_BYTES  = 64,
     parameter int ACC_FORM    = tq_pkg::ACC_CPA,
+    parameter bit CLK_GATE    = 1'b1,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -47,7 +48,7 @@ module tq_top #(
   logic [31:0]             p_cyc, p_ret, p_beat, p_rd, p_wr;
 
   tq_regs #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SHARED_PORT(SHARED_PORT),
-            .PROG_BYTES(PROG_BYTES)) u_regs (
+            .PROG_BYTES(PROG_BYTES), .CLK_GATE(CLK_GATE)) u_regs (
       .clk_i, .rst_ni,
       .reg_req_i, .reg_gnt_o, .reg_addr_i, .reg_we_i, .reg_be_i, .reg_wdata_i,
       .reg_rvalid_o, .reg_rdata_o, .irq_o,
@@ -56,7 +57,8 @@ module tq_top #(
       .perf_i({p_wr, p_rd, p_beat, p_ret, p_cyc}));
 
   tq_core #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
-            .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM)) u_core (
+            .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
+            .CLK_GATE(CLK_GATE)) u_core (
       .clk_i, .rst_ni,
       .start_i(start), .abort_i(abort), .prog_i(prog),
       .busy_o(busy), .done_o(done), .error_o(error), .err_code_o(err_code), .cfg_o(cfg),

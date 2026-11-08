@@ -14,6 +14,7 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specifica
 | `SCMD_DEPTH` | 2 | Stream command queue depth |
 | `SHARED_PORT` | 0 | 1: drain writes share the read port (single-port SRAM); the core never requests both in one cycle |
 | `PROG_BYTES` | 64 | Program buffer size (8 `CFG` + 10-byte kernel = 50 bytes) |
+| `CLK_GATE` | 1 | 1: clock gates (`tq_cg`) on the wide register groups: accumulator banks (one gate per bank and quadrant, open only for a clear or an accumulate that reaches the quadrant), product register, beat-1 operands, every queue entry at least 16 bits wide, drain staging register and each program-buffer byte (102 gates at T = 8). 0: plain enable flops. Same results and cycle timing. |
 | `ACC_FORM` | `tq_pkg::ACC_CPA` | Accumulator cell (spec §10.2): `ACC_CPA` one 32-bit value with a carry-propagate adder in the loop (the default: smaller and lower energy after place and route), or `ACC_CSA` carry-save (sum, carry) with CPA lanes at the drain (twice the accumulator state). Same results and cycle timing. |
 
 ## Interfaces
@@ -36,7 +37,9 @@ Requests never depend combinationally on `gnt`, and an ungranted request stays a
 | File | Block |
 | --- | --- |
 | `core/tq_pkg.sv` | Opcodes, config register indices, error codes, internal command formats |
-| `common/tq_fifo.sv` | Ring-buffer FIFO, 1 push / up to 2 pops per cycle. Formally proved (`verif/formal`). |
+| `common/tq_icg.sv` | Clock-gating cell: latch + AND model for simulation and generic synthesis; `OPENROAD_CLKGATE` (the PDK cell) in the ORFS flow. An SoC flow replaces this file with its own cell. |
+| `common/tq_cg.sv` | Clock gate for one register group (`tq_icg`, or the clock itself when `EN = 0`) |
+| `common/tq_fifo.sv` | Ring-buffer FIFO, 1 push / up to 2 pops per cycle, optional per-entry clock gates. Formally proved (`verif/formal`). |
 | `core/tq_frontend.sv` | Decoder, 2-level zero-overhead loop stack, tile walker, stream command counters. No multipliers: tile addresses are running offsets. |
 | `core/tq_stream.sv` | A/B panel walkers, round-robin read arbitration with credits, response tags, shared-port arbitration |
 | `core/tq_mac_array.sv` | Per-quadrant operand select, T² 9×9 multipliers, product register, accumulator cells (2 banks; 32-bit adders, or carry-save with T/2 CPA lanes on the drain read port) |
@@ -53,3 +56,12 @@ The RTL must pass `verilator --lint-only -Wall` and Yosys `read_verilog -sv` wit
 - No `return`: assign to the function name instead.
 - No `$bits()` of a type. Use the width constants in `tq_pkg`.
 - No `break` or `continue`.
+
+Clock-gated registers follow one pattern, so that a gate can only remove clock edges where the register would not change:
+
+```systemverilog
+tq_cg #(.EN(GATE)) u_cg (.clk_i, .en_i(we), .gclk_o(gclk));
+always_ff @(posedge gclk) if (we || GATE) q <= d;
+```
+
+With `GATE = 0` the clock passes through and `we` is an ordinary enable; that is the form the formal proofs check (`CLK_GATE = 0`). The regression runs both forms (`t8_no_clock_gating`), and fails if a gate is stuck open. Generic synthesis (`make synth-check`) keeps `tq_icg` as its own module and allows latches only there.

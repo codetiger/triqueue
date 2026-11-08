@@ -13,6 +13,8 @@
 // The asserted properties live in the RTL under `ifdef FORMAL`: tq_core (no accumulate into the
 // draining bank) and tq_fifo with TQ_FORMAL_CORE (no queue overflow or underflow).
 // The register port (tq_regs) is outside the cone of these properties and is left out.
+// Clock gating is off (CLK_GATE = 0): each gated register group is then a plain enable flop with
+// the same write condition, and the gate only removes the clock edges where it is false (tq_cg).
 
 module tq_core_env #(
     parameter int  T           = 4,
@@ -59,7 +61,8 @@ module tq_core_env #(
   logic [VB-1:0] wr_wdata;
 
   tq_core #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
-            .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM)) dut (
+            .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
+            .CLK_GATE(1'b0)) dut (
       .clk_i, .rst_ni, .start_i, .abort_i, .prog_i(prog),
       .busy_o(busy), .done_o(done), .error_o(error), .err_code_o(err_code), .cfg_o(cfg),
       .perf_cycles_o(p_cyc), .perf_instret_o(p_ret), .perf_beats_o(p_beat),

@@ -11,6 +11,7 @@
 
 module tq_drain #(
     parameter int T = 8,
+    parameter bit CLK_GATE = 1'b1,      // clock gate on the staging register (tq_cg)
     localparam int H   = T / 2,
     localparam int W   = 2 * T,             // port width in bytes
     localparam int L2T = $clog2(T)
@@ -92,7 +93,7 @@ module tq_drain #(
     if (!rst_ni) begin
       act_q <= 1'b0; bank_q <= 1'b0; pdone_q <= 1'b0; phalf_q <= 1'b0;
       rows_q <= '0; cols_q <= '0; prow_q <= '0; c_ld_q <= '0; paddr_q <= '0;
-      stg_v_q <= 1'b0; stg_last_q <= 1'b0; stg_addr_q <= '0; stg_be_q <= '0; stg_data_q <= '0;
+      stg_v_q <= 1'b0; stg_last_q <= 1'b0;
     end else if (clear_i) begin
       act_q <= 1'b0; pdone_q <= 1'b0; stg_v_q <= 1'b0; stg_last_q <= 1'b0;
     end else begin
@@ -112,9 +113,6 @@ module tq_drain #(
       if (produce) begin
         stg_v_q    <= 1'b1;
         stg_last_q <= last;
-        stg_addr_q <= paddr + (phalf ? 32'(W) : 32'd0);
-        stg_be_q   <= be;
-        stg_data_q <= data;
         if (last) pdone_q <= 1'b1;
         else if (!phalf && cols > 8'(H)) phalf_q <= 1'b1;
         else begin
@@ -126,6 +124,17 @@ module tq_drain #(
         stg_v_q <= 1'b0;
       end
       if (wr_fire_i && stg_last_q) act_q <= 1'b0;
+    end
+  end
+
+  // staged word: written when a word is produced, read only while stg_v_q
+  logic gclk_stg;
+  tq_cg #(.EN(CLK_GATE)) u_cg_stg (.clk_i, .en_i(produce), .gclk_o(gclk_stg));
+  always_ff @(posedge gclk_stg) begin
+    if (produce || CLK_GATE) begin
+      stg_addr_q <= paddr + (phalf ? 32'(W) : 32'd0);
+      stg_be_q   <= be;
+      stg_data_q <= data;
     end
   end
 

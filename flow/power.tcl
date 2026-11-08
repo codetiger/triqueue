@@ -45,6 +45,30 @@ foreach m [lrange $missing 0 9] {
   puts "TQ:   not in SAIF: $m"
 }
 
+# Clock-gate enables, from the tq_cg instance's en_i bit: OpenSTA scales the gated clock's
+# activity by the enable's duty, so the enable pin must carry the simulated duty.
+set n_cg 0
+set cg_missing {}
+foreach cell [get_cells -hierarchical *.u_icg.u_cell.*] {
+  set bit "[regsub {\.g_gate\.u_icg\.u_cell\..*$} [get_full_name $cell] {}].en_i"
+  if { ![dict exists $tq_bits $bit] } {
+    lappend cg_missing $bit
+    continue
+  }
+  lassign [dict get $tq_bits $bit] act duty
+  foreach pin [get_pins -of_objects $cell -filter "direction==input"] {
+    set port [lindex [split [get_full_name $pin] /] end]
+    if { $port in {GATE ENA E} } {
+      set_power_activity -pins $pin -activity $act -duty $duty
+      incr n_cg
+    }
+  }
+}
+puts "TQ: clock-gate enables annotated $n_cg, not in SAIF [llength $cg_missing]"
+foreach m [lrange $cg_missing 0 9] {
+  puts "TQ:   not in SAIF: $m"
+}
+
 report_activity_annotation
 set rpt $::env(TQ_POWER_RPT)
 report_power -digits 6 > $rpt

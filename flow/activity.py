@@ -36,7 +36,8 @@ WORKLOADS = {
 
 TB_PERIOD_PS = 10_000                                   # clock in verif/tb/tq_tb.py
 
-MODEL_FIELDS = {"T": "tile", "SHARED_PORT": "shared_port"}
+MODEL_FIELDS = {"T": "tile", "SHARED_PORT": "shared_port", "FIFO_DEPTH": "fifo_depth",
+                "MACQ_DEPTH": "mac_queue_depth", "SCMD_DEPTH": "stream_queue_depth"}
 
 
 def model_params(rtl):

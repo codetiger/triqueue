@@ -81,6 +81,16 @@ CONFIGS = {
         edge_cases(8, (1, 9, 33)) + signedness(8)
         + [case(64, 64, 64), case(64, 64, 8), case(1, 64, 64), case(20, 24, 27, lat=3, stall=0.4)],
     ),
+    "t8_reference_queues": (
+        dict(T=8, FIFO_DEPTH=4, MACQ_DEPTH=3),
+        dict(tile=8, fifo_depth=4, mac_queue_depth=3),
+        edge_cases(8, (9,)) + latency_sweep(8, (1, 2, 3, 5)) + [case(64, 64, 64), case(256, 32, 288)],
+    ),
+    "t8_no_clock_gating": (
+        dict(T=8, CLK_GATE=0),
+        dict(tile=8),
+        edge_cases(8, (1, 9)) + [case(64, 64, 64), case(20, 24, 27, lat=3, stall=0.4)],
+    ),
     "t32": (
         dict(T=32),
         dict(tile=32),

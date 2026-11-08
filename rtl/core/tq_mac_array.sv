@@ -18,10 +18,16 @@
 // mod 2^32 and the same timing:
 //   tq_pkg::ACC_CPA  one 32-bit value, a carry-propagate adder in the loop, no drain CPA (default)
 //   tq_pkg::ACC_CSA  carry-save (sum, carry), 3:2 compressors in the loop, CPA lanes at the drain
+//
+// CLK_GATE (tq_cg): the product register is clocked only on a beat, one gate per quadrant. Each
+// bank has one gate per quadrant, open for a clear or for an accumulate that can reach the
+// quadrant: in the reduced-depth shapes only TL (4x4x4) or the top / left half (4xT, Tx4)
+// receives products, so the other cells keep their value instead of adding zero.
 
 module tq_mac_array #(
     parameter int T        = 8,
     parameter int ACC_FORM = tq_pkg::ACC_CPA,
+    parameter bit CLK_GATE = 1'b1,
     localparam int H   = T / 2,
     localparam int L2T = $clog2(T),
     localparam int VB  = 2 * T * 8          // port word (vector) width in bits
@@ -96,8 +102,14 @@ module tq_mac_array #(
       pcf_q   <= cfull_i;
     end
   end
-  always_ff @(posedge clk_i) begin
-    if (beat_i) prod_q <= prod_d;
+  for (genvar q = 0; q < 4; q++) begin : g_preg
+    logic               gclk;
+    logic [H*H*18-1:0]  pq;
+    tq_cg #(.EN(CLK_GATE)) u_cg (.clk_i, .en_i(beat_i), .gclk_o(gclk));
+    always_ff @(posedge gclk) begin
+      if (beat_i || CLK_GATE) pq <= prod_d[q*H*H*18 +: H*H*18];
+    end
+    assign prod_q[q*H*H*18 +: H*H*18] = pq;
   end
 
   assign prod_valid_o = pv_q;
@@ -109,6 +121,22 @@ module tq_mac_array #(
   endfunction
 
   logic [T*T*32-1:0] sum0, car0, sum1, car1;   // every cell's state, for the drain read port
+
+  // bank write conditions and clock gates, per quadrant (QR, QC) = (q / 2, q % 2)
+  logic clr0, clr1, acc0, acc1;
+  assign clr0 = clear_all_i || (clear_bank_i && !clear_bank_sel_i);
+  assign clr1 = clear_all_i || (clear_bank_i &&  clear_bank_sel_i);
+  assign acc0 = pv_q && !pbank_q;
+  assign acc1 = pv_q &&  pbank_q;
+  logic [3:0] dst, we0, we1, gclk0, gclk1;
+  for (genvar q = 0; q < 4; q++) begin : g_bank_cg
+    // some source quadrant writes this one (see hit below)
+    assign dst[q] = (prf_q || q / 2 == 0) && (pcf_q || q % 2 == 0);
+    assign we0[q] = clr0 || (acc0 && dst[q]);
+    assign we1[q] = clr1 || (acc1 && dst[q]);
+    tq_cg #(.EN(CLK_GATE)) u_cg0 (.clk_i, .en_i(we0[q]), .gclk_o(gclk0[q]));
+    tq_cg #(.EN(CLK_GATE)) u_cg1 (.clk_i, .en_i(we1[q]), .gclk_o(gclk1[q]));
+  end
 
   for (genvar R = 0; R < T; R++) begin : g_row
     for (genvar C = 0; C < T; C++) begin : g_col
@@ -122,11 +150,7 @@ module tq_mac_array #(
         assign hit = ((prf_q ? SI : 0) == QR) && ((pcf_q ? SJ : 0) == QC);
         assign p_in[s*32 +: 32] = hit ? {{14{prod_q[PB + 17]}}, prod_q[PB +: 18]} : 32'd0;
       end
-      logic clr0, clr1, acc0, acc1;
-      assign clr0 = clear_all_i || (clear_bank_i && !clear_bank_sel_i);
-      assign clr1 = clear_all_i || (clear_bank_i &&  clear_bank_sel_i);
-      assign acc0 = pv_q && !pbank_q;
-      assign acc1 = pv_q &&  pbank_q;
+      localparam int Q = 2 * QR + QC;
       if (ACC_FORM == tq_pkg::ACC_CSA) begin : g_csa
         logic [31:0] s0_q, c0_q, s1_q, c1_q, s_cur, c_cur;
         logic [63:0] x0, x1, x2, x3;
@@ -136,20 +160,20 @@ module tq_mac_array #(
         assign x1 = csa(x0[63:32], x0[31:0], p_in[32 +: 32]);
         assign x2 = csa(x1[63:32], x1[31:0], p_in[64 +: 32]);
         assign x3 = csa(x2[63:32], x2[31:0], p_in[96 +: 32]);
-        always_ff @(posedge clk_i or negedge rst_ni) begin
+        always_ff @(posedge gclk0[Q] or negedge rst_ni) begin
           if (!rst_ni) begin
-            s0_q <= '0; c0_q <= '0; s1_q <= '0; c1_q <= '0;
-          end else begin
-            if (clr0) begin
-              s0_q <= '0; c0_q <= '0;
-            end else if (acc0) begin
-              s0_q <= x3[63:32]; c0_q <= x3[31:0];
-            end
-            if (clr1) begin
-              s1_q <= '0; c1_q <= '0;
-            end else if (acc1) begin
-              s1_q <= x3[63:32]; c1_q <= x3[31:0];
-            end
+            s0_q <= '0; c0_q <= '0;
+          end else if (we0[Q] || CLK_GATE) begin
+            s0_q <= clr0 ? '0 : x3[63:32];
+            c0_q <= clr0 ? '0 : x3[31:0];
+          end
+        end
+        always_ff @(posedge gclk1[Q] or negedge rst_ni) begin
+          if (!rst_ni) begin
+            s1_q <= '0; c1_q <= '0;
+          end else if (we1[Q] || CLK_GATE) begin
+            s1_q <= clr1 ? '0 : x3[63:32];
+            c1_q <= clr1 ? '0 : x3[31:0];
           end
         end
         assign sum0[(R*T + C)*32 +: 32] = s0_q;
@@ -160,15 +184,13 @@ module tq_mac_array #(
         logic [31:0] v0_q, v1_q, v_nxt;
         assign v_nxt = (pbank_q ? v1_q : v0_q)
                      + p_in[0 +: 32] + p_in[32 +: 32] + p_in[64 +: 32] + p_in[96 +: 32];
-        always_ff @(posedge clk_i or negedge rst_ni) begin
-          if (!rst_ni) begin
-            v0_q <= '0; v1_q <= '0;
-          end else begin
-            if (clr0)      v0_q <= '0;
-            else if (acc0) v0_q <= v_nxt;
-            if (clr1)      v1_q <= '0;
-            else if (acc1) v1_q <= v_nxt;
-          end
+        always_ff @(posedge gclk0[Q] or negedge rst_ni) begin
+          if (!rst_ni)                     v0_q <= '0;
+          else if (we0[Q] || CLK_GATE)     v0_q <= clr0 ? '0 : v_nxt;
+        end
+        always_ff @(posedge gclk1[Q] or negedge rst_ni) begin
+          if (!rst_ni)                     v1_q <= '0;
+          else if (we1[Q] || CLK_GATE)     v1_q <= clr1 ? '0 : v_nxt;
         end
         assign sum0[(R*T + C)*32 +: 32] = v0_q;
         assign sum1[(R*T + C)*32 +: 32] = v1_q;

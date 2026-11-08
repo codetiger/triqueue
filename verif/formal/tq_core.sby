@@ -21,7 +21,7 @@ mode prove
 abc pdr
 
 [script]
-read_verilog -sv -formal -DSYNTHESIS -DTQ_FORMAL_CORE tq_pkg.sv tq_fifo.sv tq_frontend.sv tq_stream.sv tq_mac_array.sv tq_drain.sv tq_core.sv tq_core_env.sv
+read_verilog -sv -formal -DSYNTHESIS -DTQ_FORMAL_CORE tq_pkg.sv tq_icg.sv tq_cg.sv tq_fifo.sv tq_frontend.sv tq_stream.sv tq_mac_array.sv tq_drain.sv tq_core.sv tq_core_env.sv
 split:  chparam -set KERNEL 0 -set SHARED_PORT 0 tq_core_env
 shared: chparam -set KERNEL 0 -set SHARED_PORT 1 tq_core_env
 prep -top tq_core_env
@@ -35,6 +35,8 @@ setundef -anyseq
 
 [files]
 ../../rtl/core/tq_pkg.sv
+../../rtl/common/tq_icg.sv
+../../rtl/common/tq_cg.sv
 ../../rtl/common/tq_fifo.sv
 ../../rtl/core/tq_frontend.sv
 ../../rtl/core/tq_stream.sv

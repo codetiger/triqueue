@@ -19,7 +19,8 @@ module tq_regs #(
     parameter int FIFO_DEPTH  = 8,
     parameter int MACQ_DEPTH  = 4,
     parameter bit SHARED_PORT = 1'b0,
-    parameter int PROG_BYTES  = 64
+    parameter int PROG_BYTES  = 64,
+    parameter bit CLK_GATE    = 1'b1     // one clock gate per program-buffer byte (tq_cg)
 ) (
     input  logic                    clk_i,
     input  logic                    rst_ni,
@@ -84,7 +85,7 @@ module tq_regs #(
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      prog_q <= '0; done_q <= 1'b0; irq_en_q <= '0; irq_st_q <= '0;
+      done_q <= 1'b0; irq_en_q <= '0; irq_st_q <= '0;
       rvalid_q <= 1'b0; rdata_q <= '0;
     end else begin
       rvalid_q <= reg_req_i;
@@ -97,11 +98,22 @@ module tq_regs #(
       end
       if (wr && reg_addr_i == 12'h010 && reg_be_i[0]) irq_en_q <= reg_wdata_i[1:0];
       if (wr && reg_addr_i == 12'h014 && reg_be_i[0]) irq_st_q <= irq_st_q & ~reg_wdata_i[1:0];
-      if (wr && reg_addr_i >= 12'h100 && 32'(reg_addr_i) < 32'h100 + PROG_BYTES) begin
-        for (int b = 0; b < 4; b++)
-          if (reg_be_i[b]) prog_q[(32'(reg_addr_i[11:2]) * 4 - 32'h100 + b) * 8 +: 8] <= reg_wdata_i[b*8 +: 8];
-      end
     end
+  end
+
+  // program buffer: byte i is written by a PROG write to word i / 4 with byte enable i % 4
+  logic prog_wr;
+  assign prog_wr = wr && reg_addr_i >= 12'h100 && 32'(reg_addr_i) < 32'h100 + PROG_BYTES;
+  for (genvar i = 0; i < PROG_BYTES; i++) begin : g_prog
+    logic       we, gclk;
+    logic [7:0] q;
+    assign we = prog_wr && 32'(reg_addr_i[11:2]) == 32'h40 + i / 4 && reg_be_i[i % 4];
+    tq_cg #(.EN(CLK_GATE)) u_cg (.clk_i, .en_i(we), .gclk_o(gclk));
+    always_ff @(posedge gclk or negedge rst_ni) begin
+      if (!rst_ni)              q <= '0;
+      else if (we || CLK_GATE)  q <= reg_wdata_i[(i % 4) * 8 +: 8];
+    end
+    assign prog_q[i*8 +: 8] = q;
   end
 
   assign prog_o       = prog_q;

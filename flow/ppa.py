@@ -25,15 +25,20 @@ ORFS_COMMIT = "d0e5b3c13"               # the image's ORFS commit; a native chec
 ORFS_HOME = Path(os.environ.get("ORFS_HOME", "~/Development/OpenROAD-flow-scripts")).expanduser()
 DOCKER_WORK = "/work"                   # ROOT is mounted here inside the container
 
-# name: tq_top parameters
+# name: tq_top parameters. CLK_GATE defaults to 1 (clock gates on, tq_cg). The reference T = 8
+# configurations size the queues for the reference SRAMs (1-cycle read, model mem_latency 2):
+# FIFO depth 4 and MAC queue depth 3 lose no cycle up to an SRAM latency of 3 in the cycle
+# model; the RTL defaults (8 and 4) hide up to 8 cycles.
+Q = dict(FIFO_DEPTH=4, MACQ_DEPTH=3)
 CONFIGS = {
-    "t8_csa":    dict(T=8, ACC_FORM=0),
-    "t8_cpa":    dict(T=8, ACC_FORM=1),
-    "t8_shared": dict(T=8, SHARED_PORT=1),
-    "t16_csa":   dict(T=16, ACC_FORM=0),
-    "t16_cpa":   dict(T=16, ACC_FORM=1),
-    "t32_csa":   dict(T=32, ACC_FORM=0),
-    "t32_cpa":   dict(T=32, ACC_FORM=1),
+    "t8_csa":      dict(T=8, ACC_FORM=0, **Q),
+    "t8_cpa":      dict(T=8, ACC_FORM=1, **Q),
+    "t8_cpa_nocg": dict(T=8, ACC_FORM=1, CLK_GATE=0, **Q),
+    "t8_shared":   dict(T=8, SHARED_PORT=1, **Q),
+    "t16_csa":     dict(T=16, ACC_FORM=0),
+    "t16_cpa":     dict(T=16, ACC_FORM=1),
+    "t32_csa":     dict(T=32, ACC_FORM=0),
+    "t32_cpa":     dict(T=32, ACC_FORM=1),
 }
 
 # name: clock period (platform time unit), floorplan utilization (%), Docker thread cap, extra
@@ -64,7 +69,8 @@ def config_mk(platform, config, period, native=False):
         f"export DESIGN_NICKNAME    = tq_{config}",
         f"export PLATFORM           = {platform}",
         f"export VERILOG_FILES      = {' '.join(files)}",
-        "export VERILOG_DEFINES    = -DSYNTHESIS",
+        # OPENROAD_CLKGATE maps tq_icg to the platform's clock-gating cell (rtl/common/tq_icg.sv)
+        "export VERILOG_DEFINES    = -DSYNTHESIS -DOPENROAD_CLKGATE",
         f"export VERILOG_TOP_PARAMS = {params}",
         f"export SDC_FILE           = {WORK}/flow/constraint.sdc",
         f"export TQ_CLK_PERIOD      = {period}",

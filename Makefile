@@ -10,7 +10,7 @@ YOSYS     ?= yosys
 SBY       ?= sby
 
 RTL       := $(shell cat rtl/files.f)
-LINT_CFGS := "" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
+LINT_CFGS := "" "-GCLK_GATE=0" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
 ACC_FORMS := cpa:1 csa:0
 
 .PHONY: all model-test model-results flow-results rtl-lint rtl-test formal formal-nightly synth-check clean
@@ -50,14 +50,16 @@ formal-nightly:
 	cd verif/formal && $(SBY) -f tq_core.sby shared
 
 # Synthesizability check with generic Yosys cells: no latches, no loops, no undriven nets.
-# Gate counts here are technology-independent and are not area results.
+# The clock-gating cell (tq_icg, a latch by design) is kept as its own module and is the only
+# place a latch may appear. Gate counts here are technology-independent and are not area results.
 synth-check:
 	mkdir -p build/synth
 	@for f in $(ACC_FORMS); do \
 	  n=$${f%%:*}; v=$${f#*:}; echo "yosys synth T=8 ACC_FORM=$$n"; \
 	  $(YOSYS) -q -l build/synth/tq_top_t8_$$n.log -p "read_verilog -sv -DSYNTHESIS $(RTL); \
-	    chparam -set ACC_FORM $$v tq_top; hierarchy -check -top tq_top; synth -top tq_top -flatten; \
-	    check -assert -noinit; select -assert-none t:\$$dlatch t:\$$_DLATCH_*; \
+	    chparam -set ACC_FORM $$v tq_top; hierarchy -check -top tq_top; \
+	    setattr -mod -set keep_hierarchy 1 tq_icg; synth -top tq_top -flatten; \
+	    check -assert -noinit; select -assert-none tq_top/t:\$$dlatch tq_top/t:\$$_DLATCH_*; \
 	    tee -o build/synth/tq_top_t8_$${n}_stat.txt stat" || exit 1; \
 	done
 

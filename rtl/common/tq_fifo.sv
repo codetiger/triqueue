@@ -4,10 +4,13 @@
 // Ring-buffer FIFO: one push and up to two pops per cycle. The two oldest entries are visible
 // combinationally. A push into a full FIFO is allowed in the same cycle as a pop (the popped
 // slot is reused). The user must never pop more than `count_o` entries or overflow.
+// With CLK_GATE, each entry of a FIFO at least 16 bits wide has its own clock gate (tq_cg), so a
+// push clocks one entry only.
 
 module tq_fifo #(
     parameter int WIDTH = 8,
     parameter int DEPTH = 4,                    // >= 2
+    parameter bit CLK_GATE = 1'b0,
     localparam int CW = $clog2(DEPTH + 1)
 ) (
     input  logic             clk_i,
@@ -22,7 +25,7 @@ module tq_fifo #(
 );
   localparam int PW = $clog2(DEPTH);
 
-  logic [WIDTH-1:0] mem_q [0:DEPTH-1];
+  logic [DEPTH-1:0][WIDTH-1:0] mem_q;
   logic [PW-1:0]    rd_q, wr_q;
   logic [CW-1:0]    count_q;
 
@@ -53,8 +56,16 @@ module tq_fifo #(
     end
   end
 
-  always_ff @(posedge clk_i) begin
-    if (push_i && !clear_i) mem_q[wr_q] <= data_i;
+  localparam bit GATE = CLK_GATE && WIDTH >= 16;
+  for (genvar i = 0; i < DEPTH; i++) begin : g_mem
+    logic             we, gclk;
+    logic [WIDTH-1:0] q;
+    assign we = push_i && !clear_i && 32'(wr_q) == i;
+    tq_cg #(.EN(GATE)) u_cg (.clk_i, .en_i(we), .gclk_o(gclk));
+    always_ff @(posedge gclk) begin
+      if (we || GATE) q <= data_i;
+    end
+    assign mem_q[i] = q;
   end
 
 `ifdef FORMAL

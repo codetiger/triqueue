@@ -19,6 +19,7 @@ module tq_core #(
     parameter bit SHARED_PORT = 1'b0,  // drain writes share the read port
     parameter int PROG_BYTES  = 64,
     parameter int ACC_FORM    = tq_pkg::ACC_CPA,  // accumulator form (tq_mac_array, spec 10.2)
+    parameter bit CLK_GATE    = 1'b1,  // clock gates on the wide register groups (tq_cg)
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -85,7 +86,7 @@ module tq_core #(
   logic [MCW-1:0] macq_cnt;
   logic [1:0]     macq_pop;
 
-  tq_fifo #(.WIDTH(tq_pkg::MCMD_W), .DEPTH(MACQ_DEPTH)) u_macq (
+  tq_fifo #(.WIDTH(tq_pkg::MCMD_W), .DEPTH(MACQ_DEPTH), .CLK_GATE(CLK_GATE)) u_macq (
       .clk_i, .rst_ni, .clear_i(clear),
       .push_i(macq_push), .data_i(macq_in), .pop_i(macq_pop),
       .head0_o(e0), .head1_o(e1), .count_o(macq_cnt));
@@ -98,10 +99,10 @@ module tq_core #(
   logic [QCW-1:0] qa_cnt, qb_cnt;
   logic [1:0]    qa_pop, qb_pop;
 
-  tq_fifo #(.WIDTH(VB), .DEPTH(FIFO_DEPTH)) u_qa (
+  tq_fifo #(.WIDTH(VB), .DEPTH(FIFO_DEPTH), .CLK_GATE(CLK_GATE)) u_qa (
       .clk_i, .rst_ni, .clear_i(clear), .push_i(qa_push), .data_i(q_data), .pop_i(qa_pop),
       .head0_o(qa0), .head1_o(qa1), .count_o(qa_cnt));
-  tq_fifo #(.WIDTH(VB), .DEPTH(FIFO_DEPTH)) u_qb (
+  tq_fifo #(.WIDTH(VB), .DEPTH(FIFO_DEPTH), .CLK_GATE(CLK_GATE)) u_qb (
       .clk_i, .rst_ni, .clear_i(clear), .push_i(qb_push), .data_i(q_data), .pop_i(qb_pop),
       .head0_o(qb0), .head1_o(qb1), .count_o(qb_cnt));
 
@@ -117,7 +118,7 @@ module tq_core #(
   /* verilator lint_off UNUSEDSIGNAL */
   tq_pkg::mcmd_t mc;                              // only kind and shape are used
   /* verilator lint_on UNUSEDSIGNAL */
-  logic          mc_has;
+  logic          mc_has, e0_ctl, sh_rf, sh_cf;
   logic [1:0]    na, nb;
   logic          active_n;
 
@@ -138,14 +139,20 @@ module tq_core #(
     qa_pop    = mac_start ? na : 2'd0;
     qb_pop    = mac_start ? nb : 2'd0;
     active_n  = is_swap ? !active_q : active_q;
+    // Shape of a starting VOUTER_MAC for the operand select. It only matters when mac_start, and
+    // then the MAC is e1 exactly when e0 is a control command, so the select needs only e0's
+    // kind, not ctl0 (has0, b1_q, drain_act): this keeps ctl0 off the multiplier's input path.
+    e0_ctl    = e0.kind != tq_pkg::MC_MAC;
+    sh_rf     = e0_ctl ? e1.rfull : e0.rfull;
+    sh_cf     = e0_ctl ? e1.cfull : e0.cfull;
   end
 
   logic beat, beat_idx, beat_rf, beat_cf, beat_bank;
   logic [2*VB-1:0] beat_a, beat_b;
   assign beat      = b1_q || mac_start;
   assign beat_idx  = b1_q;
-  assign beat_rf   = b1_q ? b1_rf_q   : mc.rfull;
-  assign beat_cf   = b1_q ? b1_cf_q   : mc.cfull;
+  assign beat_rf   = b1_q ? b1_rf_q   : sh_rf;
+  assign beat_cf   = b1_q ? b1_cf_q   : sh_cf;
   assign beat_bank = b1_q ? b1_bank_q : active_n;
   assign beat_a    = b1_q ? opa_q : {qa1, qa0};
   assign beat_b    = b1_q ? opb_q : {qb1, qb0};
@@ -153,7 +160,6 @@ module tq_core #(
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       active_q <= 1'b0; b1_q <= 1'b0; b1_rf_q <= 1'b0; b1_cf_q <= 1'b0; b1_bank_q <= 1'b0;
-      opa_q <= '0; opb_q <= '0;
     end else if (clear) begin
       active_q <= 1'b0; b1_q <= 1'b0;
     end else begin
@@ -163,9 +169,17 @@ module tq_core #(
         b1_rf_q   <= mc.rfull;
         b1_cf_q   <= mc.cfull;
         b1_bank_q <= active_n;
-        opa_q     <= {qa1, qa0};
-        opb_q     <= {qb1, qb0};
       end
+    end
+  end
+
+  // beat-1 operands: written when a VOUTER_MAC starts, read in its second beat only
+  logic gclk_op;
+  tq_cg #(.EN(CLK_GATE)) u_cg_op (.clk_i, .en_i(mac_start), .gclk_o(gclk_op));
+  always_ff @(posedge gclk_op) begin
+    if (mac_start || CLK_GATE) begin
+      opa_q <= {qa1, qa0};
+      opb_q <= {qb1, qb0};
     end
   end
 
@@ -174,7 +188,7 @@ module tq_core #(
   logic [$clog2(T)-1:0] rd_row;
   logic [T/2*32-1:0] rd_val;
 
-  tq_mac_array #(.T(T), .ACC_FORM(ACC_FORM)) u_array (
+  tq_mac_array #(.T(T), .ACC_FORM(ACC_FORM), .CLK_GATE(CLK_GATE)) u_array (
       .clk_i, .rst_ni,
       .beat_i(beat), .beat_idx_i(beat_idx), .rfull_i(beat_rf), .cfull_i(beat_cf),
       .bank_i(beat_bank), .a_i(beat_a), .b_i(beat_b),
@@ -185,7 +199,7 @@ module tq_core #(
 
   // ---------------------------------------------------------------- drain
   logic wr_pending, wr_fire, drain_align_err;
-  tq_drain #(.T(T)) u_drain (
+  tq_drain #(.T(T), .CLK_GATE(CLK_GATE)) u_drain (
       .clk_i, .rst_ni, .clear_i(clear),
       .start_i(is_swap), .start_bank_i(active_q), .c_addr_i(e0.c_addr),
       .rows_i(e0.rows), .cols_i(e0.cols), .c_ld_i(c_ld),
@@ -198,7 +212,8 @@ module tq_core #(
 
   // ---------------------------------------------------------------- stream engine + ports
   logic stream_idle, stream_align_err, rd_fire, wr_req;
-  tq_stream #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .SCMD_DEPTH(SCMD_DEPTH), .SHARED_PORT(SHARED_PORT)) u_stream (
+  tq_stream #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .SCMD_DEPTH(SCMD_DEPTH), .SHARED_PORT(SHARED_PORT),
+              .CLK_GATE(CLK_GATE)) u_stream (
       .clk_i, .rst_ni, .clear_i(clear),
       .scmd_a_push_i(scmd_a_push), .scmd_a_i(scmd_a_in),
       .scmd_b_push_i(scmd_b_push), .scmd_b_i(scmd_b_in),

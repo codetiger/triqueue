@@ -22,6 +22,7 @@ module tq_stream #(
     parameter int FIFO_DEPTH  = 8,
     parameter int SCMD_DEPTH  = 2,
     parameter bit SHARED_PORT = 1'b0,
+    parameter bit CLK_GATE    = 1'b1,
     localparam int W   = 2 * T,
     localparam int VB  = W * 8,
     localparam int L2T = $clog2(T),
@@ -69,11 +70,11 @@ module tq_stream #(
   logic [$clog2(SCMD_DEPTH+1)-1:0] cnt_a, cnt_b;
   logic load_a, load_b;
 
-  tq_fifo #(.WIDTH(tq_pkg::SCMD_W), .DEPTH(SCMD_DEPTH)) u_scmd_a (
+  tq_fifo #(.WIDTH(tq_pkg::SCMD_W), .DEPTH(SCMD_DEPTH), .CLK_GATE(CLK_GATE)) u_scmd_a (
       .clk_i, .rst_ni, .clear_i,
       .push_i(scmd_a_push_i), .data_i(scmd_a_i), .pop_i({1'b0, load_a}),
       .head0_o(ha), .head1_o(unused_a1), .count_o(cnt_a));
-  tq_fifo #(.WIDTH(tq_pkg::SCMD_W), .DEPTH(SCMD_DEPTH)) u_scmd_b (
+  tq_fifo #(.WIDTH(tq_pkg::SCMD_W), .DEPTH(SCMD_DEPTH), .CLK_GATE(CLK_GATE)) u_scmd_b (
       .clk_i, .rst_ni, .clear_i,
       .push_i(scmd_b_push_i), .data_i(scmd_b_i), .pop_i({1'b0, load_b}),
       .head0_o(hb), .head1_o(unused_b1), .count_o(cnt_b));
