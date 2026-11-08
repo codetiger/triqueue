@@ -72,7 +72,7 @@ module tq_core #(
   logic          fence, retire, fe_err;
   logic [3:0]    fe_err_code;
 
-  tq_frontend #(.T(T), .PROG_BYTES(PROG_BYTES)) u_fe (
+  tq_frontend #(.T(T), .PROG_BYTES(PROG_BYTES), .CLK_GATE(CLK_GATE)) u_fe (
       .clk_i, .rst_ni, .start_i(clear), .run_i(running_q), .prog_i,
       .macq_full_i(macq_full), .scmd_a_full_i(scmd_a_full), .scmd_b_full_i(scmd_b_full),
       .macq_push_o(macq_push), .macq_data_o(macq_in),

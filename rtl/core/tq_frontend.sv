@@ -12,6 +12,7 @@
 module tq_frontend #(
     parameter int T          = 8,
     parameter int PROG_BYTES = 64,
+    parameter bit CLK_GATE   = 1'b1,    // one clock gate per CFG register (tq_cg)
     localparam int L2T       = $clog2(T),
     localparam int H         = T / 2,
     localparam int PCW       = $clog2(PROG_BYTES + 8)
@@ -314,14 +315,12 @@ module tq_frontend #(
       fe_ti_q <= '0; fe_tj_q <= '0; fe_crow_q <= '0;
       sa_ti_q <= '0; sa_tj_q <= '0; sa_off_q <= '0;
       sb_ti_q <= '0; sb_tj_q <= '0; sb_off_q <= '0;
-      for (int i = 0; i < 8; i++) cfg_q[i] <= '0;
     end else if (start_i) begin
       pc_q <= '0; fence_q <= 1'b0; sp_q <= '0; lt_seen_q <= 1'b0;
       f0_t_q <= 1'b0; f1_t_q <= 1'b0;
       fe_ti_q <= '0; fe_tj_q <= '0; fe_crow_q <= '0;
       sa_ti_q <= '0; sa_tj_q <= '0; sa_off_q <= '0;
       sb_ti_q <= '0; sb_tj_q <= '0; sb_off_q <= '0;
-      for (int i = 0; i < 8; i++) cfg_q[i] <= '0;
     end else begin
       pc_q <= pc_n; fence_q <= fence_n; sp_q <= sp_n; lt_seen_q <= lt_seen_n;
       f0_t_q <= f0_t_n; f1_t_q <= f1_t_n;
@@ -330,8 +329,20 @@ module tq_frontend #(
       fe_ti_q <= fe_ti_n; fe_tj_q <= fe_tj_n; fe_crow_q <= fe_crow_n;
       sa_ti_q <= sa_ti_n; sa_tj_q <= sa_tj_n; sa_off_q <= sa_off_n;
       sb_ti_q <= sb_ti_n; sb_tj_q <= sb_tj_n; sb_off_q <= sb_off_n;
-      if (cfg_we) cfg_q[arg[2:0]] <= imm;
     end
+  end
+
+  // CFG registers: written by CFG, cleared by START; static during the GEMM, so each is gated
+  for (genvar i = 0; i < 8; i++) begin : g_cfg
+    logic        we, gclk;
+    logic [31:0] q;
+    assign we = start_i || (cfg_we && 32'(arg[2:0]) == i);
+    tq_cg #(.EN(CLK_GATE)) u_cg (.clk_i, .en_i(we), .gclk_o(gclk));
+    always_ff @(posedge gclk or negedge rst_ni) begin
+      if (!rst_ni)              q <= '0;
+      else if (we || CLK_GATE)  q <= start_i ? '0 : imm;
+    end
+    assign cfg_q[i] = q;
   end
 
   assign cfg_a_base_o = cfg_q[tq_pkg::CFG_A_BASE];
