@@ -2,7 +2,7 @@
 
 An open-source RTL matrix-multiply coprocessor for RISC-V SoCs, in the same class as Apple's AMX, Arm SME and Gemmini. It is designed to drop into a larger chip and to be measured honestly against the alternatives.
 
-**Status:** RTL v0. The SystemVerilog core matches the cycle-level Python model cycle for cycle and is bit-exact against numpy across 840 regression cases. The T = 8 core has been placed and routed with OpenROAD on sky130hd and ASAP7, with power from simulated workload activity: on ASAP7, 12,702 µm² and 0.83–1.45 pJ per int8 MAC with uniform random operands (1.98 TOPS/W geometric mean, engine only; 1 GHz target, 976 MHz after routing). Clock gating and queues sized to the SRAM took 21–27% off energy per MAC. See `docs/benchmarks.md`.
+**Status:** RTL v0. The SystemVerilog core matches the cycle-level Python model cycle for cycle and is bit-exact against numpy across 1,606 regression cases in 24 configurations. It attaches through AXI4-Lite, AXI4 or CV-X-IF adapters and has a bare-metal C driver; a Chipyard Rocket SoC runs a GEMM on it. The T = 8 core has been placed and routed with OpenROAD on sky130hd and ASAP7, with power from simulated workload activity: on ASAP7, 12,702 µm² and 0.83–1.45 pJ per int8 MAC with uniform random operands (1.98 TOPS/W geometric mean, engine only; 1 GHz target, 976 MHz after routing). Clock gating and queues sized to the SRAM took 21–27% off energy per MAC. See `docs/benchmarks.md`.
 
 ## Why
 
@@ -33,11 +33,13 @@ Peak throughput is a parameter, set by tile size and port width. It is not a goa
 | `docs/specification.md` | The design specification, including the host and memory interfaces |
 | `docs/golden-vectors.md` | Golden test-vector and trace format: the contract between the model and RTL testbenches |
 | `model/` | Cycle-level Python model: runs the real instruction bytes, bit-exact against numpy. It is the golden reference for the RTL. |
-| `rtl/` | SystemVerilog RTL (`tq_top`), parameterized by tile size; see `rtl/README.md` for interfaces |
+| `rtl/` | SystemVerilog RTL (`tq_top`), parameterized by tile size, and the bus / CPU adapters; see `rtl/README.md` for interfaces |
+| `sw/` | Freestanding C driver: packing, program builder, GEMM API |
 | `verif/` | cocotb + Verilator regression against the model, SymbiYosys proofs |
 | `flow/` | Physical design: OpenROAD-flow-scripts driver, activity-based power, post-route results |
 | `bench/workloads/` | The shared list of GEMM shapes that every benchmark uses |
 | `bench/reference/amx/` | Apple AMX (M2 Pro) measurements used as a real-silicon reference |
+| `bench/soc/chipyard/`, `bench/designs/` | Chipyard Rocket SoC integration; other open designs for comparison (Gemmini) |
 
 Quick start (Python 3.10+; RTL targets need Verilator 5, Yosys and SymbiYosys):
 
