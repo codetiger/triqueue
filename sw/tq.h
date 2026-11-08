@@ -105,4 +105,29 @@ void tq_pack_b(uint8_t *dst, const uint8_t *b, uint32_t k, uint32_t n, size_t ld
 // Writes the GEMM program into out (cap bytes). Returns its size, or 0 if cap is too small.
 size_t tq_gemm_program(uint8_t *out, size_t cap, const tq_gemm *g);
 
+
+// ---- GEMM API: C[m][n] = A[m][k] x B[k][n] in one call ----
+// The workspace is core-visible memory (the core's memory port reaches it at ws_addr, the host at
+// ws) holding packed A, packed B and the core's padded C. Size: tq_gemm_workspace_bytes().
+typedef struct {
+    uint32_t a_off, b_off, c_off;        // byte offsets in the workspace (multiples of 64)
+    uint32_t c_ld;                       // the core's C row stride in bytes
+    uint32_t prog_len;
+    uint8_t prog[TQ_GEMM_PROGRAM_BYTES];
+} tq_gemm_plan;
+
+size_t tq_gemm_workspace_bytes(uint32_t m, uint32_t n, uint32_t k, uint32_t tile);
+// Packs A (row stride lda bytes) and B (ldb) into the workspace and builds the program.
+// a_signed / b_signed: int8 (1) or uint8 (0). Returns TQ_OK or TQ_ERR_ARG.
+int tq_gemm_prepare(tq_gemm_plan *plan, uint8_t *ws, uint32_t ws_addr, const tq_info *info,
+                    const uint8_t *a, size_t lda, const uint8_t *b, size_t ldb,
+                    uint32_t m, uint32_t n, uint32_t k, int a_signed, int b_signed);
+// Copies C from the workspace to c (row stride ldc int32 elements).
+void tq_gemm_finish(const tq_gemm_plan *plan, const uint8_t *ws, int32_t *c, size_t ldc,
+                    uint32_t m, uint32_t n);
+// tq_gemm_run: prepare + tq_run + finish. Returns TQ_OK or a tq_err code.
+int tq_gemm_run(volatile uint32_t *base, const tq_info *info, uint8_t *ws, uint32_t ws_addr,
+            const uint8_t *a, size_t lda, const uint8_t *b, size_t ldb, int32_t *c, size_t ldc,
+            uint32_t m, uint32_t n, uint32_t k, int a_signed, int b_signed);
+
 #endif

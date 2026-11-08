@@ -127,3 +127,57 @@ size_t tq_gemm_program(uint8_t *out, size_t cap, const tq_gemm *g) {
         out[pc++] = kernel[i];
     return pc;
 }
+
+// ---- GEMM API ----
+
+static uint32_t align64(uint32_t x) { return (x + 63u) & ~63u; }
+
+size_t tq_gemm_workspace_bytes(uint32_t m, uint32_t n, uint32_t k, uint32_t tile) {
+    uint32_t pa = align64((uint32_t)tq_packed_a_bytes(m, k, tile));
+    uint32_t pb = align64((uint32_t)tq_packed_b_bytes(k, n, tile));
+    return (size_t)pa + pb + (size_t)m * tq_c_ld(n, 2u * tile);
+}
+
+int tq_gemm_prepare(tq_gemm_plan *plan, uint8_t *ws, uint32_t ws_addr, const tq_info *info,
+                    const uint8_t *a, size_t lda, const uint8_t *b, size_t ldb,
+                    uint32_t m, uint32_t n, uint32_t k, int a_signed, int b_signed) {
+    if (m == 0 || n == 0 || (ws_addr & 63u) != 0)
+        return TQ_ERR_ARG;
+    uint32_t t = info->tile;
+    plan->a_off = 0;
+    plan->b_off = align64((uint32_t)tq_packed_a_bytes(m, k, t));
+    plan->c_off = plan->b_off + align64((uint32_t)tq_packed_b_bytes(k, n, t));
+    plan->c_ld = tq_c_ld(n, info->port_bytes);
+    tq_pack_a(ws + plan->a_off, a, m, k, lda, t);
+    tq_pack_b(ws + plan->b_off, b, k, n, ldb, t);
+    tq_gemm g = {.m = m, .n = n, .k = k, .a_base = ws_addr + plan->a_off, .b_base = ws_addr + plan->b_off,
+                 .c_base = ws_addr + plan->c_off, .c_ld = plan->c_ld,
+                 .mode = (a_signed ? TQ_MODE_A_SIGNED : 0u) | (b_signed ? TQ_MODE_B_SIGNED : 0u)};
+    plan->prog_len = (uint32_t)tq_gemm_program(plan->prog, sizeof plan->prog, &g);
+    return plan->prog_len ? TQ_OK : TQ_ERR_ARG;
+}
+
+void tq_gemm_finish(const tq_gemm_plan *plan, const uint8_t *ws, int32_t *c, size_t ldc,
+                    uint32_t m, uint32_t n) {
+    for (uint32_t i = 0; i < m; i++) {
+        const uint8_t *row = ws + plan->c_off + (size_t)i * plan->c_ld;
+        for (uint32_t j = 0; j < n; j++) {
+            const uint8_t *e = row + 4u * j;        // little-endian int32
+            c[(size_t)i * ldc + j] = (int32_t)((uint32_t)e[0] | (uint32_t)e[1] << 8 |
+                                               (uint32_t)e[2] << 16 | (uint32_t)e[3] << 24);
+        }
+    }
+}
+
+int tq_gemm_run(volatile uint32_t *base, const tq_info *info, uint8_t *ws, uint32_t ws_addr,
+            const uint8_t *a, size_t lda, const uint8_t *b, size_t ldb, int32_t *c, size_t ldc,
+            uint32_t m, uint32_t n, uint32_t k, int a_signed, int b_signed) {
+    tq_gemm_plan plan;
+    int rc = tq_gemm_prepare(&plan, ws, ws_addr, info, a, lda, b, ldb, m, n, k, a_signed, b_signed);
+    if (rc != TQ_OK)
+        return rc;
+    rc = tq_run(base, info, plan.prog, plan.prog_len, 0);
+    if (rc == TQ_OK)
+        tq_gemm_finish(&plan, ws, c, ldc, m, n);
+    return rc;
+}

@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 // SPDX-License-Identifier: Apache-2.0
 //
-// Bare-metal GEMM on the Tri-Queue in a Chipyard Rocket SoC (TriQueueRocketConfig): packs A and
-// B with the driver (sw/tq.c), runs C = A x B on the core, checks C against the CPU, and prints
-// the core's performance counters. The core reaches A, B and C through the coherent front bus,
-// so no cache maintenance is needed.
+// Bare-metal GEMM on the Tri-Queue in a Chipyard Rocket SoC (TriQueueRocketConfig): runs
+// C = A x B through the driver's GEMM API (sw/tq.c, tq_gemm_run: pack, program, run, unpack),
+// checks C against the CPU, and prints the core's performance counters. The core reaches A, B
+// and C through the coherent front bus, so no cache maintenance is needed.
 #include <stdint.h>
 #include <stdio.h>
 
@@ -20,11 +20,10 @@
 #define TILE_MAX 32
 
 static int8_t a[M][K], b[K][N];
-static int32_t ref[M][N];
-// packed operands and C, aligned to any port width (W = 2T <= 64 bytes)
-static uint8_t pa[(M + TILE_MAX) * ((K + 7) / 8 * 8)] __attribute__((aligned(64)));
-static uint8_t pb[(N + TILE_MAX) * ((K + 7) / 8 * 8)] __attribute__((aligned(64)));
-static int32_t c[M * (N + 16)] __attribute__((aligned(64)));
+static int32_t ref[M][N], c[M][N];
+// workspace for packed A, packed B and the core's C (tq_gemm_workspace_bytes, any T <= TILE_MAX)
+static uint8_t ws[2 * (M + TILE_MAX) * ((K + 7) / 8 * 8) + M * (4 * N + 4 * TILE_MAX) + 128]
+    __attribute__((aligned(64)));
 
 static uint32_t lcg = 12345;
 static int8_t rnd(void) {
@@ -53,15 +52,12 @@ int main(void) {
             ref[i][j] = s;
         }
 
-    tq_pack_a(pa, (const uint8_t *)a, M, K, K, info.tile);
-    tq_pack_b(pb, (const uint8_t *)b, K, N, N, info.tile);
-    tq_gemm g = {.m = M, .n = N, .k = K,
-                 .a_base = (uint32_t)(uintptr_t)pa, .b_base = (uint32_t)(uintptr_t)pb,
-                 .c_base = (uint32_t)(uintptr_t)c, .c_ld = tq_c_ld(N, info.port_bytes),
-                 .mode = TQ_MODE_A_SIGNED | TQ_MODE_B_SIGNED};
-    uint8_t prog[TQ_GEMM_PROGRAM_BYTES];
-    size_t len = tq_gemm_program(prog, sizeof prog, &g);
-    int rc = tq_run(tq, &info, prog, len, 0);
+    if (tq_gemm_workspace_bytes(M, N, K, info.tile) > sizeof ws) {
+        printf("tq: workspace too small for T=%u\n", (unsigned)info.tile);
+        return 1;
+    }
+    int rc = tq_gemm_run(tq, &info, ws, (uint32_t)(uintptr_t)ws, (const uint8_t *)a, K,
+                         (const uint8_t *)b, N, &c[0][0], N, M, N, K, 1, 1);
     tq_perf perf;
     tq_read_perf(tq, &perf);
     printf("tq: run rc=%d cycles=%u beats=%u reads=%u writes=%u\n", rc, (unsigned)perf.cycles,
@@ -70,7 +66,7 @@ int main(void) {
     int bad = 0;
     for (int i = 0; i < M; i++)
         for (int j = 0; j < N; j++) {
-            int32_t v = c[i * (g.c_ld / 4) + j];
+            int32_t v = c[i][j];
             if (v != ref[i][j] && bad++ < 5)
                 printf("tq: C[%d][%d] = %d, expected %d\n", i, j, (int)v, (int)ref[i][j]);
         }

@@ -131,3 +131,42 @@ def test_probe_and_run(lib):
     assert regs[2] == 2                                                         # ABORT after the timeout
     big = np.zeros(65, np.uint8)
     assert lib.tq_run(regs, ctypes.byref(info), ptr(big), 65, 10) == 17
+
+
+class Plan(ctypes.Structure):
+    _fields_ = [("a_off", ctypes.c_uint32), ("b_off", ctypes.c_uint32), ("c_off", ctypes.c_uint32),
+                ("c_ld", ctypes.c_uint32), ("prog_len", ctypes.c_uint32), ("prog", ctypes.c_uint8 * 50)]
+
+
+@pytest.mark.parametrize("tile", [4, 8, 16])
+@pytest.mark.parametrize("m,n,k,sa,sb", [(1, 1, 1, 1, 1), (20, 24, 27, 1, 0), (64, 64, 64, 0, 1), (9, 13, 0, 1, 1),
+                                         (37, 5, 100, 0, 0)])
+def test_gemm_api_end_to_end(lib, tile, m, n, k, sa, sb):
+    """C prepares the workspace, the cycle model runs that memory image and program, C finishes:
+    the result equals numpy."""
+    from tri_queue.core import TriQueueCore, reference
+    u8p = ctypes.POINTER(ctypes.c_uint8)
+    lib.tq_gemm_workspace_bytes.restype = ctypes.c_size_t
+    lib.tq_gemm_workspace_bytes.argtypes = [ctypes.c_uint32] * 4
+    lib.tq_gemm_prepare.argtypes = [ctypes.POINTER(Plan), u8p, ctypes.c_uint32, ctypes.POINTER(Info), u8p,
+                                    ctypes.c_size_t, u8p, ctypes.c_size_t] + [ctypes.c_uint32] * 3 + [ctypes.c_int] * 2
+    lib.tq_gemm_finish.argtypes = [ctypes.POINTER(Plan), u8p, ctypes.POINTER(ctypes.c_int32), ctypes.c_size_t,
+                                   ctypes.c_uint32, ctypes.c_uint32]
+    rng = np.random.default_rng(m + n + k + tile)
+    a = rng.integers(-128 if sa else 0, 128 if sa else 256, (m, max(k, 1))).astype(np.int8 if sa else np.uint8)[:, :k]
+    b = rng.integers(-128 if sb else 0, 128 if sb else 256, (max(k, 1), n)).astype(np.int8 if sb else np.uint8)[:k]
+    a, b = np.ascontiguousarray(a), np.ascontiguousarray(b)
+    info = Info(tile, 2 * tile, 4, 3, 0, 64)
+    ws = np.zeros(lib.tq_gemm_workspace_bytes(m, n, k, tile) + 64, np.uint8)
+    plan = Plan()
+    a_ptr = ptr(a) if a.size else ptr(np.zeros(1, np.uint8))
+    b_ptr = ptr(b) if b.size else ptr(np.zeros(1, np.uint8))
+    assert lib.tq_gemm_prepare(ctypes.byref(plan), ptr(ws), 0, ctypes.byref(info), a_ptr, max(k, 1), b_ptr,
+                               n, m, n, k, sa, sb) == 0
+    core = TriQueueCore(ws, bytes(plan.prog[:plan.prog_len]), Params(tile=tile))
+    s = core.run()
+    assert s.error == 0
+    ldc = n + 3
+    c = np.full((m, ldc), -1, np.int32)
+    lib.tq_gemm_finish(ctypes.byref(plan), ptr(core.mem), c.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ldc, m, n)
+    assert np.array_equal(c[:, :n], reference(a, b)) and np.all(c[:, n:] == -1)
