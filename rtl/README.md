@@ -71,4 +71,4 @@ tq_cg #(.EN(GATE)) u_cg (.clk_i, .en_i(we), .gclk_o(gclk));
 always_ff @(posedge gclk) if (we || GATE) q <= d;
 ```
 
-With `GATE = 0` the clock passes through and `we` is an ordinary enable; that is the form the formal proofs check (`CLK_GATE = 0`). The regression runs both forms (`t8_no_clock_gating`), and fails if a gate is stuck open. Generic synthesis (`make synth-check`) keeps `tq_icg` as its own module and allows latches only there.
+With `GATE = 0` the clock passes through and `we` is an ordinary enable; that is the form the core proofs check (`CLK_GATE = 0`). `verif/formal/tq_cg.sby` proves the template itself (with the `tq_icg` latch model, multiclock) equal to an enable flop, with and without an asynchronous reset, and that the gated clock never rises without the clock; `verif/formal/check_cg_pattern.py` checks that every gated register uses the template. The regression runs both forms (`t8_no_clock_gating`), and fails if a gate is stuck open. Generic synthesis (`make synth-check`) keeps `tq_icg` as its own module and allows latches only there.

@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+#
+# The clock-gating template with the tq_icg latch model is equivalent to an enable flop
+# (tq_cg_env.sv): k-induction with multiclock on (clk2fflogic), so the latch and the gated
+# clock are modelled exactly. Run: sby -f tq_cg.sby
+
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+prove: depth 12
+cover: mode cover
+cover: depth 16
+multiclock on
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -sv -formal tq_icg.sv tq_cg.sv tq_cg_env.sv
+prep -top tq_cg_env
+
+[files]
+../../rtl/common/tq_icg.sv
+../../rtl/common/tq_cg.sv
+tq_cg_env.sv

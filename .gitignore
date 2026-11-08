@@ -35,6 +35,8 @@ verif/formal/tq_axil_regs/
 verif/formal/tq_axil_regs_*/
 verif/formal/tq_axi_mem/
 verif/formal/tq_axi_mem_*/
+verif/formal/tq_cg/
+verif/formal/tq_cg_*/
 
 # Private planning notes (roadmap, decision records, metrics, history): local only
 private/

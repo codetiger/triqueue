@@ -53,9 +53,10 @@ rtl-lint:
 rtl-test:
 	$(PYTHON) -m pytest verif -q
 
-# formal: FIFO proof + AXI4-Lite adapter proof + core proof, split port. formal-nightly: core proof, shared port (1-80 min, varies widely).
+# formal: clock-gating template (pattern check + tq_cg.sby), FIFO, AXI4-Lite adapter, AXI master covers, core proof (split port). formal-nightly: core proof, shared port (1-80 min, varies widely).
 formal:
-	cd verif/formal && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_axi_mem.sby cover && $(SBY) -f tq_core.sby split
+	$(PYTHON) verif/formal/check_cg_pattern.py
+	cd verif/formal && $(SBY) -f tq_cg.sby && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_axi_mem.sby cover && $(SBY) -f tq_core.sby split
 
 formal-nightly:
 	cd verif/formal && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_core.sby panel && $(SBY) -f tq_axi_mem.sby prove
@@ -75,4 +76,4 @@ synth-check:
 	done
 
 clean:
-	rm -rf build verif/formal/tq_fifo verif/formal/tq_fifo_* verif/formal/tq_core verif/formal/tq_core_*/ verif/formal/tq_axil_regs verif/formal/tq_axil_regs_*/ verif/formal/tq_axi_mem verif/formal/tq_axi_mem_*/
+	rm -rf build verif/formal/tq_fifo verif/formal/tq_fifo_* verif/formal/tq_core verif/formal/tq_core_*/ verif/formal/tq_axil_regs verif/formal/tq_axil_regs_*/ verif/formal/tq_axi_mem verif/formal/tq_axi_mem_*/ verif/formal/tq_cg verif/formal/tq_cg_*/
