@@ -96,7 +96,8 @@ async def gemm_cases(dut):
         try:
             rec = await tb.run(mem, prog, case["lat"], max_cycles=2 * s.cycles + 200,
                                stall=stall, seed=case["seed"],
-                               wr_resp_latency=p.wr_resp_latency if p.wr_ack else None)
+                               wr_resp_latency=p.wr_resp_latency if p.wr_ack else None,
+                               **({"bus_err": case["bus_err"]} if "bus_err" in case else {}))
         except TimeoutError:
             failures.append(f"{name}: hang (model finishes in {s.cycles} cycles)")
             dut._log.error("%s: hang (model %d cycles)", name, s.cycles)
@@ -125,6 +126,8 @@ async def gemm_cases(dut):
                 errs.append(f"perf {k_} rtl {got[k_]} vs model {v}")
         if rec.status & 0x4:
             errs.append(f"error status {rec.status:#x}")
+        if bool(rec.status & 0x8) != ("bus_err" in case):
+            errs.append(f"STATUS.BUS_ERR {bool(rec.status & 0x8)}, expected {'bus_err' in case}")
         if errs:
             failures.append(f"{name}: " + "; ".join(errs))
             dut._log.error("%s: %s", name, "; ".join(errs))

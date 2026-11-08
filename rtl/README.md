@@ -28,7 +28,7 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specifica
 | Port | Signals | Rules |
 | --- | --- | --- |
 | Read | `rd_req_o`, `rd_addr_o` → `rd_gnt_i`; `rd_rvalid_i`, `rd_rdata_i` | A request is accepted in a cycle where `req && gnt`. Responses come back in order, any number of cycles later (including the same cycle). `rvalid` has no backpressure: the core only requests when it has room for the response. |
-| Write | `wr_req_o`, `wr_addr_o`, `wr_be_o`, `wr_wdata_o` → `wr_gnt_i`; `wr_done_i` | Accepted when `req && gnt`. Byte enables are contiguous from the low byte. `wr_done_i`: one pulse per completed write when `WR_ACK = 1`, else tie to 0. |
+| Write | `wr_req_o`, `wr_addr_o`, `wr_be_o`, `wr_wdata_o` → `wr_gnt_i`; `wr_done_i` | Accepted when `req && gnt`. Byte enables are contiguous from the low byte. `wr_done_i`: one pulse per completed write when `WR_ACK = 1`, else tie to 0. `bus_err_i`: a pulse per error response from an interconnect (sets `STATUS.BUS_ERR`), else tie to 0. |
 
 Requests never depend combinationally on `gnt`, and an ungranted request stays asserted with the same address and data until granted (OBI request stability; START or ABORT drops it). All addresses are W-aligned: the program must keep `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` multiples of W, otherwise the core stops with `ERR_ALIGN`.
 
@@ -50,7 +50,7 @@ Requests never depend combinationally on `gnt`, and an ungranted request stays a
 | `core/tq_regs.sv` | Register port and program buffer |
 | `core/tq_top.sv` | Registers + core |
 | `adapters/tq_axil_regs.sv` | AXI4-Lite slave to the register port: one transaction at a time, reads and writes alternate when both wait, B / R after the register port's response. Formally proved (`verif/formal/tq_axil_regs.sby`). |
-| `adapters/tq_axi_mem.sv` | AXI4 master for the memory ports: single-beat INCR per port word, RREADY / BREADY always 1, AR and AW+W handshakes as `gnt`, `wr_done` from B. Finishes and discards a request the core drops at START / ABORT. Formally proved (`verif/formal/tq_axi_mem.sby`). |
+| `adapters/tq_axi_mem.sv` | AXI4 master for the memory ports: single-beat INCR per port word, RREADY / BREADY always 1, AR and AW+W handshakes as `gnt`, `wr_done` from B. Finishes and discards a request the core drops at START / ABORT. An error response to a core transaction pulses `bus_err_o` (`STATUS.BUS_ERR`). Formally proved (`verif/formal/tq_axi_mem.sby`). |
 | `adapters/tq_top_axi.sv` | `tq_top` for an AXI SoC: AXI4-Lite registers + AXI4 memory master, `WR_ACK = 1`. Regression configuration `t8_axi`. |
 | `adapters/tq_top_axil.sv` | `tq_top` with the AXI4-Lite register port; memory ports native (for tightly coupled SRAM). Regression configuration `t8_axil`. |
 

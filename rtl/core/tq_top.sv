@@ -42,7 +42,8 @@ module tq_top #(
     output logic [W-1:0]  wr_be_o,
     output logic [VB-1:0] wr_wdata_o,
     input  logic          wr_gnt_i,
-    input  logic          wr_done_i      // write response (WR_ACK = 1); tie 0 for an SRAM
+    input  logic          wr_done_i,     // write response (WR_ACK = 1); tie 0 for an SRAM
+    input  logic          bus_err_i      // pulse: an interconnect error response (STATUS.BUS_ERR); tie 0 for an SRAM
 );
   logic                    start, abort, busy, done, error;
   logic [3:0]              err_code;
@@ -56,7 +57,7 @@ module tq_top #(
       .reg_req_i, .reg_gnt_o, .reg_addr_i, .reg_we_i, .reg_be_i, .reg_wdata_i,
       .reg_rvalid_o, .reg_rdata_o, .irq_o,
       .start_o(start), .abort_o(abort), .prog_o(prog),
-      .busy_i(busy), .done_i(done), .error_i(error), .err_code_i(err_code), .cfg_i(cfg),
+      .busy_i(busy), .done_i(done), .error_i(error), .err_code_i(err_code), .bus_err_i, .cfg_i(cfg),
       .perf_i({p_wr, p_rd, p_beat, p_ret, p_cyc}));
 
   tq_core #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),

@@ -35,8 +35,11 @@ int tq_run(volatile uint32_t *base, const tq_info *info, const uint8_t *prog, si
     REG(base, TQ_REG_CTRL) = TQ_CTRL_START;
     for (uint32_t n = 0; max_polls == 0 || n < max_polls; n++) {
         uint32_t st = REG(base, TQ_REG_STATUS);
-        if (st & TQ_STATUS_DONE)
-            return (st & TQ_STATUS_ERROR) ? (int)((st >> 8) & 0xFu) : TQ_OK;
+        if (st & TQ_STATUS_DONE) {
+            if (st & TQ_STATUS_ERROR)
+                return (int)((st >> 8) & 0xFu);
+            return (st & TQ_STATUS_BUS_ERR) ? TQ_ERR_BUS : TQ_OK;
+        }
     }
     REG(base, TQ_REG_CTRL) = TQ_CTRL_ABORT;
     return TQ_ERR_TIMEOUT;

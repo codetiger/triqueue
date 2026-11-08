@@ -224,17 +224,23 @@ def derived(r):
 def platform_section(platform, recs):
     first = recs[0]
     out = [f"## {platform}", ""]
-    out.append(f"Target clock {num(1e6 / first['clock_period_ps'])} MHz ({first['clock_period_ps']:g} ps), "
+    clocks = sorted({r["clock_period_ps"] for r in recs})
+    clk = (f"Target clock {num(1e6 / clocks[0])} MHz ({clocks[0]:g} ps)" if len(clocks) == 1 else
+           "Target clock per config (column *Clock*; a config that cannot close the platform's clock is "
+           "run at one it closes)")
+    out.append(f"{clk}, "
                f"core utilization {first['core_utilization_pct']}%, typical corner of the platform. "
                f"Gate equivalent: `{first['nand2_cell']}` ({first['nand2_um2']:.4g} µm²).")
+    mixed = len(clocks) > 1
     out += ["", "### Area and timing", "",
-            "| Config | Parameters | Cell area | kGE | Flops | Flops per MAC | MACs/cycle per kGE "
-            "| Fmax (post-route) | Worst setup slack | Peak TOPS/mm² at Fmax | DRC |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+            "| Config | Parameters | " + ("Clock | " if mixed else "") + "Cell area | kGE | Flops | Flops per MAC "
+            "| MACs/cycle per kGE | Fmax (post-route) | Worst setup slack | Peak TOPS/mm² at Fmax | DRC |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |" + (" --- |" if mixed else "")]
     for r in recs:
         d = derived(r)
         params = ", ".join(f"{k}={v}" for k, v in r["params"].items())
-        out.append(f"| {r['config']} | {params} | {area_str(r['cell_area_um2'])} | {num(d['kge'], 1)} "
+        clock = f"{num(1e6 / r['clock_period_ps'])} MHz | " if mixed else ""
+        out.append(f"| {r['config']} | {params} | {clock}{area_str(r['cell_area_um2'])} | {num(d['kge'], 1)} "
                    f"| {num(r['flops'])} | {num(r['flops'] / d['macs'])} | {d['macs_per_kge']:.3f} "
                    f"| {num(r['fmax_hz'] / 1e6, 1)} MHz | {num(r['setup_ws_ps'])} ps "
                    f"| {d['tops_mm2']:.3f} | {r['drc_errors']} |")
@@ -246,7 +252,8 @@ def platform_section(platform, recs):
         out.append(f"| {r['config']} | " + " | ".join(
             f"{a[g] / r['cell_area_um2'] * 100:.1f}%" for g in AREA_GROUPS) + " |")
 
-    out += ["", f"### Energy, engine only, at {num(1e6 / first['clock_period_ps'])} MHz", "",
+    at = f"at {num(1e6 / clocks[0])} MHz" if len(clocks) == 1 else "at each config's target clock"
+    out += ["", f"### Energy, engine only, {at}", "",
             "| Config | Workload | M×N×K | Utilization (simulated window) | Power | Clock tree | Registers "
             "| Logic | pJ/MAC | TOPS/W |",
             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
@@ -265,7 +272,7 @@ def platform_section(platform, recs):
     sr = [r for r in recs if r.get("sram") and any("sram" in p for p in r["power"].values())]
     if sr:
         m = sr[0]["sram"]
-        out += ["", f"### Energy, engine + operand SRAM, at {num(1e6 / first['clock_period_ps'])} MHz", "",
+        out += ["", f"### Energy, engine + operand SRAM, {at}", "",
                 f"SRAM: `{m['cell']}` ({m['word_bits']}-bit word, {m['kbytes']:g} KB, one read-write and one read "
                 f"port), {m['macros_per_port_word']} per port word, {area_str(m['area_um2'] * m['macros_per_port_word'])} "
                 f"of macro area, not included in the cell area above. Energy per access "

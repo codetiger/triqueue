@@ -41,7 +41,7 @@ module tq_axi_mem_env #(
   tq_axi_mem #(.W(4), .MAX_OUT(MAX_OUT)) dut (
       .clk_i, .rst_ni,
       .rd_req_i, .rd_addr_i, .rd_gnt_o(rd_gnt), .rd_rvalid_o(rd_rvalid), .rd_rdata_o(rd_rdata),
-      .wr_req_i, .wr_addr_i, .wr_be_i, .wr_wdata_i, .wr_gnt_o(wr_gnt), .wr_done_o(wr_done),
+      .wr_req_i, .wr_addr_i, .wr_be_i, .wr_wdata_i, .wr_gnt_o(wr_gnt), .wr_done_o(wr_done), .bus_err_o(),
       .m_araddr_o(araddr), .m_arlen_o(arlen), .m_arsize_o(arsize), .m_arburst_o(arburst),
       .m_arvalid_o(arvalid), .m_arready_i,
       .m_rdata_i(rdata), .m_rresp_i(2'b00), .m_rlast_i(1'b1), .m_rvalid_i, .m_rready_o(rready),

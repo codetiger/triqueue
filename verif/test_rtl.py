@@ -114,7 +114,9 @@ CONFIGS = {
         dict(tile=8, wr_ack=True, wr_out_max=16),
         [dict(c, wr_lat=wl) for c in edge_cases(8, (9,))[::4] for wl in (1, 3)]
         + [dict(case(m, n, k, lat=lat, stall=s), wr_lat=wl) for (m, n, k) in ((64, 64, 64), (20, 24, 27))
-           for lat, s, wl in ((2, 0.0, 1), (3, 0.5, 6), (1, 0.8, 20))],
+           for lat, s, wl in ((2, 0.0, 1), (3, 0.5, 6), (1, 0.8, 20))]
+        # an SLVERR write response sets STATUS.BUS_ERR, and the next START clears it
+        + [dict(case(20, 24, 27), wr_lat=2, bus_err=3), dict(case(9, 9, 9), wr_lat=1)],
     ),
     "t32": (
         dict(T=32),

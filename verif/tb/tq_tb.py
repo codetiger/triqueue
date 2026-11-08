@@ -55,7 +55,7 @@ class TqTb:
     async def start(self):
         d = self.dut
         Clock(d.clk_i, 10, unit="ns").start()
-        for s in (*self.host_inputs(), d.rd_rvalid_i, d.rd_rdata_i, d.wr_done_i):
+        for s in (*self.host_inputs(), d.rd_rvalid_i, d.rd_rdata_i, d.wr_done_i, d.bus_err_i):
             s.value = 0
         d.rd_gnt_i.value = 1
         d.wr_gnt_i.value = 1
@@ -276,7 +276,9 @@ class TqTbAxi(TqTbAxil):
         await FallingEdge(d.clk_i)
         d.rst_ni.value = 1
 
-    async def run(self, mem, prog, mem_latency, max_cycles=2_000_000, stall=0.0, seed=0, wr_resp_latency=None):
+    async def run(self, mem, prog, mem_latency, max_cycles=2_000_000, stall=0.0, seed=0, wr_resp_latency=None,
+                  bus_err=None):
+        """bus_err = i: the i-th write's B response is SLVERR (the data is still written)."""
         gnt = GrantSource(stall, seed)
         d, W, H = self.dut, self.W, self.T // 2
         assert mem_latency >= 1 and wr_resp_latency is not None and wr_resp_latency >= 1
@@ -290,6 +292,7 @@ class TqTbAxi(TqTbAxil):
         core = self.core
         rec = RunRecord()
         r_due, b_due = [], []
+        n_b = 0
         absc, cyc, started = 0, -1, False
         held_ar = held_aw = held_w = None
         while True:
@@ -342,8 +345,12 @@ class TqTbAxi(TqTbAxil):
             else:
                 d.m_rvalid_i.value = 0
             d.m_bvalid_i.value = int(bool(b_due) and b_due[0] == absc)
+            d.m_bresp_i.value = 0
             if b_due and b_due[0] == absc:
                 b_due.pop(0)
+                if bus_err is not None and n_b == bus_err:
+                    d.m_bresp_i.value = 2                   # SLVERR
+                n_b += 1
             assert val(d.m_rready_o) and val(d.m_bready_o)
             await FallingEdge(d.clk_i)
             absc += 1

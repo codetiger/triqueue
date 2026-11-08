@@ -15,7 +15,8 @@
 // the address and data are held in registers, the core's next request waits (gnt 0) until the
 // orphan is accepted, and the orphan's response is discarded. A tag queue per direction, one
 // bit per accepted transaction, in order, marks which responses belong to the core.
-// RRESP / BRESP errors are not reported to the core (a later revision may add an error bit).
+// An error response (RRESP / BRESP SLVERR or DECERR) to one of the core's transactions pulses
+// bus_err_o (tq_regs latches it in STATUS.BUS_ERR); a discarded orphan's response is ignored.
 
 module tq_axi_mem #(
     parameter int W       = 16,                // port width in bytes (2T)
@@ -38,6 +39,7 @@ module tq_axi_mem #(
     input  logic [VB-1:0] wr_wdata_i,
     output logic          wr_gnt_o,
     output logic          wr_done_o,
+    output logic          bus_err_o,     // an error response to one of the core's transactions
     // AXI4 master
     output logic [31:0]   m_araddr_o,
     output logic [7:0]    m_arlen_o,
@@ -160,10 +162,11 @@ module tq_axi_mem #(
       .push_i(wr_all), .data_i(!(wv_q && (w_orph_q || !wr_req_i))),
       .pop_i({1'b0, m_bvalid_i}), .head0_o(wt_head), .head1_o(unused_wt1), .count_o(wt_cnt));
   assign wr_done_o = m_bvalid_i && wt_head;
+  assign bus_err_o = (rd_rvalid_o && m_rresp_i[1]) || (wr_done_o && m_bresp_i[1]);
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused;
-  assign unused = ^{m_rresp_i, m_rlast_i, m_bresp_i};
+  assign unused = ^{m_rresp_i[0], m_rlast_i, m_bresp_i[0]};
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

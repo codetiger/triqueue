@@ -69,7 +69,7 @@ module tq_top_axi #(
     input  logic              m_bvalid_i,
     output logic              m_bready_o
 );
-  logic          rd_req, rd_gnt, rd_rvalid, wr_req, wr_gnt, wr_done;
+  logic          rd_req, rd_gnt, rd_rvalid, wr_req, wr_gnt, wr_done, bus_err;
   logic [31:0]   rd_addr, wr_addr;
   logic [VB-1:0] rd_rdata, wr_wdata;
   logic [W-1:0]  wr_be;
@@ -86,13 +86,13 @@ module tq_top_axi #(
       .irq_o,
       .rd_req_o(rd_req), .rd_addr_o(rd_addr), .rd_gnt_i(rd_gnt), .rd_rvalid_i(rd_rvalid), .rd_rdata_i(rd_rdata),
       .wr_req_o(wr_req), .wr_addr_o(wr_addr), .wr_be_o(wr_be), .wr_wdata_o(wr_wdata), .wr_gnt_i(wr_gnt),
-      .wr_done_i(wr_done));
+      .wr_done_i(wr_done), .bus_err_i(bus_err));
 
   tq_axi_mem #(.W(W), .MAX_OUT(MAX_OUT)) u_axi (
       .clk_i, .rst_ni,
       .rd_req_i(rd_req), .rd_addr_i(rd_addr), .rd_gnt_o(rd_gnt), .rd_rvalid_o(rd_rvalid), .rd_rdata_o(rd_rdata),
       .wr_req_i(wr_req), .wr_addr_i(wr_addr), .wr_be_i(wr_be), .wr_wdata_i(wr_wdata), .wr_gnt_o(wr_gnt),
-      .wr_done_o(wr_done),
+      .wr_done_o(wr_done), .bus_err_o(bus_err),
       .m_araddr_o, .m_arlen_o, .m_arsize_o, .m_arburst_o, .m_arvalid_o, .m_arready_i,
       .m_rdata_i, .m_rresp_i, .m_rlast_i, .m_rvalid_i, .m_rready_o,
       .m_awaddr_o, .m_awlen_o, .m_awsize_o, .m_awburst_o, .m_awvalid_o, .m_awready_i,

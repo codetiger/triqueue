@@ -7,9 +7,10 @@
 //   0x004 HW_CONFIG   RO  [7:0] T, [15:8] FIFO_DEPTH, [19:16] MACQ_DEPTH, [20] SHARED_PORT,
 //                         [31:24] PROG_BYTES / 4.  Port width W = 2T bytes.
 //   0x008 CTRL        WO  bit 0 START, bit 1 ABORT
-//   0x00C STATUS      RO  bit 0 BUSY, bit 1 DONE (sticky until START), bit 2 ERROR, [11:8] error code
-//   0x010 IRQ_EN      RW  bit 0 done, bit 1 error
-//   0x014 IRQ_STATUS  RW1C bit 0 done, bit 1 error
+//   0x00C STATUS      RO  bit 0 BUSY, bit 1 DONE (sticky until START), bit 2 ERROR, bit 3 BUS_ERR
+//                         (an interconnect error response since START, sticky), [11:8] error code
+//   0x010 IRQ_EN      RW  bit 0 done, bit 1 error, bit 2 bus error
+//   0x014 IRQ_STATUS  RW1C bit 0 done, bit 1 error, bit 2 bus error
 //   0x020 PERF_CYCLES, 0x024 PERF_INSTRET, 0x028 PERF_BEATS, 0x02C PERF_READS, 0x030 PERF_WRITES   RO
 //   0x040-0x05C CFG[0..7]   RO  configuration registers as last written by the program
 //   0x100-       PROG        WO  program buffer (PROG_BYTES bytes, byte enables honoured)
@@ -42,6 +43,7 @@ module tq_regs #(
     input  logic                    done_i,
     input  logic                    error_i,
     input  logic [3:0]              err_code_i,
+    input  logic                    bus_err_i,   // pulse: an error response from the interconnect
     input  logic [8*32-1:0]         cfg_i,
     input  logic [5*32-1:0]         perf_i       // {writes, reads, beats, instret, cycles}
 );
@@ -50,8 +52,8 @@ module tq_regs #(
                                        8'(FIFO_DEPTH), 8'(T)};
 
   logic [PROG_BYTES*8-1:0] prog_q;
-  logic       done_q;
-  logic [1:0] irq_en_q, irq_st_q;
+  logic       done_q, bus_err_q;
+  logic [2:0] irq_en_q, irq_st_q;
   logic       rvalid_q;
   logic [31:0] rdata_q;
 
@@ -69,9 +71,9 @@ module tq_regs #(
     case (reg_addr_i)
       12'h000: rdata = ID;
       12'h004: rdata = HW_CONFIG;
-      12'h00C: rdata = {20'd0, err_code_i, 5'd0, error_i, done_q, busy_i};
-      12'h010: rdata = {30'd0, irq_en_q};
-      12'h014: rdata = {30'd0, irq_st_q};
+      12'h00C: rdata = {20'd0, err_code_i, 4'd0, bus_err_q, error_i, done_q, busy_i};
+      12'h010: rdata = {29'd0, irq_en_q};
+      12'h014: rdata = {29'd0, irq_st_q};
       12'h020: rdata = perf_i[0*32 +: 32];
       12'h024: rdata = perf_i[1*32 +: 32];
       12'h028: rdata = perf_i[2*32 +: 32];
@@ -85,19 +87,26 @@ module tq_regs #(
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      done_q <= 1'b0; irq_en_q <= '0; irq_st_q <= '0;
+      done_q <= 1'b0; bus_err_q <= 1'b0; irq_en_q <= '0; irq_st_q <= '0;
       rvalid_q <= 1'b0; rdata_q <= '0;
     end else begin
       rvalid_q <= reg_req_i;
       if (rd) rdata_q <= rdata;
-      if (start_o && !busy_i) done_q <= 1'b0;
+      if (start_o && !busy_i) begin
+        done_q    <= 1'b0;
+        bus_err_q <= 1'b0;
+      end
+      if (bus_err_i) begin
+        bus_err_q   <= 1'b1;
+        irq_st_q[2] <= 1'b1;
+      end
       if (done_i) begin
         done_q      <= 1'b1;
         irq_st_q[0] <= 1'b1;
         if (error_i) irq_st_q[1] <= 1'b1;
       end
-      if (wr && reg_addr_i == 12'h010 && reg_be_i[0]) irq_en_q <= reg_wdata_i[1:0];
-      if (wr && reg_addr_i == 12'h014 && reg_be_i[0]) irq_st_q <= irq_st_q & ~reg_wdata_i[1:0];
+      if (wr && reg_addr_i == 12'h010 && reg_be_i[0]) irq_en_q <= reg_wdata_i[2:0];
+      if (wr && reg_addr_i == 12'h014 && reg_be_i[0]) irq_st_q <= irq_st_q & ~reg_wdata_i[2:0];
     end
   end
 

@@ -39,6 +39,7 @@
 #define TQ_STATUS_BUSY     0x1u
 #define TQ_STATUS_DONE     0x2u
 #define TQ_STATUS_ERROR    0x4u
+#define TQ_STATUS_BUS_ERR  0x8u   // an interconnect error response during the run (AXI SLVERR / DECERR)
 
 // STATUS[11:8] error codes
 enum tq_err {
@@ -54,6 +55,7 @@ enum tq_err {
     TQ_ERR_PROG_SIZE = 17, // program does not fit the program buffer
     TQ_ERR_TIMEOUT = 18,   // tq_run gave up polling
     TQ_ERR_ARG = 19,       // invalid argument
+    TQ_ERR_BUS = 20,       // the run finished, but a memory access got an error response
 };
 
 // MODE bits (CFG register 7)
@@ -86,7 +88,7 @@ typedef struct {
 // ---- device access (base = the register port's address in the host's address space) ----
 int tq_probe(volatile uint32_t *base, tq_info *info);
 // Loads `prog` (len bytes), starts it and polls STATUS until DONE. max_polls = 0 polls forever.
-// Returns TQ_OK or a tq_err code.
+// Returns TQ_OK or a tq_err code: the core's error code first, else TQ_ERR_BUS for a bus error.
 int tq_run(volatile uint32_t *base, const tq_info *info, const uint8_t *prog, size_t len,
            uint32_t max_polls);
 void tq_read_perf(volatile uint32_t *base, tq_perf *perf);

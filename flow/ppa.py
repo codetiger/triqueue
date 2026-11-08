@@ -43,6 +43,13 @@ CONFIGS = {
     "t32_cpa":     dict(T=32, ACC_FORM=1, **Q),
 }
 
+# Reference runs whose clock differs from the platform's: (platform, config) -> period. A config
+# that cannot close the platform clock is recorded at one it closes, so its energy is measured
+# at a clock it really runs at (found with `ppa.py sweep`).
+PERIOD_OVERRIDE = {
+    ("asap7", "t16_cpa"): 1200,
+}
+
 # name: clock period (platform time unit), floorplan utilization (%), Docker thread cap, extra
 # ORFS variables. The detailed router's memory grows with its thread count: asap7 at T = 8 needs
 # over 12 GB with 8 threads, more than a 16 GB laptop's Docker VM has.
@@ -84,6 +91,10 @@ def config_mk(platform, config, period, native=False, nick=None):
 
 def work_dir(platform, config, native=False):
     return Path("build") / ("orfs_native" if native else "orfs_docker") / platform / config
+
+
+def reference_period(platform, config):
+    return PERIOD_OVERRIDE.get((platform, config), PLATFORMS[platform]["period"])
 
 
 def sweep_name(config, period):
@@ -203,7 +214,7 @@ def main():
     if a.cmd == "sweep":
         periods = [int(x) if float(x).is_integer() else x for x in a.periods]
         return sweep(a.platform, a.config, periods, a.jobs, native=not a.docker)
-    period = a.period if a.period is not None else PLATFORMS[a.platform]["period"]
+    period = a.period if a.period is not None else reference_period(a.platform, a.config)
     if isinstance(period, float) and period.is_integer():
         period = int(period)
     return run(a.platform, a.config, period, a.to, a.jobs, native=not a.docker)

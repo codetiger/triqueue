@@ -124,6 +124,8 @@ def test_probe_and_run(lib):
     assert regs[2] == 1                                                         # CTRL: START
     regs[3] = 0x2 | 0x4 | (6 << 8)                                              # DONE + ERROR(align)
     assert lib.tq_run(regs, ctypes.byref(info), ptr(p), len(p), 10) == 6
+    regs[3] = 0x2 | 0x8                                                         # DONE + BUS_ERR
+    assert lib.tq_run(regs, ctypes.byref(info), ptr(p), len(p), 10) == 20
     regs[3] = 0x1                                                               # BUSY forever
     assert lib.tq_run(regs, ctypes.byref(info), ptr(p), len(p), 10) == 18
     assert regs[2] == 2                                                         # ABORT after the timeout

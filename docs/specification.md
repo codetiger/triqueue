@@ -307,7 +307,7 @@ The core has two native ports, W = 2T bytes wide, with OBI-style (OpenHW Open Bu
 - Every read and every drain write is one aligned W-byte word (alignment rule, §6.1). C rows are padded to whole words, which wastes at most W − 4 bytes per row.
 - With an SRAM that always grants and answers L cycles after the request, the RTL matches the cycle model run with `mem_latency = L + 1`. The extra cycle is the operand FIFO write. SRAM latency costs only FIFO depth: depth 8 hides up to 8 cycles at every T (`model/dse.md` §5).
 - **Write completion.** On an SRAM a write is complete when it is granted, and `wr_done` is tied to 0. Behind an interconnect such as AXI a write is complete only at its response, so the core is built with `WR_ACK = 1`: each granted write stays outstanding until its `wr_done` pulse (in order, in the grant cycle or later), `FENCE` (and so `DONE`) waits until none is outstanding, and no new write is requested while `WR_OUT_MAX` are. When software sees `DONE`, C is in memory. With responses in the grant cycle the timing is that of an SRAM; the cycle model has the same option (`wr_ack`, `wr_resp_latency`).
-- **AXI.** `tq_axi_mem` turns the two ports into an AXI4 master with a W-byte data bus: one single-beat INCR transaction per port word, `RREADY` and `BREADY` always 1 (the core never back-pressures a response), AR and AW/W ready acting as `gnt`. AXI does not allow a VALID to be withdrawn, so a request the core drops at START or ABORT is finished by the adapter and its response discarded. `tq_top_axi` combines it with the AXI4-Lite register port (§6.4) and `WR_ACK = 1`.
+- **AXI.** `tq_axi_mem` turns the two ports into an AXI4 master with a W-byte data bus: one single-beat INCR transaction per port word, `RREADY` and `BREADY` always 1 (the core never back-pressures a response), AR and AW/W ready acting as `gnt`. AXI does not allow a VALID to be withdrawn, so a request the core drops at START or ABORT is finished by the adapter and its response discarded. An error response (SLVERR or DECERR) to one of the core's own transactions sets `STATUS.BUS_ERR` (§6.4). `tq_top_axi` combines it with the AXI4-Lite register port (§6.4) and `WR_ACK = 1`.
 - `gnt` back-pressure is supported and part of the cycle model: an ungranted request holds the port: the read keeps its stream (no re-arbitration and no panel loads meanwhile), and on a shared port a held read or write keeps the port. The RTL matches the model cycle for cycle under random stalls of up to 80% on both ports.
 
 ### 6.4 Host interface
@@ -319,8 +319,8 @@ The core exposes one 32-bit register port (OBI-style: always grants, read data o
 | `0x000` | `ID` | RO | `0x5451_0001` ("TQ", register map version 1) |
 | `0x004` | `HW_CONFIG` | RO | `[7:0]` T, `[15:8]` FIFO depth, `[19:16]` MAC queue depth, `[20]` shared port, `[31:24]` program buffer bytes / 4. Software reads this instead of assuming a size. |
 | `0x008` | `CTRL` | WO | bit 0 `START` (run the program buffer from offset 0), bit 1 `ABORT` |
-| `0x00C` | `STATUS` | RO | bit 0 `BUSY`, bit 1 `DONE` (sticky until `START`), bit 2 `ERROR`, `[11:8]` error code |
-| `0x010` / `0x014` | `IRQ_EN` / `IRQ_STATUS` | RW / W1C | bit 0 done, bit 1 error |
+| `0x00C` | `STATUS` | RO | bit 0 `BUSY`, bit 1 `DONE` (sticky until `START`), bit 2 `ERROR`, bit 3 `BUS_ERR` (an interconnect error response to one of the run's memory accesses, sticky until `START`; the run itself continues), `[11:8]` error code |
+| `0x010` / `0x014` | `IRQ_EN` / `IRQ_STATUS` | RW / W1C | bit 0 done, bit 1 error, bit 2 bus error |
 | `0x020`–`0x030` | `PERF_CYCLES`, `PERF_INSTRET`, `PERF_BEATS`, `PERF_READS`, `PERF_WRITES` | RO | Cleared at `START`. Every benchmark result can be read from the hardware. |
 | `0x040`–`0x05C` | `CFG[0..7]` | RO | Configuration registers as last written by the program |
 | `0x100`– | `PROG` | WO | Program buffer (64 bytes by default): `CFG` instructions + kernel. The loop buffer runs from here. |

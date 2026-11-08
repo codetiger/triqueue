@@ -54,7 +54,8 @@ module tq_top_axil #(
     output logic [W-1:0]      wr_be_o,
     output logic [VB-1:0]     wr_wdata_o,
     input  logic              wr_gnt_i,
-    input  logic              wr_done_i
+    input  logic              wr_done_i,
+    input  logic              bus_err_i
 );
   logic        reg_req, reg_gnt, reg_we, reg_rvalid;
   logic [11:0] reg_addr;
@@ -79,6 +80,6 @@ module tq_top_axil #(
       .reg_be_i(reg_be), .reg_wdata_i(reg_wdata), .reg_rvalid_o(reg_rvalid), .reg_rdata_o(reg_rdata),
       .irq_o,
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i,
-      .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i, .wr_done_i);
+      .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i, .wr_done_i, .bus_err_i);
 
 endmodule
