@@ -33,6 +33,14 @@ NAND2_UM2 = {
     "ihp-sg13g2": ("sg13g2_nand2_1", 1.92 * 3.78),
 }
 
+# Operand SRAM for the engine + SRAM line (metrics.md): a macro from the ORFS platform, one per
+# 128-bit slice of the W-byte port, with a read-write port (C writes) and a read port (A/B reads),
+# like tq_top's separate ports. Only sky130hd has a characterized open macro (OpenRAM); ASAP7 has
+# fakeram, whose generator calls its values not realistic, so ASAP7 gets no SRAM line.
+SRAM_MACROS = {
+    "sky130hd": ("sky130ram", "sky130_sram_1rw1r_128x256_8", "sky130_sram_1rw1r_128x256_8_TT_1p8V_25C.lib"),
+}
+
 # ORFS cell classes, grouped for the area table.
 AREA_GROUPS = {
     "sequential": ["sequential_cell"],
@@ -71,6 +79,43 @@ def power_groups(rpt: str):
     return out
 
 
+def sram_macro(platform):
+    """Area, energy per access and leakage of the platform's SRAM macro, from its liberty file.
+
+    OpenRAM's liberty gives one internal energy per clock edge, the same whether the macro reads,
+    writes or is deselected. An access is charged one rise and one fall of its clock (the SRAM
+    clock is assumed gated while the port is idle), and leakage runs for the whole window.
+    """
+    if platform not in SRAM_MACROS:
+        return None
+    from ppa import ORFS_HOME
+    pdir, cell, lib = SRAM_MACROS[platform]
+    text = (ORFS_HOME / "flow" / "platforms" / pdir / cell / lib).read_text()
+    assert '"1V"' in text and "capacitive_load_unit(1, pF)" in text, "expected pJ energy units"
+    word = int(re.search(r"word_width\s*:\s*(\d+)", text).group(1))
+    words = 2 ** int(re.search(r"address_width\s*:\s*(\d+)", text).group(1))
+    clk = text[text.index("pin(clk1)"):]                       # the read-only port's clock
+    rise = float(re.search(r"rise_power\(scalar\)\{\s*values\(\"([^\"]+)\"", clk).group(1))
+    fall = float(re.search(r"fall_power\(scalar\)\{\s*values\(\"([^\"]+)\"", clk).group(1))
+    return dict(cell=cell, source=f"OpenRAM liberty ({lib})", word_bits=word, kbytes=word * words / 8 / 1024,
+                area_um2=float(re.search(r"area\s*:\s*([\d.]+)", text).group(1)),
+                access_pj=rise + fall,
+                leakage_w=float(re.search(r"(?m)^\s*cell_leakage_power\s*:\s*([\d.eE+-]+)", text).group(1)) * 1e-3)
+
+
+def sram_traffic(params, shape):
+    """Read and write transactions of one workload, from the cycle model (the activity run checks
+    the RTL's transactions against it)."""
+    import numpy as np
+    sys.path.insert(0, str(ROOT / "model"))
+    from activity import MODEL_FIELDS, model_params
+    from tri_queue.core import Params, run_gemm
+    m, n, k = shape
+    mp = model_params({k_: v for k_, v in params.items() if k_ in MODEL_FIELDS})
+    _, st = run_gemm(np.zeros((m, k), np.int8), np.zeros((k, n), np.int8), Params(**mp))
+    return st.read_vectors, st.write_vectors
+
+
 def collect(platform, config, force=False):
     sys.path.insert(0, str(ROOT / "flow"))
     from ppa import CONFIGS, ORFS_COMMIT, PLATFORMS, work_dir
@@ -84,7 +129,7 @@ def collect(platform, config, force=False):
     m = json.loads(report.read_text())
     route = json.loads((run / "logs" / base / "5_2_route.json").read_text())
 
-    synth = run / "results" / base / "1_2_yosys.v"
+    synth = run / "logs" / base / "1_2_yosys.log"          # end of synthesis (results may be pruned)
     rtl = [ROOT / f for f in (ROOT / "rtl" / "files.f").read_text().split()]
     problems = []
     if max(f.stat().st_mtime for f in rtl) > synth.stat().st_mtime:
@@ -111,6 +156,16 @@ def collect(platform, config, force=False):
                          utilization=p["utilization"], power_w=p["power_w"],
                          power_groups_w=power_groups(f.with_suffix(".rpt").read_text()), energy_j=p["energy_j"],
                          pj_per_mac=p["pj_per_mac"], tops_per_w=p["tops_per_w"])
+    sram = sram_macro(platform)
+    if sram:
+        w_bits = 2 * CONFIGS[config]["T"] * 8
+        assert w_bits % sram["word_bits"] == 0
+        sram["macros_per_port_word"] = w_bits // sram["word_bits"]
+        for wl, p in power.items():
+            reads, writes = sram_traffic(CONFIGS[config], p["shape"])
+            time_s = p["cycles"] * period * unit_ps * 1e-12
+            e = ((reads + writes) * sram["access_pj"] * 1e-12 + sram["leakage_w"] * time_s) * sram["macros_per_port_word"]
+            p["sram"] = dict(reads=reads, writes=writes, energy_j=e)
     openroad, yosys = tool_versions()
     rec = dict(
         flow="native", orfs_commit=ORFS_COMMIT, openroad=openroad, yosys=yosys, host=host(),
@@ -129,6 +184,7 @@ def collect(platform, config, force=False):
         fmax_hz=m["finish__timing__fmax"],
         drc_errors=route["detailedroute__route__drc_errors"],
         power=power,
+        sram=sram,
     )
     dst = RECORDS / platform / f"{config}.json"
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -150,6 +206,12 @@ def area_str(um2):
 
 def geomean(xs):
     return math.exp(sum(math.log(x) for x in xs) / len(xs))
+
+
+def suite(power):
+    """The workloads that enter geometric means: one per shape. *_relu repeats a shape with other
+    operand data and is shown on its own row."""
+    return {wl: p for wl, p in power.items() if not wl.endswith("_relu")}
 
 
 def derived(r):
@@ -195,10 +257,54 @@ def platform_section(platform, recs):
                        + "".join(f"| {p['power_groups_w'][g] / p['power_w']['total'] * 100:.1f}% "
                                  for g in ("clock", "sequential", "combinational"))
                        + f"| {p['pj_per_mac']:.3f} | {p['tops_per_w']:.3f} |")
-        if len(r["power"]) > 1:
-            pj = geomean([p["pj_per_mac"] for p in r["power"].values()])
-            tw = geomean([p["tops_per_w"] for p in r["power"].values()])
+        if len(suite(r["power"])) > 1:
+            pj = geomean([p["pj_per_mac"] for p in suite(r["power"]).values()])
+            tw = geomean([p["tops_per_w"] for p in suite(r["power"]).values()])
             out.append(f"| {r['config']} | geometric mean | | | | | | | {pj:.3f} | {tw:.3f} |")
+
+    sr = [r for r in recs if r.get("sram") and any("sram" in p for p in r["power"].values())]
+    if sr:
+        m = sr[0]["sram"]
+        out += ["", f"### Energy, engine + operand SRAM, at {num(1e6 / first['clock_period_ps'])} MHz", "",
+                f"SRAM: `{m['cell']}` ({m['word_bits']}-bit word, {m['kbytes']:g} KB, one read-write and one read "
+                f"port), {m['macros_per_port_word']} per port word, {area_str(m['area_um2'] * m['macros_per_port_word'])} "
+                f"of macro area, not included in the cell area above. Energy per access "
+                f"{m['access_pj']:.1f} pJ, from the {m['source']}: OpenRAM gives the same energy for every clock "
+                f"edge whether the macro reads, writes or is idle, so each access is charged one clock cycle "
+                f"(SRAM clock gated when idle) plus leakage. Access counts are the workload's read and write "
+                f"transactions. Capacity does not fit the workloads; this is the energy of the port's traffic.", "",
+                "| Config | Workload | SRAM reads | SRAM writes | SRAM pJ/MAC | Engine pJ/MAC | Engine + SRAM pJ/MAC | TOPS/W |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for r in sr:
+            tot = []
+            for wl, p in r["power"].items():
+                if "sram" not in p:
+                    continue
+                s_pj = p["sram"]["energy_j"] / p["useful_macs"] * 1e12
+                t_pj = p["pj_per_mac"] + s_pj
+                if not wl.endswith("_relu"):
+                    tot.append(t_pj)
+                out.append(f"| {r['config']} | {wl} | {num(p['sram']['reads'])} | {num(p['sram']['writes'])} "
+                           f"| {s_pj:.3f} | {p['pj_per_mac']:.3f} | {t_pj:.3f} | {2 / t_pj:.3f} |")
+            if len(tot) > 1:
+                g = geomean(tot)
+                out.append(f"| {r['config']} | geometric mean | | | | | {g:.3f} | {2 / g:.3f} |")
+
+    gated = [(c, k) for c in recs for k in recs
+             if c["config"].endswith("_nocg") and k["config"] == c["config"][:-5]]
+    if gated:
+        out += ["", "### Clock gating: gated against ungated (CLK_GATE = 0)", "",
+                "| Config | Cell area | Flops | Fmax | " + " | ".join(
+                    f"Power, {wl}" for wl in gated[0][1]["power"]) + " | Energy per MAC (geometric mean) |",
+                "| --- | --- | --- | --- |" + " --- |" * (len(gated[0][1]["power"]) + 1)]
+        rel = lambda a, b: f"{(a / b - 1) * 100:+.1f}%"                              # noqa: E731
+        pj = lambda r: geomean([p["pj_per_mac"] for p in suite(r["power"]).values()])      # noqa: E731
+        for c, k in gated:
+            out.append(f"| {k['config']} | {rel(k['cell_area_um2'], c['cell_area_um2'])} "
+                       f"| {rel(k['flops'], c['flops'])} | {rel(k['fmax_hz'], c['fmax_hz'])} | "
+                       + " | ".join(rel(k["power"][wl]["power_w"]["total"], c["power"][wl]["power_w"]["total"])
+                                    if wl in c["power"] else "–" for wl in k["power"])
+                       + f" | {rel(pj(k), pj(c)) if c['power'] and k['power'] else '–'} |")
 
     pairs = [(c, k) for c in recs for k in recs
              if c["config"].endswith("_csa") and k["config"] == c["config"][:-4] + "_cpa"]
@@ -207,7 +313,7 @@ def platform_section(platform, recs):
                 "| T | Cell area | Flops | Fmax | Energy per MAC (geometric mean) |",
                 "| --- | --- | --- | --- | --- |"]
         for c, k in pairs:
-            pj = lambda r: geomean([p["pj_per_mac"] for p in r["power"].values()])    # noqa: E731
+            pj = lambda r: geomean([p["pj_per_mac"] for p in suite(r["power"]).values()])    # noqa: E731
             rel = lambda a, b: f"{(a / b - 1) * 100:+.1f}%"                          # noqa: E731
             out.append(f"| {c['params']['T']} | {rel(k['cell_area_um2'], c['cell_area_um2'])} "
                        f"| {rel(k['flops'], c['flops'])} | {rel(k['fmax_hz'], c['fmax_hz'])} "
@@ -224,7 +330,8 @@ def write_results():
            "Post-route results of `tq_top` from OpenROAD-flow-scripts (`flow/ppa.py`), with power from "
            "simulated switching activity of each workload (`flow/power.py`). How each number is produced: "
            "`flow/README.md`.", "",
-           "- **Engine only.** The operand SRAM is outside `tq_top`; its area and energy are not included.",
+           "- **Engine only** unless a table says otherwise. The operand SRAM is outside `tq_top`; where an "
+           "open macro with characterized power exists (sky130hd), a separate table adds its access energy.",
            "- **Cell area** is the placed standard-cell area (logic, flops, clock tree, buffers, taps), "
            "without fill. kGE = cell area ÷ the PDK's NAND2 area.",
            "- **Fmax** is from post-route STA at the target clock (1 ÷ (period − worst slack)). Peak TOPS/mm² "
@@ -232,7 +339,10 @@ def write_results():
            "including where post-route timing misses it by a few percent (negative slack).",
            "- **Workloads** run in Verilator against the cycle model; operands are uniform random int8, "
            "more switching than real data. Energy and utilization cover the whole simulated window "
-           "(the run plus about 20 setup cycles), and energy is charged to the useful MACs (M × N × K).", ""]
+           "(the run plus about 20 setup cycles), and energy is charged to the useful MACs (M × N × K). "
+           "`*_relu` workloads repeat a shape with synthetic inference-like operands (post-ReLU uint8 "
+           "activations, about half zeros, and Gaussian int8 weights; not data from a real network) and "
+           "are left out of the geometric means.", ""]
     prov = sorted({(r["flow"], r["orfs_commit"], r["openroad"], r["yosys"], r["host"]) for r in recs})
     out += ["| Flow | ORFS | OpenROAD | Yosys | Host | Runs (RTL commit) |", "| --- | --- | --- | --- | --- | --- |"]
     for p in prov:

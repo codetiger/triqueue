@@ -144,6 +144,13 @@ def main():
     if rc or not rpt.exists():
         print(f"[power] {platform} {config} {workload}: failed, see {rel}/power/{workload}.log")
         return rc or 1
+    log = (ROOT / rel / "power" / f"{workload}.log").read_text()
+    miss = [int(x) for x in re.findall(r"(?:registers|clock-gate enables annotated \d+,) not in SAIF (\d+)", log)]
+    if not miss or any(miss):
+        # the netlist and the simulation disagree (other parameters or RTL): the numbers are void
+        print(f"[power] {platform} {config} {workload}: registers or gate enables missing from the SAIF "
+              f"({miss}), see {rel}/power/{workload}.log")
+        return 1
     p = parse_total_power(rpt.read_text())
     w = WORKLOADS[workload]
     macs = w["m"] * w["n"] * w["k"]

@@ -40,6 +40,7 @@ cmake --build tools/yosys/build --target install -j
 python3 flow/ppa.py list
 python3 flow/ppa.py run sky130hd t8_csa              # full flow
 python3 flow/ppa.py run asap7 t8_cpa --to synth      # stop after a stage
+python3 flow/ppa.py sweep asap7 t8_cpa 950 900 850   # clock sweep: one run per period, closure table
 python3 flow/power.py sky130hd t8_csa gemm64         # after the flow: activity-based power
 python3 flow/results.py collect sky130hd t8_csa      # record the run, rewrite results.md
 ```
@@ -49,6 +50,9 @@ python3 flow/results.py collect sky130hd t8_csa      # record the run, rewrite r
 ## How the numbers are produced
 
 - **Area:** post-route standard-cell area of `tq_top` (logic, flops, clock tree, buffers, taps; no fill). The operand SRAM is outside `tq_top`, so this is the engine only. kGE divides it by the PDK's smallest NAND2 (`NAND2_UM2` in `results.py`).
-- **Timing:** post-route STA at the target clock in `PLATFORMS`, typical corner of the platform. Fmax is 1 ÷ (period − worst setup slack), from ORFS.
+- **Clock gates:** the RTL's `tq_icg` cells (`CLK_GATE = 1`) become the platform's integrated clock-gating cell through ORFS's `OPENROAD_CLKGATE` map (`-DOPENROAD_CLKGATE`): `sky130_fd_sc_hd__dlclkp_1`, `ICGx1_ASAP7_75t_R`. CTS builds a subtree below each gate.
+- **Timing:** post-route STA at the target clock in `PLATFORMS`, typical corner of the platform. Fmax is 1 ÷ (period − worst setup slack), from ORFS. `ppa.py sweep` reruns a config at other periods (work directories `<config>_p<period>`, never recorded) to find the fastest period that closes.
 - **Power:** OpenSTA with SAIF from an RTL simulation of the workload. Nets that kept their RTL names are annotated from the SAIF, and every register's output pin is annotated by its cell name (the RTL bit plus a Yosys suffix), with the duty inverted on `QN`. That covers flops whose named net is gone, such as asap7's QN-only flops after ABC absorbs the inverter. Other combinational nets are propagated by OpenSTA. Operands are uniform random int8, which switches more than real data. The SAIF is re-simulated whenever the RTL is newer.
+- **Clock-gate enables** are annotated from the simulated `en_i` of each `tq_cg` instance. OpenSTA scales the gated clock's activity by the enable's duty, so the gated subtree and its flops' clock pins are charged only for the cycles the gate is open.
 - **Energy:** average power × the whole simulated window (the run plus a few dozen setup cycles), charged to the workload's useful MACs (M × N × K).
+- **Engine + SRAM (sky130hd only):** each workload's read and write transactions (from the cycle model, which the activity run matches transaction for transaction) × the energy per access of ORFS's OpenRAM macro `sky130_sram_1rw1r_128x256_8` (128-bit word, one per 16 bytes of port), plus its leakage over the window. OpenRAM's liberty gives one energy per clock edge whatever the macro does, so an access is charged one clock cycle and the macro clock is assumed gated while idle. ASAP7 has only fakeram, whose values its generator calls not realistic, so it has no SRAM line.

@@ -2,7 +2,7 @@
 
 An open-source RTL matrix-multiply coprocessor for RISC-V SoCs, in the same class as Apple's AMX, Arm SME and Gemmini. It is designed to drop into a larger chip and to be measured honestly against the alternatives.
 
-**Status:** RTL v0. The SystemVerilog core matches the cycle-level Python model cycle for cycle and is bit-exact against numpy across 840 regression cases. The T = 8 core has been placed and routed with OpenROAD on sky130hd and ASAP7, with power from simulated workload activity (engine only, without the operand SRAM): 14,319 µm² and 1.09–2.20 pJ per int8 MAC on ASAP7 (1 GHz target, 934 MHz reached after routing). See `docs/benchmarks.md`.
+**Status:** RTL v0. The SystemVerilog core matches the cycle-level Python model cycle for cycle and is bit-exact against numpy across 840 regression cases. The T = 8 core has been placed and routed with OpenROAD on sky130hd and ASAP7, with power from simulated workload activity: on ASAP7, 12,702 µm² and 0.83–1.45 pJ per int8 MAC with uniform random operands (1.98 TOPS/W geometric mean, engine only; 1 GHz target, 976 MHz after routing). Clock gating and queues sized to the SRAM took 21–27% off energy per MAC. See `docs/benchmarks.md`.
 
 ## Why
 

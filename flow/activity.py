@@ -12,8 +12,9 @@ The SAIF covers the whole simulation: reset, program load, the run, and the coun
 it. The run is all but a few dozen of those cycles; flow/power.py charges the energy of the whole
 window to the workload, which can only overstate energy per MAC.
 
-Operands are uniform random int8 (seeded), a high-activity case. Real activations and weights
-switch less, so these numbers are an upper bound for the data path.
+Operands are uniform random int8 (seeded), a high-activity case, except *_relu workloads:
+synthetic post-ReLU uint8 activations (about half zeros) and Gaussian int8 weights. Neither is
+data from a real network; uniform is the upper bound, the ReLU case a more typical one.
 """
 import json
 import sys
@@ -32,6 +33,8 @@ WORKLOADS = {
     "gemm64":   case(64, 64, 64, lat=2),                 # dense, ~99% utilization at T = 8
     "resnet8_conv32": case(256, 32, 288, lat=2),         # ic_resnet8 conv 3x3 32->32 (16x16)
     "mbv1_pw8_16":    case(2304, 16, 8, lat=2),          # vww_mbv1 pointwise 8->16, low K
+    # the ResNet-8 shape with synthetic inference-like operands (tq_cocotb.operands, dist="relu")
+    "resnet8_conv32_relu": dict(case(256, 32, 288, "u8", "s8", lat=2), dist="relu"),
 }
 
 TB_PERIOD_PS = 10_000                                   # clock in verif/tb/tq_tb.py

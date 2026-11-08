@@ -4,33 +4,35 @@
   "openroad": "f131605",
   "yosys": "0.68+ a5af9d690",
   "host": "macOS 27.0.1 arm64",
-  "rtl_commit": "0861352",
+  "rtl_commit": "8e7425a",
   "platform": "sky130hd",
   "config": "t8_cpa",
   "params": {
     "T": 8,
-    "ACC_FORM": 1
+    "ACC_FORM": 1,
+    "FIFO_DEPTH": 4,
+    "MACQ_DEPTH": 3
   },
   "clock_period_ps": 10000.0,
   "core_utilization_pct": 40,
-  "cell_area_um2": 947890,
+  "cell_area_um2": 825539,
   "area_split_um2": {
-    "sequential": 268678,
-    "logic": 536646.05,
-    "clock tree": 40637.77,
-    "timing buffers": 67001.8,
-    "other": 34927.29
+    "sequential": 206564,
+    "logic": 486709.24,
+    "clock tree": 53283.56,
+    "timing buffers": 46731.1,
+    "other": 30621.85
   },
-  "core_area_um2": 2036380.0,
-  "placement_density": 0.465477,
-  "cells": 108561,
-  "flops": 10002,
+  "core_area_um2": 1750060.0,
+  "placement_density": 0.47172,
+  "cells": 98601,
+  "flops": 8904,
   "nand2_cell": "sky130_fd_sc_hd__nand2_1",
   "nand2_um2": 3.7536,
-  "setup_ws_ps": -134.964,
-  "setup_tns_ps": -1470.04,
-  "hold_ws_ps": 466.26800000000003,
-  "fmax_hz": 98668300.0,
+  "setup_ws_ps": 47.275999999999996,
+  "setup_tns_ps": 0,
+  "hold_ws_ps": 128.556,
+  "fmax_hz": 100475000.0,
   "drc_errors": 0,
   "power": {
     "gemm64": {
@@ -43,21 +45,26 @@
       "useful_macs": 262144,
       "utilization": 0.9865125240847784,
       "power_w": {
-        "internal": 0.1023993,
-        "switching": 0.06967223,
-        "leakage": 4.124894e-07,
-        "total": 0.1720719
+        "internal": 0.0646964,
+        "switching": 0.06139078,
+        "leakage": 3.708836e-07,
+        "total": 0.1260876
       },
       "power_groups_w": {
-        "sequential": 0.0513691,
-        "combinational": 0.07460704,
-        "clock": 0.04609621,
+        "sequential": 0.02616727,
+        "combinational": 0.06631314,
+        "clock": 0.03360863,
         "macro": 0.0,
         "pad": 0.0
       },
-      "energy_j": 7.144425288e-06,
-      "pj_per_mac": 27.253819610595702,
-      "tops_per_w": 0.07338420920722769
+      "energy_j": 5.235157152e-06,
+      "pj_per_mac": 19.97053967285156,
+      "tops_per_w": 0.10014751893354433,
+      "sram": {
+        "reads": 4096,
+        "writes": 1024,
+        "energy_j": 9.186345942399999e-07
+      }
     },
     "resnet8_conv32": {
       "shape": [
@@ -69,21 +76,26 @@
       "useful_macs": 2359296,
       "utilization": 0.9984832069339111,
       "power_w": {
-        "internal": 0.1018969,
-        "switching": 0.06821482,
-        "leakage": 4.136577e-07,
-        "total": 0.1701121
+        "internal": 0.06401913,
+        "switching": 0.05981768,
+        "leakage": 3.722806e-07,
+        "total": 0.1238372
       },
       "power_groups_w": {
-        "sequential": 0.0512413,
-        "combinational": 0.07277462,
-        "clock": 0.04609621,
+        "sequential": 0.02601952,
+        "combinational": 0.0643243,
+        "clock": 0.0334931,
         "macro": 0.0,
         "pad": 0.0
       },
-      "energy_j": 6.280538731999999e-05,
-      "pj_per_mac": 26.620393252902556,
-      "tops_per_w": 0.07513037020149693
+      "energy_j": 4.572069424e-05,
+      "pj_per_mac": 19.378956366644964,
+      "tops_per_w": 0.10320473208982489,
+      "sram": {
+        "reads": 36864,
+        "writes": 2048,
+        "energy_j": 6.9837630422399995e-06
+      }
     },
     "mbv1_pw8_16": {
       "shape": [
@@ -95,21 +107,67 @@
       "useful_macs": 294912,
       "utilization": 0.4682926829268293,
       "power_w": {
-        "internal": 0.0956518,
-        "switching": 0.06166562,
-        "leakage": 4.074819e-07,
-        "total": 0.1573178
+        "internal": 0.04614943,
+        "switching": 0.04815888,
+        "leakage": 3.637746e-07,
+        "total": 0.09430867
       },
       "power_groups_w": {
-        "sequential": 0.0474542,
-        "combinational": 0.06376661,
-        "clock": 0.04609623,
+        "sequential": 0.01631475,
+        "combinational": 0.05685822,
+        "clock": 0.0211365,
         "macro": 0.0,
         "pad": 0.0
       },
-      "energy_j": 1.548007152e-05,
-      "pj_per_mac": 52.49047688802084,
-      "tops_per_w": 0.03810214954355715
+      "energy_j": 9.279973128e-06,
+      "pj_per_mac": 31.466922770182286,
+      "tops_per_w": 0.06355880473622855,
+      "sram": {
+        "reads": 4608,
+        "writes": 9216,
+        "energy_j": 2.47976672448e-06
+      }
+    },
+    "resnet8_conv32_relu": {
+      "shape": [
+        256,
+        32,
+        288
+      ],
+      "cycles": 36920,
+      "useful_macs": 2359296,
+      "utilization": 0.9984832069339111,
+      "power_w": {
+        "internal": 0.05691129,
+        "switching": 0.0485782,
+        "leakage": 3.835297e-07,
+        "total": 0.1054899
+      },
+      "power_groups_w": {
+        "sequential": 0.0237477,
+        "combinational": 0.04824922,
+        "clock": 0.03349312,
+        "macro": 0.0,
+        "pad": 0.0
+      },
+      "energy_j": 3.894687108e-05,
+      "pj_per_mac": 16.507835845947262,
+      "tops_per_w": 0.12115458492949623,
+      "sram": {
+        "reads": 36864,
+        "writes": 2048,
+        "energy_j": 6.9837630422399995e-06
+      }
     }
+  },
+  "sram": {
+    "cell": "sky130_sram_1rw1r_128x256_8",
+    "source": "OpenRAM liberty (sky130_sram_1rw1r_128x256_8_TT_1p8V_25C.lib)",
+    "word_bits": 128,
+    "kbytes": 4.0,
+    "area_um2": 722109.3570000001,
+    "access_pj": 179.09732,
+    "leakage_w": 3.9892e-05,
+    "macros_per_port_word": 1
   }
 }

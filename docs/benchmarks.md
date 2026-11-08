@@ -72,18 +72,21 @@ The second bank removes the per-tile drain stall that a production outer-product
 
 ## 5. Place and route, T = 8
 
-Source: `flow/results.md` (`flow/results.py`, from runs of `flow/ppa.py` and `flow/power.py`). OpenROAD-flow-scripts `d0e5b3c13`, typical corner, post-route STA and extracted parasitics. Power comes from simulating each workload in Verilator (checked against the model) with uniform random int8 operands, which switch more than real data. Engine only, without the operand SRAM. Energy is measured at the target clock, which post-route timing misses by 1–7%.
+Source: `flow/results.md` (`flow/results.py`, from runs of `flow/ppa.py` and `flow/power.py`). OpenROAD-flow-scripts `d0e5b3c13`, typical corner, post-route STA and extracted parasitics. Power comes from simulating each workload in Verilator (checked against the model) with uniform random int8 operands, which switch more than real data. Reference configuration: plain-adder accumulator, clock gating on, operand FIFOs of depth 4 and a 3-entry MAC command queue (enough for an SRAM with up to 3 cycles of read latency, with no cycle lost). Engine only unless stated.
 
 | | sky130hd, 100 MHz target | ASAP7, 1 GHz target |
 | --- | --- | --- |
-| Cell area | 0.948 mm² (252.5 kGE) | 14,319 µm² (245.5 kGE) |
-| Flip-flops | 10,002 (156 per MAC) | 10,002 (156 per MAC) |
-| Fmax (post-route) | 98.7 MHz | 933.6 MHz |
-| Peak MACs/cycle per kGE | 0.253 | 0.261 |
-| Energy per MAC, 64×64×64 (98.7% utilization) | 27.3 pJ | 1.12 pJ (1.79 TOPS/W) |
-| Energy per MAC, ResNet-8 conv 256×32×288 (99.8%) | 26.6 pJ | 1.09 pJ (1.83 TOPS/W) |
-| Energy per MAC, MobileNetV1 pointwise 2304×16×8 (46.8%) | 52.5 pJ | 2.20 pJ (0.91 TOPS/W) |
+| Cell area | 0.826 mm² (219.9 kGE) | 12,702 µm² (217.8 kGE) |
+| Flip-flops | 8,904 (139 per MAC) | 8,904 (139 per MAC) |
+| Fmax (post-route) | 100.5 MHz (closes) | 975.9 MHz |
+| Peak MACs/cycle per kGE | 0.291 | 0.294 |
+| Energy per MAC, 64×64×64 (98.7% utilization) | 20.0 pJ | 0.86 pJ (2.33 TOPS/W) |
+| Energy per MAC, ResNet-8 conv 256×32×288 (99.8%) | 19.4 pJ | 0.83 pJ (2.40 TOPS/W) |
+| Energy per MAC, MobileNetV1 pointwise 2304×16×8 (46.8%) | 31.5 pJ | 1.45 pJ (1.38 TOPS/W) |
+| Geometric mean of the three | 23.0 pJ | 1.01 pJ (1.98 TOPS/W) |
+| ResNet-8 conv with ReLU-like operands (synthetic, half-zero activations) | 16.5 pJ | 0.72 pJ (2.76 TOPS/W) |
+| Engine + operand SRAM, geometric mean (OpenRAM macro, sky130 only) | 27.6 pJ | – |
 
-These figures are for the default plain 32-bit adder accumulator. Against the carry-save form, the plain adder uses 20–21% less cell area, 28% fewer flip-flops and 18–19% less energy per MAC, at the same clock within 1.3% (spec §10.2).
-
-The clock tree and the registers draw 49–60% of the power, and they switch whether or not the array has work. At 47% utilization the engine still draws 91–94% of its full-utilization power, so energy per MAC roughly doubles.
+- **Clock gating** (102 gates, 93 with these queues; `CLK_GATE = 0` for comparison) cuts power by 18–22% at full utilization and by 29–36% at 47%, and cell area by 5–7%; energy per MAC falls 22–27% (geometric mean). At 47% utilization the engine now draws 75–80% of its full-utilization power, against 91–94% without gating. What remains is mostly the multiplier array's switching, which follows the operand data.
+- **Accumulator form:** against the carry-save form, the plain adder uses 22–24% less cell area, 31% fewer flip-flops and 15–20% less energy per MAC, at the same clock within 1% (spec §10.2).
+- **SRAM line:** each workload's reads and writes times the access energy of ORFS's OpenRAM macro `sky130_sram_1rw1r_128x256_8` (179 pJ per access from its liberty, which charges every clock edge the same), plus leakage; it adds 3.0–8.4 pJ per MAC. ASAP7 has only placeholder SRAM models, so it has no SRAM line.

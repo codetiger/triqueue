@@ -29,13 +29,22 @@ DT = {"s8": np.int8, "u8": np.uint8}
 
 
 def operands(case):
+    """Uniform random operands, or with dist="relu" a synthetic inference-like distribution:
+    A as post-ReLU activations (uint8, about half zeros, half-normal magnitudes) and B as
+    Gaussian int8 weights. Not data from a real network; it bounds the uniform case from below."""
     rng = np.random.default_rng(case["seed"])
 
     def rand(shape, dt):
         lo, hi = (-128, 128) if dt == "s8" else (0, 256)
         return rng.integers(lo, hi, shape).astype(DT[dt])
 
-    return rand((case["m"], case["k"]), case["a"]), rand((case["k"], case["n"]), case["b"])
+    m, n, k = case["m"], case["n"], case["k"]
+    if case.get("dist") == "relu":
+        assert (case["a"], case["b"]) == ("u8", "s8")
+        a = np.clip(np.rint(np.maximum(rng.standard_normal((m, k)), 0) * 40), 0, 255).astype(np.uint8)
+        b = np.clip(np.rint(rng.standard_normal((k, n)) * 24), -127, 127).astype(np.int8)
+        return a, b
+    return rand((m, k), case["a"]), rand((k, n), case["b"])
 
 
 def model_run(a, b, p: Params):
