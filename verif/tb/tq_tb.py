@@ -20,6 +20,7 @@ from cocotb.triggers import FallingEdge, ReadOnly, RisingEdge
 REG_CTRL, REG_STATUS = 0x008, 0x00C
 REG_PERF = {"cycles": 0x020, "instret": 0x024, "beats": 0x028, "reads": 0x02C, "writes": 0x030}
 REG_PROG = 0x100
+PROG_BYTES = 64                                      # tq_top default in every configuration
 
 
 def val(sig) -> int:
@@ -85,19 +86,22 @@ class TqTb:
         return val(d.reg_rdata_o)
 
     async def run(self, mem: np.ndarray, prog: bytes, mem_latency: int, max_cycles: int = 2_000_000,
-                  stall: float = 0.0, seed: int = 0, wr_resp_latency=None) -> RunRecord:
+                  stall: float = 0.0, seed: int = 0, wr_resp_latency=None, prog_poke=False) -> RunRecord:
         """Load `prog`, start, serve memory from `mem` (modified in place) until the core is idle.
 
         stall > 0 withholds each read and write grant with that probability (OBI back-pressure),
         drawn exactly as the model's GrantSource(stall, seed) draws them. wr_resp_latency (for a
         core built with WR_ACK) answers each granted write with a wr_done_i pulse that many
-        cycles after its grant, like the model's wr_resp_latency.
+        cycles after its grant, like the model's wr_resp_latency. prog_poke writes the tile loop's body
+        (PROG bytes 44-47) in the run's fourth cycle, which the core must ignore while busy.
+        After the core stops, reads still in flight are answered (as real memory would; after an
+        error stop the next START waits for them).
         """
         gnt = GrantSource(stall, seed)
         d, W, H = self.dut, self.W, self.T // 2
         assert mem_latency >= 1
         sram_lat = mem_latency - 1
-        padded = prog + bytes(-len(prog) % 4)
+        padded = prog + bytes(PROG_BYTES - len(prog))          # NOP-pad the whole buffer (as the model)
         for i in range(0, len(padded), 4):
             await self.reg_write(REG_PROG + i, int.from_bytes(padded[i:i + 4], "little"))
         await self.start_cmd()                                 # START: the core is busy from the next cycle
@@ -117,6 +121,12 @@ class TqTb:
                 break
             if cyc > max_cycles:
                 raise TimeoutError("core did not finish")
+            if prog_poke:                                      # a host write to PROG while busy
+                poke = busy and cyc == 3
+                d.reg_req_i.value, d.reg_we_i.value = int(poke), int(poke)
+                # bytes 44-47: the tile loop's body (STREAM_A STREAM_B LOOP_K VOUTER_MAC), which
+                # the front end fetches again for every tile
+                d.reg_addr_i.value, d.reg_be_i.value, d.reg_wdata_i.value = REG_PROG + 44, 0xF, 0xFFFFFFFF
             # grants for this cycle (driven before the rising edge that ends it)
             rd_gnt, wr_gnt = (int(g) for g in gnt.next()) if busy else (1, 1)
             d.rd_gnt_i.value = rd_gnt
@@ -166,7 +176,22 @@ class TqTb:
             assert not pending or pending[0][0] > absc
             await FallingEdge(d.clk_i)
             absc += 1
-        assert not wr_due, "core finished with write responses outstanding"
+        if prog_poke:                                          # native register port only
+            d.reg_req_i.value = d.reg_we_i.value = 0
+        while pending:                                         # reads in flight when the core stopped
+            due, word = pending[0]
+            d.rd_rvalid_i.value = int(due == absc)
+            if due == absc:
+                d.rd_rdata_i.value = word
+                pending.pop(0)
+            await FallingEdge(d.clk_i)
+            absc += 1
+        while wr_due:                                          # write responses (error stop only)
+            d.wr_done_i.value = int(wr_due[0] == absc)
+            if wr_due[0] == absc:
+                wr_due.pop(0)
+            await FallingEdge(d.clk_i)
+            absc += 1
         d.rd_rvalid_i.value = 0
         d.wr_done_i.value = 0
         d.rd_gnt_i.value = 1
@@ -284,7 +309,7 @@ class TqTbAxi(TqTbAxil):
         assert mem_latency >= 1 and wr_resp_latency is not None and wr_resp_latency >= 1
         sram_lat = mem_latency - 1
         size = W.bit_length() - 1
-        padded = prog + bytes(-len(prog) % 4)
+        padded = prog + bytes(PROG_BYTES - len(prog))          # NOP-pad the whole buffer (as the model)
         for i in range(0, len(padded), 4):
             await self.reg_write(REG_PROG + i, int.from_bytes(padded[i:i + 4], "little"))
         await self.start_cmd()
@@ -354,7 +379,15 @@ class TqTbAxi(TqTbAxil):
             assert val(d.m_rready_o) and val(d.m_bready_o)
             await FallingEdge(d.clk_i)
             absc += 1
-        assert not b_due and not r_due, "core finished with AXI responses outstanding"
+        while r_due or b_due:                                  # in flight when the core stopped (error)
+            d.m_rvalid_i.value = int(bool(r_due) and r_due[0][0] == absc)
+            if r_due and r_due[0][0] == absc:
+                d.m_rdata_i.value = r_due.pop(0)[1]
+            d.m_bvalid_i.value = int(bool(b_due) and b_due[0] == absc)
+            if b_due and b_due[0] == absc:
+                b_due.pop(0)
+            await FallingEdge(d.clk_i)
+            absc += 1
         d.m_rvalid_i.value = d.m_bvalid_i.value = 0
         d.m_arready_i.value = d.m_awready_i.value = d.m_wready_i.value = 1
         rec.cycles = cyc + 1

@@ -32,6 +32,7 @@ module tq_stream #(
     input  logic          clk_i,
     input  logic          rst_ni,
     input  logic          clear_i,
+    input  logic          run_i,           // 0: no new requests (stopped by an error until START)
     // stream commands from the front end
     input  logic          scmd_a_push_i,
     input  tq_pkg::scmd_t scmd_a_i,
@@ -95,8 +96,9 @@ module tq_stream #(
   /* verilator lint_on UNUSEDSIGNAL */
 
   logic avail_a, avail_b, space_a, space_b, cand_a, cand_b;
-  assign avail_a = act_a_q || (cnt_a != 0);
-  assign avail_b = act_b_q || (cnt_b != 0);
+  // a zero-length panel (K = 0) is loaded and completes at once, without a read
+  assign avail_a = act_a_q || (cnt_a != 0 && ha.vecs != 0);
+  assign avail_b = act_b_q || (cnt_b != 0 && hb.vecs != 0);
   assign space_a = (32'(cred_a_q) - 32'(qa_pop_i)) < FIFO_DEPTH;
   assign space_b = (32'(cred_b_q) - 32'(qb_pop_i)) < FIFO_DEPTH;
   assign cand_a  = avail_a && space_a && (drop_q == 0);
@@ -121,11 +123,11 @@ module tq_stream #(
   // Shared port: the drain write wins when SWAP_C waits on it or no read is ready (model: step_port).
   logic rd_want;
   if (SHARED_PORT) begin : g_shared
-    assign wr_req_o = wr_pending_i && (wr_hold_q || (!rd_hold_q && (swap_wait_i || !sel_valid)));
-    assign rd_want  = sel_valid && !wr_req_o;
+    assign wr_req_o = run_i && wr_pending_i && (wr_hold_q || (!rd_hold_q && (swap_wait_i || !sel_valid)));
+    assign rd_want  = run_i && sel_valid && !wr_req_o;
   end else begin : g_split
-    assign wr_req_o = wr_pending_i;
-    assign rd_want  = sel_valid;
+    assign wr_req_o = run_i && wr_pending_i;
+    assign rd_want  = run_i && sel_valid;
   end
   assign wr_fire_o = wr_req_o && wr_gnt_i;
   assign rd_req_o  = rd_want;
@@ -155,8 +157,8 @@ module tq_stream #(
   // ---------------------------------------------------------------- state update
   logic act_a_n, act_b_n;
   always_comb begin
-    act_a_n = act_a_q || load_a;
-    act_b_n = act_b_q || load_b;
+    act_a_n = act_a_q || (load_a && ha.vecs != 0);
+    act_b_n = act_b_q || (load_b && hb.vecs != 0);
     if (fire_a && cur_vecs_a == 32'd1) act_a_n = 1'b0;
     if (fire_b && cur_vecs_b == 32'd1) act_b_n = 1'b0;
   end
@@ -199,7 +201,8 @@ module tq_stream #(
   assign idle_o = (32'(cnt_a) - 32'(load_a) == 0) && (32'(cnt_b) - 32'(load_b) == 0)
                && !act_a_n && !act_b_n && (infl_q == 0) && (drop_q == 0) && !rd_fire_o;
 `ifdef FORMAL
-  // OBI: a request without gnt stays asserted with the same address next cycle (unless cleared)
+  // OBI: a request without gnt stays asserted with the same address next cycle (unless cleared,
+  // or the run stopped on an error)
   logic past_ok_q, past_rd_q, past_wr_q;
   logic [31:0] past_addr_q;
   always_ff @(posedge clk_i) begin
@@ -209,7 +212,7 @@ module tq_stream #(
     past_addr_q <= rd_addr_o;
   end
   always_comb begin
-    if (rst_ni && !clear_i && past_ok_q) begin
+    if (rst_ni && !clear_i && run_i && past_ok_q) begin
       if (past_rd_q) assert (rd_req_o && rd_addr_o == past_addr_q);
       if (past_wr_q) assert (wr_req_o);
     end

@@ -16,7 +16,12 @@ Modelling assumptions (stated in model/README.md):
   * Front end decodes 1 instruction/cycle; loops are zero-overhead (loop buffer).
   * ZERO_C and SWAP_C are bank-pointer operations that take no MAC cycle. Per cycle the MAC unit
     consumes at most one of them, followed by at most one VOUTER_MAC.
-  * Loop bodies contain only 1-byte instructions (no CFG).
+  * Loop bodies contain only 1-byte instructions (a CFG reached inside a loop is ERR_CFG_LOOP).
+  * Errors (spec 6.4) stop the core at the end of the cycle that finds them, with the RTL's
+    error code (Stats.error): the front end checks the instruction it executes (opcode, CFG
+    register, CFG in a loop, loop depth / a second LOOP_T, running past the PROG_BYTES program
+    buffer, which is NOP-padded), the stream engine checks a panel base when it loads it, and
+    the MAC unit checks a tile's C address and C_LD when its drain starts (ERR_ALIGN).
   * VOUTER_MAC needs all of its operand bytes present when it starts, and pops them at the start.
   * SRAM reads are fully pipelined with a fixed latency, one W-byte read per cycle.
   * Port grants come from GrantSource: always granted by default, or seeded random OBI `gnt`
@@ -59,11 +64,12 @@ class Params:
     wr_ack: bool = False         # writes complete at a response (wr_done), not at the grant
     wr_resp_latency: int = 0     # with wr_ack: cycles from a write's grant to its response (0: same cycle)
     wr_out_max: int = 15         # with wr_ack: most writes granted and not yet complete
+    prog_bytes: int = 64         # program buffer (PROG_BYTES); the program is NOP-padded to it
 
     def __post_init__(self):
         if not self.port_bytes:
             self.port_bytes = 2 * self.tile
-        assert self.tile >= 4 and self.tile % 2 == 0, "tile must be even and >= 4"
+        assert self.tile >= 4 and self.tile & (self.tile - 1) == 0, "tile must be a power of two >= 4"
         assert self.port_bytes >= 4 and self.port_bytes % 4 == 0, "port must hold whole int32 lanes"
         assert 0.0 <= self.gnt_stall < 1.0, "gnt_stall must be in [0, 1)"
         assert self.wr_resp_latency >= 0 and self.wr_out_max >= 1
@@ -86,6 +92,7 @@ class Stats:
     port_stall: dict = field(default_factory=lambda: defaultdict(int))  # "rd"/"wr": requests not granted
     max_cell_arity: dict = field(default_factory=lambda: defaultdict(int))
     useful_macs: int = 0
+    error: int = 0               # STATUS error code (isa.ERR_*); 0 for a normal FENCE
 
     @property
     def ideal_cycles(self):
@@ -156,7 +163,10 @@ class ByteFifo:
 class TriQueueCore:
     def __init__(self, mem: np.ndarray, program: bytes, params: Params | None = None, trace=None):
         """trace: None, or a list that receives one text line per event (see docs/golden-vectors.md)."""
-        self.mem, self.prog, self.p = mem, program, params or Params()
+        self.p = params or Params()
+        assert len(program) <= self.p.prog_bytes, "program larger than the program buffer"
+        # the buffer reads as NOP (0) beyond the program, and beyond PROG_BYTES (decode lookahead)
+        self.mem, self.prog = mem, bytes(program) + bytes(self.p.prog_bytes + 8 - len(program))
         self.T, self.W = self.p.tile, self.p.port_bytes
         self.h = self.T // 2
         self.trace = trace
@@ -168,6 +178,8 @@ class TriQueueCore:
         self.loops = []          # frames: [kind, start, end, remaining, iteration]
         self.fence = False
         self.halted = False
+        self.loop_t_seen = False # one LOOP_T per program (spec 6.1)
+        self.err_align = False   # an alignment error found this cycle (stream or drain stage)
         # command queues
         self.macq = deque()
         self.scmd = {"A": deque(), "B": deque()}
@@ -219,12 +231,31 @@ class TriQueueCore:
         return 0
 
     # ---- front end ------------------------------------------------------------------------
-    def _body_bytes(self, pc, n):
-        """Loop bodies hold only 1-byte instructions (no CFG), so the body is n bytes long."""
-        for i in range(n):
-            if isa.decode(self.prog, pc + i)[3] != 1:
-                raise ValueError(f"CFG inside a loop body at {pc + i:#x}")
-        return n
+    def _front_error(self, op, arg, size):
+        """Error code of executing the instruction at pc (RTL tq_frontend; a later check overrides
+        ERR_PC, as there). A loop with a zero count is skipped before its checks."""
+        err = isa.ERR_PC if self.pc + size > self.p.prog_bytes else isa.ERR_NONE
+        if op == isa.CFG:
+            if arg >= 8:
+                err = isa.ERR_CFG_REG
+            elif self.loops:
+                err = isa.ERR_CFG_LOOP
+        elif op in (isa.LOOP_K, isa.LOOP_T):
+            if op == isa.LOOP_T:
+                count = self.dims[4] * self.dims[5]
+            else:
+                count = self.dims[3] // (2 * self.tile_shape(self.front_tile())[2])
+            if count and (len(self.loops) == 2 or (op == isa.LOOP_T and self.loop_t_seen)):
+                err = isa.ERR_LOOP
+        elif op > isa.FENCE:
+            err = isa.ERR_OPCODE
+        return err
+
+    def stop(self, err):
+        """Stop at the end of this cycle with an error code (STATUS.ERROR)."""
+        self.stats.error = err
+        self.halted = True
+        self.ev("fe", "error", code=err)
 
     def all_idle(self):
         return (not self.macq and self.cur is None and not self.scmd["A"] and not self.scmd["B"]
@@ -240,9 +271,6 @@ class TriQueueCore:
                 self.halted = True
                 self.ev("fe", "halt")
             return
-        if self.pc >= len(self.prog):
-            self.halted = self.all_idle()
-            return
         op, arg, imm, size = isa.decode(self.prog, self.pc)
 
         if op in (isa.VOUTER_MAC, isa.SWAP_C, isa.ZERO_C) and len(self.macq) >= self.p.mac_queue_depth:
@@ -254,6 +282,10 @@ class TriQueueCore:
                 self.stats.front_stall["stream_queue_full"] += 1
                 return
 
+        err = self._front_error(op, arg, size)
+        if err:
+            self.stop(err)
+            return
         if op == isa.CFG:
             self.ev("fe", "issue", pc=self.pc, op=isa.MNEMONIC[op], arg=arg, imm=imm)
         else:
@@ -284,15 +316,14 @@ class TriQueueCore:
             else:
                 d = self.tile_shape(self.front_tile())[2]
                 count, kind = self.dims[3] // (2 * d), "K"
-            end = next_pc + self._body_bytes(next_pc, arg)
+            end = next_pc + arg                  # bodies hold 1-byte instructions
             if count == 0:
                 next_pc = end
             else:
                 self.loops.append([kind, next_pc, end, count, 0])
+                self.loop_t_seen |= kind == "T"
         elif op == isa.FENCE:
             self.fence = True
-        elif op != isa.NOP:
-            raise ValueError(f"bad opcode {op:#x} at {self.pc:#x}")
 
         self.stats.instructions += 1
         self.pc = next_pc
@@ -349,8 +380,10 @@ class TriQueueCore:
         rows, cols = min(T, m - T * ti), min(T, n - T * tj)
         vals = (self.sum[bank] + self.carry[bank]).view(np.int32)  # CPA, wraps mod 2^32
         base = self.cfg[isa.C_BASE] + T * ti * self.cfg[isa.C_LD] + 4 * T * tj
-        assert self.cfg[isa.C_BASE] % self.W == 0 and self.cfg[isa.C_LD] % self.W == 0, \
-            "C_BASE and C_LD must be multiples of the port width"
+        # RTL: the tile's C address and C_LD, W-aligned. With W = 2T that is C_BASE and C_LD;
+        # a wider model port (a DSE knob) may leave tile addresses unaligned, which is allowed.
+        if self.cfg[isa.C_BASE] % self.W or self.cfg[isa.C_LD] % self.W:
+            self.err_align = True                # ERR_ALIGN at the end of this cycle
         writes = deque()
         for rr in range(rows):
             for v in range(-(-cols // lanes_per_write)):
@@ -375,7 +408,10 @@ class TriQueueCore:
             if cmd[0] in ("ZERO", "SWAP") and ctl:
                 break
             if cmd[0] == "ZERO":
-                assert self.drain is None
+                if self.drain is not None:           # would clear the bank being drained
+                    self.swap_wait = True
+                    st["wait_drain"] += 1
+                    return
                 self.sum[:] = 0
                 self.carry[:] = 0
                 self.macq.popleft()
@@ -423,8 +459,6 @@ class TriQueueCore:
             if self.stream[s] is None and self.scmd[s]:
                 tile = self.scmd[s].popleft()
                 ti, tj = self.tile_coords(tile)
-                assert self.cfg[isa.A_BASE] % self.W == 0 and self.cfg[isa.B_BASE] % self.W == 0, \
-                    "A_BASE and B_BASE must be multiples of the port width"
                 if s == "A":
                     w = panel_width(m - T * ti, T)
                     self.stream[s] = [self.cfg[isa.A_BASE] + ti * T * kpad, w * kpad]
@@ -432,6 +466,10 @@ class TriQueueCore:
                     w = panel_width(n - T * tj, T)
                     self.stream[s] = [self.cfg[isa.B_BASE] + tj * T * kpad, w * kpad]
                 self.ev("se", "panel", s=s, tile=tile, addr=self.stream[s][0], bytes=self.stream[s][1])
+                if self.stream[s][0] % self.W:
+                    self.err_align = True            # ERR_ALIGN at the end of this cycle
+                if self.stream[s][1] == 0:           # K = 0: an empty panel completes at once
+                    self.stream[s] = None
             if self.stream[s] is not None and self.fifo[s].n + self.inflight_n[s] + self.W <= cap:
                 return s
         return None
@@ -515,6 +553,8 @@ class TriQueueCore:
             self.step_mac()
             self.step_port()
             self.step_front()
+            if self.err_align and not self.stats.error:
+                self.stop(isa.ERR_ALIGN)
             self.cycle += 1
             if self.cycle > max_cycles:
                 raise RuntimeError("cycle limit exceeded (deadlock?)")
@@ -539,7 +579,7 @@ def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None):
     p = params or Params()
     m, k = a.shape
     k2, n = b.shape
-    assert k == k2 and m >= 1 and n >= 1 and k >= 1
+    assert k == k2 and m >= 1 and n >= 1 and k >= 0      # K = 0 is a valid GEMM: C = 0
     kpad = kp(k)
     pa, pb = pack_a(a, kpad, p.tile), pack_b(b, kpad, p.tile)
     al = math.lcm(64, p.port_bytes)          # bases and C rows aligned to the port width

@@ -4,7 +4,8 @@
 
 Cases and the RTL configuration come from environment variables set by verif/test_rtl.py:
   TQ_PARAMS  JSON of model Params fields matching the RTL parameters (tile, fifo_depth, ...)
-  TQ_CASES   JSON list of {m, n, k, a, b, seed, lat}
+  TQ_CASES   JSON list of {m, n, k, a, b, seed, lat}, optionally prog (a tri_queue.programs
+             edge program), misalign (a layout field moved off the port width), prog_poke
   TQ_HOST    "axil": the top level is tq_top_axil, registers are reached through AXI4-Lite;
              "axi": tq_top_axi, AXI4-Lite registers and an AXI4 memory slave
 
@@ -23,7 +24,9 @@ import cocotb
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "model"))
+from tri_queue import isa  # noqa: E402
 from tri_queue.core import Params, TriQueueCore, build_gemm, read_c, reference  # noqa: E402
+from tri_queue.programs import edge_program  # noqa: E402
 
 from tq_tb import TqTb, TqTbAxi, TqTbAxil  # noqa: E402
 
@@ -49,8 +52,15 @@ def operands(case):
     return rand((m, k), case["a"]), rand((k, n), case["b"])
 
 
-def model_run(a, b, p: Params):
+def model_run(a, b, p: Params, case=None):
+    case = case or {}
     mem, prog, layout = build_gemm(a, b, p)
+    if "prog" in case or "misalign" in case:
+        L = dict(layout)
+        if "misalign" in case:
+            L[case["misalign"]] += 4
+        cfg = isa.gemm_config(L["a_base"], L["b_base"], L["c_base"], L["c_ld"], L["k"], L["m"], L["n"], L["mode"])
+        prog = edge_program(case["prog"], cfg) if "prog" in case else cfg + isa.gemm_kernel()
     trace = []
     core = TriQueueCore(mem.copy(), prog, p, trace)
     stats = core.run()
@@ -86,9 +96,12 @@ async def gemm_cases(dut):
         p = Params(**params, mem_latency=case["lat"], gnt_stall=stall, gnt_seed=case["seed"],
                    **({"wr_resp_latency": case["wr_lat"]} if "wr_lat" in case else {}))
         a, b = operands(case)
-        mem0, prog, layout, mem_model, s, ev = model_run(a, b, p)
+        mem0, prog, layout, mem_model, s, ev = model_run(a, b, p, case)
         mem = mem0.copy()
         name = f"{case['m']}x{case['n']}x{case['k']} {case['a']}/{case['b']} lat={case['lat']}"
+        for key in ("prog", "misalign", "prog_poke"):
+            if key in case:
+                name += f" {key}={case[key]}"
         if case.get("stall"):
             name += f" stall={case['stall']}"
         if "wr_lat" in case:
@@ -97,7 +110,8 @@ async def gemm_cases(dut):
             rec = await tb.run(mem, prog, case["lat"], max_cycles=2 * s.cycles + 200,
                                stall=stall, seed=case["seed"],
                                wr_resp_latency=p.wr_resp_latency if p.wr_ack else None,
-                               **({"bus_err": case["bus_err"]} if "bus_err" in case else {}))
+                               **({"bus_err": case["bus_err"]} if "bus_err" in case else {}),
+                               **({"prog_poke": True} if case.get("prog_poke") else {}))
         except TimeoutError:
             failures.append(f"{name}: hang (model finishes in {s.cycles} cycles)")
             dut._log.error("%s: hang (model %d cycles)", name, s.cycles)
@@ -106,7 +120,7 @@ async def gemm_cases(dut):
                 await tb.reg_write(0xFFC, 0, 0)
             continue
         errs = []
-        if not np.array_equal(read_c(mem, layout), reference(a, b)):
+        if not s.error and "misalign" not in case and not np.array_equal(read_c(mem, layout), reference(a, b)):
             errs.append("C differs from numpy")
         if not np.array_equal(mem, mem_model):
             errs.append("final memory differs from model")
@@ -124,8 +138,9 @@ async def gemm_cases(dut):
         for k_, v in expect.items():
             if got[k_] != v:
                 errs.append(f"perf {k_} rtl {got[k_]} vs model {v}")
-        if rec.status & 0x4:
-            errs.append(f"error status {rec.status:#x}")
+        got_err = (rec.status >> 8) & 0xF if rec.status & 0x4 else 0
+        if got_err != s.error:
+            errs.append(f"error code rtl {got_err} vs model {s.error} (STATUS {rec.status:#x})")
         if bool(rec.status & 0x8) != ("bus_err" in case):
             errs.append(f"STATUS.BUS_ERR {bool(rec.status & 0x8)}, expected {'bus_err' in case}")
         if errs:

@@ -8,7 +8,7 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specifica
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `T` | 8 | Tile size: T×T outputs, T² 9×9 multipliers. Power of two, ≥ 4. Memory ports are W = 2T bytes wide. |
+| `T` | 8 | Tile size: T×T outputs, T² 9×9 multipliers. Power of two, ≥ 4 (checked at elaboration). Memory ports are W = 2T bytes wide. |
 | `FIFO_DEPTH` | 8 | QA/QB depth in W-byte words. Hides up to this many cycles of SRAM latency (`model/dse.md` §5). |
 | `MACQ_DEPTH` | 4 | MAC command queue depth (spec §5.2) |
 | `SCMD_DEPTH` | 2 | Stream command queue depth |

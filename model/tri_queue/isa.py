@@ -16,6 +16,9 @@ MNEMONIC = {
 
 # Config registers
 A_BASE, B_BASE, C_BASE, C_LD, K, M, N, MODE = range(8)
+
+# STATUS error codes (spec 6.4): the core stops in the cycle it finds one
+ERR_NONE, ERR_OPCODE, ERR_CFG_REG, ERR_LOOP, ERR_CFG_LOOP, ERR_PC, ERR_ALIGN = range(7)
 MODE_A_SIGNED = 0x1
 MODE_B_SIGNED = 0x2
 

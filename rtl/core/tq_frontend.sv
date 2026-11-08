@@ -139,6 +139,7 @@ module tq_frontend #(
   logic [31:0]    loop_count;
   logic           loop_is_t;
   logic           fe_advance, fe_reset;
+  logic           lt_seen_q, lt_seen_n;   // a LOOP_T has run: a second one is ERR_LOOP (spec 6.1)
 
   always_comb begin
     pc_n       = pc_q;
@@ -157,6 +158,7 @@ module tq_frontend #(
     fe_reset   = 1'b0;
     loop_is_t  = (op == tq_pkg::OP_LOOP_T);
     loop_count = 32'd0;
+    lt_seen_n  = lt_seen_q;
 
     macq_push_o   = 1'b0;
     macq_data_o   = '0;
@@ -229,13 +231,17 @@ module tq_frontend #(
             loop_count = kp >> (1 + 32'(!fe_rfull) + 32'(!fe_cfull));   // Kp / (2d)
           if (loop_count == 0) begin
             pc_n = pc_q + 1 + PCW'(arg);                         // skip the body
-          end else if (sp_q == 2 || (loop_is_t && ((sp_q >= 1 && f0_t_q) || (sp_q == 2 && f1_t_q)))) begin
+          end else if (sp_q == 2 || (loop_is_t && lt_seen_q)) begin
+            // a third level, or a LOOP_T after (or inside) another: the stream counters walk
+            // the tiles once per program, so a second tile loop would wait for panels forever
             err = 1'b1; err_code = tq_pkg::ERR_LOOP;
           end else if (sp_q == 0) begin
+            lt_seen_n = lt_seen_q || loop_is_t;
             sp_n = 2'd1; f0_t_n = loop_is_t;
             f0_start_n = pc_q + 1; f0_end_n = pc_q + 1 + PCW'(arg); f0_rem_n = loop_count;
             fe_reset = loop_is_t;
           end else begin
+            lt_seen_n = lt_seen_q || loop_is_t;
             sp_n = 2'd2; f1_t_n = loop_is_t;
             f1_start_n = pc_q + 1; f1_end_n = pc_q + 1 + PCW'(arg); f1_rem_n = loop_count;
             fe_reset = loop_is_t;
@@ -301,7 +307,7 @@ module tq_frontend #(
   // ---------------------------------------------------------------- registers
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      pc_q <= '0; fence_q <= 1'b0; sp_q <= '0;
+      pc_q <= '0; fence_q <= 1'b0; sp_q <= '0; lt_seen_q <= 1'b0;
       f0_t_q <= 1'b0; f1_t_q <= 1'b0;
       f0_start_q <= '0; f0_end_q <= '0; f1_start_q <= '0; f1_end_q <= '0;
       f0_rem_q <= '0; f1_rem_q <= '0;
@@ -310,14 +316,14 @@ module tq_frontend #(
       sb_ti_q <= '0; sb_tj_q <= '0; sb_off_q <= '0;
       for (int i = 0; i < 8; i++) cfg_q[i] <= '0;
     end else if (start_i) begin
-      pc_q <= '0; fence_q <= 1'b0; sp_q <= '0;
+      pc_q <= '0; fence_q <= 1'b0; sp_q <= '0; lt_seen_q <= 1'b0;
       f0_t_q <= 1'b0; f1_t_q <= 1'b0;
       fe_ti_q <= '0; fe_tj_q <= '0; fe_crow_q <= '0;
       sa_ti_q <= '0; sa_tj_q <= '0; sa_off_q <= '0;
       sb_ti_q <= '0; sb_tj_q <= '0; sb_off_q <= '0;
       for (int i = 0; i < 8; i++) cfg_q[i] <= '0;
     end else begin
-      pc_q <= pc_n; fence_q <= fence_n; sp_q <= sp_n;
+      pc_q <= pc_n; fence_q <= fence_n; sp_q <= sp_n; lt_seen_q <= lt_seen_n;
       f0_t_q <= f0_t_n; f1_t_q <= f1_t_n;
       f0_start_q <= f0_start_n; f0_end_q <= f0_end_n; f1_start_q <= f1_start_n; f1_end_q <= f1_end_n;
       f0_rem_q <= f0_rem_n; f1_rem_q <= f1_rem_n;

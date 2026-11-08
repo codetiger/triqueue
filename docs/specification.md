@@ -239,11 +239,11 @@ Encoding: `opcode [7:4] | arg [3:0]`. `CFG` is the only multi-byte instruction.
 | `0x1` | `CFG r, imm32` | 5 | Writes config register r (0–7) |
 | `0x2` | `STREAM_A` | 1 | Queues the next A panel for the stream engine. Non-blocking. |
 | `0x3` | `STREAM_B` | 1 | Queues the next B panel. Non-blocking. |
-| `0x4` | `ZERO_C` | 1 | Clears both SC banks (used once at start) |
+| `0x4` | `ZERO_C` | 1 | Clears both SC banks (used once at start). Waits while a bank is draining, like `SWAP_C`. |
 | `0x5` | `VOUTER_MAC s` | 1 | 2-beat outer-product MAC of shape `s` into the active bank. Stalls only if a queue is empty. |
 | `0x6` | `SWAP_C` | 1 | Swaps the active and idle banks, then drains and clears the finished bank in the background. Stalls only if the idle bank is still draining. |
-| `0x7` | `LOOP_K n` | 1 | Repeats the next n instructions Kp / 2d times, with zero overhead. d comes from the current tile's `AUTO` shape. Loop bodies may contain only 1-byte instructions (no `CFG`), so the body is n bytes long. Loops nest 2 deep, with at most one `LOOP_T`. |
-| `0x8` | `LOOP_T n` | 1 | Repeats the next n instructions once per output tile. The tile walker advances. |
+| `0x7` | `LOOP_K n` | 1 | Repeats the next n instructions Kp / 2d times, with zero overhead. d comes from the current tile's `AUTO` shape. Loop bodies may contain only 1-byte instructions (no `CFG`), so the body is n bytes long. Loops nest 2 deep. A loop whose count is 0 skips its body. |
+| `0x8` | `LOOP_T n` | 1 | Repeats the next n instructions once per output tile. The tile walker advances. One per program: the stream counters walk the tiles once, so a second `LOOP_T` is an error. |
 | `0x9` | `FENCE` | 1 | Waits until all streams and drains finish (synchronizes with the host) |
 
 **`VOUTER_MAC` argument:** `arg[3] = AUTO`. Otherwise `arg[1] = (r == 8)` and `arg[0] = (c == 8)`, which gives d = 64 / (r·c). `arg[2]` is reserved.
@@ -265,7 +265,7 @@ Encoding: `opcode [7:4] | arg [3:0]`. `CFG` is the only multi-byte instruction.
 | 1 | `B_BASE` | Address of the first packed B panel |
 | 2 | `C_BASE` | Address of C[0][0] (int32) |
 | 3 | `C_LD` | Row stride of C, in bytes |
-| 4 | `K` | Inner dimension. Kp and the loop counts are derived from it. |
+| 4 | `K` | Inner dimension. Kp and the loop counts are derived from it. K = 0 is a valid GEMM: the panels are empty and C is written with zeros. |
 | 5 | `M` | Rows of A and C: sets the tile count, `AUTO` shapes and edge masks |
 | 6 | `N` | Columns of B and C, used the same way |
 | 7 | `MODE` | bit 0: A signed, bit 1: B signed. Other bits are reserved (output requantization, §10.1). |
@@ -323,9 +323,9 @@ The core exposes one 32-bit register port (OBI-style: always grants, read data o
 | `0x010` / `0x014` | `IRQ_EN` / `IRQ_STATUS` | RW / W1C | bit 0 done, bit 1 error, bit 2 bus error |
 | `0x020`–`0x030` | `PERF_CYCLES`, `PERF_INSTRET`, `PERF_BEATS`, `PERF_READS`, `PERF_WRITES` | RO | Cleared at `START`. Every benchmark result can be read from the hardware. |
 | `0x040`–`0x05C` | `CFG[0..7]` | RO | Configuration registers as last written by the program |
-| `0x100`– | `PROG` | WO | Program buffer (64 bytes by default): `CFG` instructions + kernel. The loop buffer runs from here. |
+| `0x100`– | `PROG` | WO | Program buffer (64 bytes by default): `CFG` instructions + kernel. The loop buffer runs from here, so writes while `BUSY` are ignored. Bytes past the program should be 0 (`NOP`): running off the end is error 5. |
 
-Error codes: 1 undefined opcode, 2 `CFG` to a register ≥ 8, 3 loop stack overflow or nested `LOOP_T`, 4 `CFG` inside a loop body, 5 instruction past the program buffer, 6 misaligned base or `C_LD`.
+Error codes: 1 undefined opcode, 2 `CFG` to a register ≥ 8, 3 a third loop level or a second `LOOP_T`, 4 `CFG` inside a loop body, 5 instruction past the program buffer, 6 misaligned base or `C_LD`. The front end checks the instruction it executes, the stream engine a panel's base when it loads the panel, and the MAC unit a tile's C address and `C_LD` when its drain starts. The core stops at the end of that cycle: work still in its queues is dropped (the last tile's drain may be incomplete), memory requests stop, and accesses already in flight complete. The next `START` begins from a clean state. The cycle model reports the same codes at the same cycle.
 
 ---
 

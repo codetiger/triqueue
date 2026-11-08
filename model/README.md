@@ -24,9 +24,10 @@ Shapes for `bench.py` and `dse.py` come from `bench/workloads/gemm.csv`. The vec
 
 - The front end decodes 1 instruction per cycle.
 - `ZERO_C` and `SWAP_C` toggle bank pointers and take no MAC cycle. Per cycle the MAC unit consumes at most one of them, then at most one `VOUTER_MAC`.
-- Loop bodies contain only 1-byte instructions (no `CFG`); the model raises an error otherwise.
+- Loop bodies contain only 1-byte instructions: a `CFG` reached inside a loop stops the core with `ERR_CFG_LOOP`, as in the RTL.
 - `VOUTER_MAC` waits until all of its operand bytes are in the FIFOs, then pops them when it starts.
 - SRAM reads are pipelined, one W-byte read per cycle, with a fixed latency. Ports always grant unless `gnt_stall` > 0, which withholds each port's `gnt` at random with that probability (seeded by `gnt_seed`, drawn as in `docs/golden-vectors.md`). An ungranted request is held unchanged until granted (OBI request stability). Bank conflicts are not modeled.
+- Errors stop the core at the end of the cycle that finds them, with the RTL's STATUS code (`Stats.error`, `isa.ERR_*`); the program is NOP-padded to `prog_bytes` (PROG_BYTES). `tri_queue/programs.py` builds the illegal and edge-case programs the model tests and the RTL regression share.
 - A write is complete when granted (SRAM), unless `wr_ack`: then it completes `wr_resp_latency` cycles after its grant (an AXI B response), `FENCE` waits until no write is outstanding, and no new write is requested while `wr_out_max` are outstanding.
 - `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` are multiples of W (asserted). `run_gemm` pads C rows to whole words.
 - The MAC pipeline (`mac_pipe`) and the drain CPA latency only affect when a drain may begin.

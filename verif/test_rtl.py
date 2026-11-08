@@ -86,6 +86,26 @@ CONFIGS = {
         dict(tile=8, fifo_depth=4, mac_queue_depth=3),
         edge_cases(8, (9,)) + latency_sweep(8, (1, 2, 3, 5)) + [case(64, 64, 64), case(256, 32, 288)],
     ),
+    "t8_edge_cases": (
+        # illegal programs stop with the model's error code at the model's cycle; ZERO_C in a
+        # drain waits; K = 0 writes C = 0; PROG writes while busy are ignored
+        dict(T=8),
+        dict(tile=8),
+        [dict(case(20, 24, 27), prog=pr) for pr in
+         ("opcode", "cfg_reg", "cfg_loop", "loop_depth", "second_loop_t", "pc", "zero_in_drain")]
+        + [dict(case(20, 24, 27, lat=lat, stall=0.3), prog="zero_in_drain") for lat in (1, 4)]
+        + [dict(case(20, 24, 27), misalign=f) for f in ("a_base", "b_base", "c_base", "c_ld")]
+        + [case(9, 13, 0), case(16, 16, 0, lat=3), case(1, 1, 0)]
+        + [dict(case(64, 64, 64), prog_poke=True), dict(case(20, 24, 27, stall=0.4), prog_poke=True)]
+        + [case(20, 24, 27)],                          # a normal run after the errors
+    ),
+    "t8_edge_shared": (
+        dict(T=8, SHARED_PORT=1, WR_ACK=1, WR_OUT_MAX=2),
+        dict(tile=8, shared_port=True, wr_ack=True, wr_out_max=2),
+        [dict(case(20, 24, 27, lat=2, stall=0.3), prog=pr, wr_lat=3)
+         for pr in ("opcode", "second_loop_t", "pc", "zero_in_drain")]
+        + [dict(case(20, 24, 27, lat=3), misalign="c_base", wr_lat=2), dict(case(9, 13, 0), wr_lat=1)],
+    ),
     "t8_no_clock_gating": (
         dict(T=8, CLK_GATE=0),
         dict(tile=8),

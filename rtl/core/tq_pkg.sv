@@ -36,7 +36,7 @@ package tq_pkg;
   localparam logic [3:0] ERR_NONE      = 4'd0;
   localparam logic [3:0] ERR_OPCODE    = 4'd1;  // undefined opcode
   localparam logic [3:0] ERR_CFG_REG   = 4'd2;  // CFG to a register index >= 8
-  localparam logic [3:0] ERR_LOOP      = 4'd3;  // loop stack overflow or nested LOOP_T
+  localparam logic [3:0] ERR_LOOP      = 4'd3;  // a third loop level, or a second LOOP_T
   localparam logic [3:0] ERR_CFG_LOOP  = 4'd4;  // CFG inside a loop body
   localparam logic [3:0] ERR_PC        = 4'd5;  // instruction runs past the program buffer
   localparam logic [3:0] ERR_ALIGN     = 4'd6;  // base address or C_LD not a multiple of the port width

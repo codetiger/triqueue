@@ -75,6 +75,7 @@ module tq_top #(
   initial begin
     assert (ACC_FORM == tq_pkg::ACC_CSA || ACC_FORM == tq_pkg::ACC_CPA)
       else $fatal(1, "tq_top: ACC_FORM must be tq_pkg::ACC_CSA or tq_pkg::ACC_CPA");
+    assert (T >= 4 && (T & (T - 1)) == 0) else $fatal(1, "tq_top: T must be a power of two, at least 4");
   end
 `endif
 

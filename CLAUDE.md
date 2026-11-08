@@ -51,7 +51,7 @@ make synth-check      # generic Yosys synthesis: no latches, loops or undriven n
 make clean            # removes build/ and SymbiYosys work dirs
 ```
 
-RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_write_ack`, `t8_write_ack_shared`, `t32`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs on every push: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
+RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_write_ack`, `t8_write_ack_shared`, `t8_edge_cases`, `t8_edge_shared`, `t32`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs on every push: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
 
 Run model commands from `model/` (`pytest.ini` sets `pythonpath = .`, so imports are `from tri_queue...`):
 
@@ -91,6 +91,7 @@ python3 ablation.py    # writes ablation.md (~40 s)
 Properties the model enforces and the tests check:
 - Arithmetic is done the hardware way: 9×9 multiplies with sign extension per `MODE`, and 32-bit wrapping 3:2 carry-save accumulation (`_csa_reduce`). The carry-propagate add happens only at drain. The RTL's default plain adder gives the same values mod 2³², so this checks both forms. Don't replace this with a plain numpy matmul inside the core; the tests compare against `reference()`.
 - Per-quadrant arity limits (`HW_CELL_ARITY`: TL 4, TR 2, BL 2, BR 1) are asserted, so a shape/operand-selection bug fails loudly.
+- Illegal programs stop with the RTL's error codes at the RTL's cycle (`Stats.error`); `tri_queue/programs.py` holds the edge-case programs shared with the RTL regression (`t8_edge_cases`).
 - `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` must be multiples of W (asserted). C rows are padded to whole words, so `C_LD` is not always `4·N`; use `read_c` to extract C.
 - The modelling assumptions are listed in both `model/README.md` and the `core.py` docstring: 1 instruction decoded per cycle, zero-overhead loops, `ZERO_C`/`SWAP_C` take no MAC cycle, `VOUTER_MAC` waits for all its operand bytes, pipelined SRAM reads with fixed latency, ports always granted unless `gnt_stall` > 0 (seeded random `gnt` back-pressure that the RTL testbench reproduces through the shared `GrantSource`; an ungranted request is held unchanged until granted), writes complete at their grant unless `wr_ack` (then after `wr_resp_latency`, FENCE waits for them), no bank conflicts. If you change an assumption, update both places.
 

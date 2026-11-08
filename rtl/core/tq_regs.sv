@@ -13,7 +13,7 @@
 //   0x014 IRQ_STATUS  RW1C bit 0 done, bit 1 error, bit 2 bus error
 //   0x020 PERF_CYCLES, 0x024 PERF_INSTRET, 0x028 PERF_BEATS, 0x02C PERF_READS, 0x030 PERF_WRITES   RO
 //   0x040-0x05C CFG[0..7]   RO  configuration registers as last written by the program
-//   0x100-       PROG        WO  program buffer (PROG_BYTES bytes, byte enables honoured)
+//   0x100-       PROG        WO  program buffer (PROG_BYTES bytes, byte enables honoured; ignored while BUSY)
 
 module tq_regs #(
     parameter int T           = 8,
@@ -112,7 +112,8 @@ module tq_regs #(
 
   // program buffer: byte i is written by a PROG write to word i / 4 with byte enable i % 4
   logic prog_wr;
-  assign prog_wr = wr && reg_addr_i >= 12'h100 && 32'(reg_addr_i) < 32'h100 + PROG_BYTES;
+  // ignored while BUSY: the loop buffer runs from here (spec 6.4)
+  assign prog_wr = wr && !busy_i && reg_addr_i >= 12'h100 && 32'(reg_addr_i) < 32'h100 + PROG_BYTES;
   for (genvar i = 0; i < PROG_BYTES; i++) begin : g_prog
     logic       we, gclk;
     logic [7:0] q;

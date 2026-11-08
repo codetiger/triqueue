@@ -117,7 +117,7 @@ module tq_core #(
   logic [2*VB-1:0] opa_q, opb_q;
   logic          drain_act, drain_act_next;
 
-  logic          has0, has1, is_zero, is_swap, ctl0, swap_wait, mac_start;
+  logic          has0, has1, is_zero, is_swap, ctl0, swap_wait, zero_wait, mac_start;
   /* verilator lint_off UNUSEDSIGNAL */
   tq_pkg::mcmd_t mc;                              // only kind and shape are used
   /* verilator lint_on UNUSEDSIGNAL */
@@ -128,7 +128,9 @@ module tq_core #(
   always_comb begin
     has0      = macq_cnt >= MCW'(1);
     has1      = macq_cnt >= MCW'(2);
-    is_zero   = !b1_q && has0 && e0.kind == tq_pkg::MC_ZERO;
+    // ZERO_C clears both banks, so like SWAP_C it waits while a drain reads one
+    is_zero   = !b1_q && has0 && e0.kind == tq_pkg::MC_ZERO && !drain_act;
+    zero_wait = !b1_q && has0 && e0.kind == tq_pkg::MC_ZERO && drain_act;
     is_swap   = !b1_q && has0 && e0.kind == tq_pkg::MC_SWAP && !drain_act;
     swap_wait = !b1_q && has0 && e0.kind == tq_pkg::MC_SWAP && drain_act;
     ctl0      = is_zero || is_swap;
@@ -237,12 +239,12 @@ module tq_core #(
   logic stream_idle, stream_align_err, rd_fire, wr_req;
   tq_stream #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .SCMD_DEPTH(SCMD_DEPTH), .SHARED_PORT(SHARED_PORT),
               .CLK_GATE(CLK_GATE)) u_stream (
-      .clk_i, .rst_ni, .clear_i(clear),
+      .clk_i, .rst_ni, .clear_i(clear), .run_i(running_q),
       .scmd_a_push_i(scmd_a_push), .scmd_a_i(scmd_a_in),
       .scmd_b_push_i(scmd_b_push), .scmd_b_i(scmd_b_in),
       .scmd_a_full_o(scmd_a_full), .scmd_b_full_o(scmd_b_full),
       .qa_pop_i(qa_pop), .qb_pop_i(qb_pop),
-      .wr_pending_i(wr_pending_room), .swap_wait_i(swap_wait), .wr_gnt_i, .wr_req_o(wr_req), .wr_fire_o(wr_fire),
+      .wr_pending_i(wr_pending_room), .swap_wait_i(swap_wait || zero_wait), .wr_gnt_i, .wr_req_o(wr_req), .wr_fire_o(wr_fire),
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i, .rd_fire_o(rd_fire),
       .qa_push_o(qa_push), .qb_push_o(qb_push), .q_data_o(q_data),
       .idle_o(stream_idle), .align_err_o(stream_align_err));

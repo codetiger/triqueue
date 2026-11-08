@@ -34,6 +34,7 @@ Cycle numbers are decimal and start at 0, with lines in cycle order. Inside one 
 | --- | --- | --- | --- |
 | `fe` | `issue` | `pc op arg [imm]` | Front end retires an instruction (`imm` for `CFG` only) |
 | `fe` | `halt` | | `FENCE` complete: all streams, MACs and drains are finished |
+| `fe` | `error` | `code` | The core stops at the end of this cycle with STATUS error `code` (spec §6.4) |
 | `se` | `panel` | `s tile addr bytes` | Stream engine starts an A or B panel |
 | `port` | `rd` | `s addr n` | Read issued for stream `s`, `n` bytes |
 | `port` | `wr` | `addr n data` | Drain write, `n` bytes |
