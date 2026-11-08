@@ -10,7 +10,7 @@ YOSYS     ?= yosys
 SBY       ?= sby
 
 RTL       := $(shell cat rtl/files.f)
-LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GPANEL_BYTES=1024" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
+LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GPANEL_BYTES=1024" "-GMAC_PIPE=1" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
 ACC_FORMS := cpa:1 csa:0
 
 .PHONY: all model-test sw-test model-results flow-results rtl-lint rtl-test formal formal-nightly synth-check clean

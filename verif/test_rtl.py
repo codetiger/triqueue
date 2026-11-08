@@ -132,6 +132,20 @@ CONFIGS = {
         dict(tile=4, panel_bytes=256),
         edge_cases(4, (1, 8, 64, 100)) + latency_sweep(4, (1, 2, 5)) + [case(16, 16, 16), case(1, 64, 48, stall=0.5)],
     ),
+    "t8_mac1": (
+        # MAC_PIPE = 1: no product register, multiply and accumulate in the beat's cycle
+        dict(T=8, MAC_PIPE=1),
+        dict(tile=8, mac_pipe=1),
+        edge_cases(8, (1, 9, 33)) + latency_sweep(8, (1, 2, 5)) + signedness(8)
+        + [case(64, 64, 64), case(64, 64, 8), case(20, 24, 27, lat=3, stall=0.4)]
+        + [dict(case(20, 24, 27), prog="zero_in_drain")],
+    ),
+    "t8_mac1_csa_shared": (
+        dict(T=8, MAC_PIPE=1, ACC_FORM=0, SHARED_PORT=1, PANEL_BYTES=512),
+        dict(tile=8, mac_pipe=1, shared_port=True, panel_bytes=512),
+        [case(m, n, k, lat=lat, stall=s) for (m, n, k) in ((20, 24, 27), (64, 64, 16), (1, 64, 64))
+         for lat, s in ((1, 0.0), (2, 0.5), (6, 0.3))],
+    ),
     "t8_no_clock_gating": (
         dict(T=8, CLK_GATE=0),
         dict(tile=8),

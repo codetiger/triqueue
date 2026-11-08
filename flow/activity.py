@@ -42,7 +42,7 @@ TB_PERIOD_PS = 10_000                                   # clock in verif/tb/tq_t
 
 MODEL_FIELDS = {"T": "tile", "SHARED_PORT": "shared_port", "FIFO_DEPTH": "fifo_depth",
                 "MACQ_DEPTH": "mac_queue_depth", "SCMD_DEPTH": "stream_queue_depth",
-                "PANEL_BYTES": "panel_bytes"}
+                "PANEL_BYTES": "panel_bytes", "MAC_PIPE": "mac_pipe"}
 
 
 def model_params(rtl):

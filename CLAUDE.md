@@ -51,7 +51,7 @@ make synth-check      # generic Yosys synthesis: no latches, loops or undriven n
 make clean            # removes build/ and SymbiYosys work dirs
 ```
 
-RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_write_ack`, `t8_write_ack_shared`, `t8_edge_cases`, `t8_edge_shared`, `t8_panel`, `t8_panel_shared`, `t16_panel`, `t4_panel`, `t32`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs on every push: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
+RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_write_ack`, `t8_write_ack_shared`, `t8_edge_cases`, `t8_edge_shared`, `t8_panel`, `t8_panel_shared`, `t16_panel`, `t4_panel`, `t8_mac1`, `t8_mac1_csa_shared`, `t32`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs on every push: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
 
 Run model commands from `model/` (`pytest.ini` sets `pythonpath = .`, so imports are `from tri_queue...`):
 

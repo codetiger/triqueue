@@ -23,6 +23,7 @@ module tq_core #(
     parameter bit WR_ACK      = 1'b0,  // 1: a write completes at wr_done_i, not at its grant (AXI)
     parameter int WR_OUT_MAX  = 15,    // WR_ACK: most writes granted and not yet complete
     parameter int PANEL_BYTES = 0,     // A panel buffer (tq_stream, spec 10.9); 0 = none
+    parameter int MAC_PIPE    = 2,     // MAC stages (tq_mac_array): 2, or 1 without the product register
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -194,7 +195,7 @@ module tq_core #(
   logic [$clog2(T)-1:0] rd_row;
   logic [T/2*32-1:0] rd_val;
 
-  tq_mac_array #(.T(T), .ACC_FORM(ACC_FORM), .CLK_GATE(CLK_GATE)) u_array (
+  tq_mac_array #(.T(T), .ACC_FORM(ACC_FORM), .CLK_GATE(CLK_GATE), .MAC_PIPE(MAC_PIPE)) u_array (
       .clk_i, .rst_ni,
       .beat_i(beat), .beat_idx_i(beat_idx), .rfull_i(beat_rf), .cfull_i(beat_cf),
       .bank_i(beat_bank), .a_i(beat_a), .b_i(beat_b),

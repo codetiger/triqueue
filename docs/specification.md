@@ -136,6 +136,7 @@ beat 1:  SC[r][c] += A[r][k+1] × B[k+1][c]    for all 64 (r, c)
 ```
 
 - **9×9 signed multipliers** cover int8 and uint8 alike. The 9th bit is the operand's sign or zero extension, chosen by `MODE`.
+- **Two stages by default** (`MAC_PIPE = 2`): a product register between the multiply and the accumulate. `MAC_PIPE = 1` drops it (64 × 18 bits at T = 8): multiply and accumulate in one cycle, the bank holds the result a cycle earlier, and the critical path runs through the multiplier and the adder. For a slow clock (sky130 at 100 MHz) that can fit and saves flip-flops and clock power; at 1 GHz on ASAP7 it would not (the cycle model has the same option, `mac_pipe`).
 - Products are only 18 bits wide, so a full carry-propagate add inside the multiplier is cheap. Each accumulate cell then adds its products (1, 2 or 4 by quadrant, §4) to the stored 32-bit value with one carry-propagate adder, in one cycle. Because the accumulate loop is one cycle, the core can update the same 64 accumulators every cycle with no forwarding and no stall. After place and route the loop closes at 1 GHz on ASAP7 with slack to spare; the multiplier stage, not the accumulator, sets the clock (§10.2).
 - **Overflow:** |int8 × int8| ≤ 2¹⁴ and uint8 × uint8 < 2¹⁶. An int32 accumulator therefore cannot overflow for any K ≤ 32,768 in any signedness mode.
 - The drain reads finished int32 values directly. A carry-save option (§10.2) instead keeps (sum, carry) per cell and does the carry-propagate add once per output element in the drain.

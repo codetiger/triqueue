@@ -185,3 +185,14 @@ def test_write_ack(lat, out_max, shared):
         assert s1.cycles == s0.cycles
     else:
         assert s1.cycles >= s0.cycles + lat - 1       # the last response arrives lat cycles after its grant
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_one_stage_mac_pipe(shared):
+    """mac_pipe = 1 (RTL MAC_PIPE = 1, no product register): same C, drains start a cycle earlier."""
+    rng = np.random.default_rng(11)
+    a, b = rand(rng, (40, 64), np.int8), rand(rng, (64, 36), np.uint8)
+    c2, s2 = run_gemm(a, b, Params(shared_port=shared))
+    c1, s1 = run_gemm(a, b, Params(shared_port=shared, mac_pipe=1))
+    assert np.array_equal(c1, reference(a, b)) and np.array_equal(c1, c2)
+    assert s1.cycles <= s2.cycles

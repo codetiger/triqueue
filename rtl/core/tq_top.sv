@@ -16,6 +16,7 @@ module tq_top #(
     parameter bit WR_ACK      = 1'b0,
     parameter int WR_OUT_MAX  = 15,
     parameter int PANEL_BYTES = 0,
+    parameter int MAC_PIPE    = 2,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -64,7 +65,7 @@ module tq_top #(
   tq_core #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
             .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
             .CLK_GATE(CLK_GATE), .WR_ACK(WR_ACK), .WR_OUT_MAX(WR_OUT_MAX),
-            .PANEL_BYTES(PANEL_BYTES)) u_core (
+            .PANEL_BYTES(PANEL_BYTES), .MAC_PIPE(MAC_PIPE)) u_core (
       .clk_i, .rst_ni,
       .start_i(start), .abort_i(abort), .prog_i(prog),
       .busy_o(busy), .done_o(done), .error_o(error), .err_code_o(err_code), .cfg_o(cfg),
@@ -79,6 +80,7 @@ module tq_top #(
       else $fatal(1, "tq_top: ACC_FORM must be tq_pkg::ACC_CSA or tq_pkg::ACC_CPA");
     assert (T >= 4 && (T & (T - 1)) == 0) else $fatal(1, "tq_top: T must be a power of two, at least 4");
     assert (PANEL_BYTES % (2 * T) == 0) else $fatal(1, "tq_top: PANEL_BYTES must be a multiple of 2T");
+    assert (MAC_PIPE == 1 || MAC_PIPE == 2) else $fatal(1, "tq_top: MAC_PIPE must be 1 or 2");
   end
 `endif
 
