@@ -313,7 +313,7 @@ The core has two native ports, W = 2T bytes wide, with OBI-style (OpenHW Open Bu
 
 ### 6.4 Host interface
 
-The core exposes one 32-bit register port (OBI-style: always grants, read data one cycle after the request) and an interrupt. Bus or CPU attachment is a thin adapter on this port: AXI4-Lite (`tq_axil_regs`, implemented) or APB for any SoC, CV-X-IF for custom-instruction issue from CVA6 or CV32E40X, or RoCC for Chipyard. A GEMM is 50 bytes of program, after which the host only waits, so the interface carries very little traffic.
+The core exposes one 32-bit register port (OBI-style: always grants, read data one cycle after the request) and an interrupt. Bus or CPU attachment is a thin adapter on this port: AXI4-Lite (`tq_axil_regs`, implemented) or APB for any SoC, CV-X-IF for custom-instruction issue from CVA6 or CV32E40X (`tq_xif_regs`, implemented: `tq.wr rs1, rs2` writes register `rs1[11:0]`, `tq.rd rd, rs1` reads it; R-type on custom-0, funct3 0 / 1, made only after the instruction commits), or RoCC for Chipyard. A GEMM is 50 bytes of program, after which the host only waits, so the interface carries very little traffic.
 
 | Offset | Name | Access | Contents |
 | --- | --- | --- | --- |

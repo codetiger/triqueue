@@ -156,6 +156,11 @@ CONFIGS = {
         dict(tile=8),
         edge_cases(8, (9,))[::4] + [case(64, 64, 64), case(20, 24, 27, lat=3, stall=0.4)],
     ),
+    "t8_xif": (
+        dict(T=8),
+        dict(tile=8),
+        edge_cases(8, (9,))[::4] + [case(64, 64, 64), case(20, 24, 27, lat=3, stall=0.4)],
+    ),
     "t8_write_ack": (
         dict(T=8, WR_ACK=1, WR_OUT_MAX=2),
         dict(tile=8, wr_ack=True, wr_out_max=2),
@@ -198,7 +203,7 @@ CONFIGS = {
 
 
 # configurations whose top level is not tq_top (the testbench host driver follows it)
-TOPS = {"t8_axil": ("tq_top_axil", "axil"), "t8_axi": ("tq_top_axi", "axi")}
+TOPS = {"t8_axil": ("tq_top_axil", "axil"), "t8_axi": ("tq_top_axi", "axi"), "t8_xif": ("tq_top_xif", "xif")}
 
 
 @pytest.mark.parametrize("name", list(CONFIGS))

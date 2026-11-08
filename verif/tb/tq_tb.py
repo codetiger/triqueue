@@ -395,3 +395,118 @@ class TqTbAxi(TqTbAxil):
         for k, a in REG_PERF.items():
             rec.perf[k] = await self.reg_read(a)
         return rec
+
+
+class TqTbXif(TqTb):
+    """Drives tq_top_xif: registers reached with tq.wr / tq.rd through CV-X-IF, the way a CPU
+    issues them. Register (operand) and commit transactions come a seeded random 0-3 cycles
+    after the issue, in either order, and the result is taken a random 0-2 cycles after it is
+    offered. Before every register write a speculative copy is issued and killed, and an
+    instruction of another coprocessor is offered; neither may reach the core. Checks the
+    rules a CPU relies on: one result per committed instruction, held until taken, with the
+    issue's id and rd."""
+
+    OPCODE = 0b0001011                                 # custom-0, funct7 = 0
+
+    def __init__(self, dut, tile: int):
+        super().__init__(dut, tile)
+        self.rng = np.random.default_rng(7)
+        self.next_id = 0
+
+    def core_handle(self):
+        return self.dut.u_tq.u_core
+
+    def host_inputs(self):
+        d = self.dut
+        return (d.x_issue_valid_i, d.x_issue_req_instr_i, d.x_issue_req_hartid_i, d.x_issue_req_id_i,
+                d.x_register_valid_i, d.x_register_hartid_i, d.x_register_id_i, d.x_register_rs0_i,
+                d.x_register_rs1_i, d.x_register_rs_valid_i, d.x_commit_valid_i, d.x_commit_hartid_i,
+                d.x_commit_id_i, d.x_commit_kill_i, d.x_result_ready_i)
+
+    def _instr(self, read: bool, opcode=None) -> int:
+        funct3, rd = (1, 10) if read else (0, 0)
+        return (6 << 20) | (5 << 15) | (funct3 << 12) | (rd << 7) | (self.OPCODE if opcode is None else opcode)
+
+    async def _op(self, read: bool, addr: int, data: int = 0, kill: bool = False, opcode=None,
+                  at_access=False):
+        """One instruction from issue to result. Returns the result data; with at_access, returns
+        at the falling edge after the cycle the register port request was granted (the result
+        is then taken later, x_result_ready_i stays 1)."""
+        d, xif = self.dut, self.dut.u_xif
+        ours = opcode is None
+        xid = self.next_id
+        self.next_id = (self.next_id + 1) % 16
+        reg_at, commit_at = (int(x) for x in self.rng.integers(0, 4, 2))
+        d.x_issue_valid_i.value, d.x_issue_req_instr_i.value = 1, self._instr(read, opcode)
+        d.x_issue_req_id_i.value, d.x_issue_req_hartid_i.value = xid, 0
+        d.x_result_ready_i.value = 0
+        reg_done = commit_done = False
+        t = 0
+        while not (reg_done and commit_done):
+            if t > 0:
+                d.x_issue_valid_i.value = 0
+            d.x_register_valid_i.value = int(t >= reg_at and not reg_done)
+            d.x_register_id_i.value, d.x_register_hartid_i.value = xid, 0
+            d.x_register_rs0_i.value, d.x_register_rs1_i.value = addr, data
+            d.x_register_rs_valid_i.value = 0b11
+            d.x_commit_valid_i.value = int(t == commit_at)
+            d.x_commit_id_i.value, d.x_commit_hartid_i.value, d.x_commit_kill_i.value = xid, 0, int(kill)
+            await ReadOnly()
+            if t == 0:
+                assert val(d.x_issue_ready_o), "CV-X-IF issue not ready"
+                assert val(d.x_issue_resp_accept_o) == int(ours), "wrong accept"
+                assert val(d.x_issue_resp_writeback_o) == int(ours and read)
+            if t >= reg_at and not reg_done and val(d.x_register_ready_o):
+                reg_done = True
+            commit_done = commit_done or t == commit_at
+            access = val(xif.reg_req_o) and val(xif.reg_gnt_i)
+            assert not (access and (kill or not ours)), "register access by a killed or foreign instruction"
+            await FallingEdge(d.clk_i)
+            t += 1
+            if access and at_access:
+                break
+        d.x_issue_valid_i.value = d.x_register_valid_i.value = d.x_commit_valid_i.value = 0
+        if at_access:
+            d.x_result_ready_i.value = 1
+            return 0
+        if kill or not ours:
+            for _ in range(4):                          # nothing happens for this instruction
+                await ReadOnly()
+                assert not val(d.x_result_valid_o), "result for a killed or foreign instruction"
+                assert not val(xif.reg_req_o)
+                await FallingEdge(d.clk_i)
+            return None
+        wait = int(self.rng.integers(0, 3))
+        for n in range(40):
+            d.x_result_ready_i.value = int(n >= wait)
+            await ReadOnly()
+            if val(d.x_result_valid_o):
+                assert val(d.x_result_id_o) == xid and val(d.x_result_we_o) == int(read)
+                assert not read or val(d.x_result_rd_o) == 10
+                if n >= wait:
+                    out = val(d.x_result_data_o)
+                    await FallingEdge(d.clk_i)
+                    d.x_result_ready_i.value = 0
+                    await ReadOnly()
+                    assert not val(d.x_result_valid_o), "second result"
+                    await FallingEdge(d.clk_i)
+                    return out
+            await FallingEdge(d.clk_i)
+        raise TimeoutError("no CV-X-IF result")
+
+    async def _noise(self, addr: int, data: int):
+        await self._op(False, addr, data, kill=True)              # speculative, killed
+        await self._op(False, addr, data, opcode=0b0101011)       # custom-1: another coprocessor's
+
+    async def reg_write(self, addr: int, data: int, be: int = 0xF):
+        assert be == 0xF, "tq.wr writes whole registers"
+        await self._noise(addr, data)
+        await self._op(False, addr, data)
+
+    async def start_cmd(self):
+        await self._noise(REG_CTRL, 1)
+        assert not val(self.core.busy_o), "killed START reached the core"
+        await self._op(False, REG_CTRL, 1, at_access=True)
+
+    async def reg_read(self, addr: int) -> int:
+        return await self._op(True, addr)

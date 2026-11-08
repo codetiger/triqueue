@@ -5,14 +5,30 @@
 // model/tri_queue/packing.py (packing), verif/tb/tq_tb.py (run sequence).
 #include "tq.h"
 
-#define REG(base, off) ((base)[(off) / 4u])
+#ifdef TQ_XIF
+// Registers reached with the CV-X-IF custom instructions of tq_xif_regs (spec 6.4):
+// tq.wr rs1, rs2 / tq.rd rd, rs1 on custom-0. The base pointer is not used.
+static inline uint32_t tq_rd(uint32_t off) {
+    uint32_t v;
+    __asm__ volatile(".insn r 0x0B, 1, 0, %0, %1, x0" : "=r"(v) : "r"(off) : "memory");
+    return v;
+}
+static inline void tq_wr(uint32_t off, uint32_t v) {
+    __asm__ volatile(".insn r 0x0B, 0, 0, x0, %0, %1" : : "r"(off), "r"(v) : "memory");
+}
+#define RD(base, off) ((void)(base), tq_rd(off))
+#define WR(base, off, v) ((void)(base), tq_wr((off), (v)))
+#else
+#define RD(base, off) ((base)[(off) / 4u])
+#define WR(base, off, v) ((base)[(off) / 4u] = (v))
+#endif
 
 // ---- device access ----
 
 int tq_probe(volatile uint32_t *base, tq_info *info) {
-    if (REG(base, TQ_REG_ID) != TQ_ID)
+    if (RD(base, TQ_REG_ID) != TQ_ID)
         return TQ_ERR_NO_DEVICE;
-    uint32_t hw = REG(base, TQ_REG_HW_CONFIG);
+    uint32_t hw = RD(base, TQ_REG_HW_CONFIG);
     info->tile = hw & 0xFFu;
     info->port_bytes = 2u * info->tile;
     info->fifo_depth = (hw >> 8) & 0xFFu;
@@ -30,27 +46,27 @@ int tq_run(volatile uint32_t *base, const tq_info *info, const uint8_t *prog, si
         uint32_t w = 0;
         for (size_t j = 0; j < 4 && i + j < len; j++)
             w |= (uint32_t)prog[i + j] << (8u * j);
-        REG(base, TQ_REG_PROG + i) = w;
+        WR(base, TQ_REG_PROG + i, w);
     }
-    REG(base, TQ_REG_CTRL) = TQ_CTRL_START;
+    WR(base, TQ_REG_CTRL, TQ_CTRL_START);
     for (uint32_t n = 0; max_polls == 0 || n < max_polls; n++) {
-        uint32_t st = REG(base, TQ_REG_STATUS);
+        uint32_t st = RD(base, TQ_REG_STATUS);
         if (st & TQ_STATUS_DONE) {
             if (st & TQ_STATUS_ERROR)
                 return (int)((st >> 8) & 0xFu);
             return (st & TQ_STATUS_BUS_ERR) ? TQ_ERR_BUS : TQ_OK;
         }
     }
-    REG(base, TQ_REG_CTRL) = TQ_CTRL_ABORT;
+    WR(base, TQ_REG_CTRL, TQ_CTRL_ABORT);
     return TQ_ERR_TIMEOUT;
 }
 
 void tq_read_perf(volatile uint32_t *base, tq_perf *perf) {
-    perf->cycles = REG(base, TQ_REG_PERF_CYCLES);
-    perf->instret = REG(base, TQ_REG_PERF_INSTRET);
-    perf->beats = REG(base, TQ_REG_PERF_BEATS);
-    perf->reads = REG(base, TQ_REG_PERF_READS);
-    perf->writes = REG(base, TQ_REG_PERF_WRITES);
+    perf->cycles = RD(base, TQ_REG_PERF_CYCLES);
+    perf->instret = RD(base, TQ_REG_PERF_INSTRET);
+    perf->beats = RD(base, TQ_REG_PERF_BEATS);
+    perf->reads = RD(base, TQ_REG_PERF_READS);
+    perf->writes = RD(base, TQ_REG_PERF_WRITES);
 }
 
 // ---- packing (spec 5.3) ----

@@ -9,6 +9,8 @@
 //   2. tq_pack_a/b()         pack A and B into the core's panel layout in its SRAM (spec 5.3)
 //   3. tq_gemm_program()     build the 50-byte program: 8 CFG + the 10-byte kernel (spec 6.2)
 //   4. tq_run()              load the program, START, wait for DONE (polling)
+// Registers are memory-mapped at `base`; with -DTQ_XIF they are reached with the CV-X-IF
+// instructions tq.wr / tq.rd (rtl/adapters/tq_xif_regs.sv) and `base` is ignored.
 // C rows are tq_c_ld() bytes apart (padded to whole port words). The addresses given to the
 // core are byte offsets in its memory port's address space; A, B and C bases and the C row
 // stride must be multiples of W (the core stops with TQ_ERR_ALIGN otherwise).

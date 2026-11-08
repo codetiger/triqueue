@@ -19,7 +19,7 @@ RTL v0 exists and matches the model cycle for cycle. The architecture is the **T
 - `rtl/`: SystemVerilog, top `tq_top`, sources in compile order in `rtl/files.f`. `rtl/README.md` covers parameters, the register and memory port contracts, the block map and the Yosys-compatible coding rules.
 - `verif/`: cocotb + Verilator regression against the model (`test_rtl.py` holds the configurations and cases; `tb/` the testbench), plus SymbiYosys proofs in `formal/`.
 - `flow/`: physical design with OpenROAD-flow-scripts (`flow/README.md`). The reference is a native ORFS build pinned to `ORFS_COMMIT` in `flow/ppa.py`; never mix its numbers with the `--docker` flow's. `ppa.py run` (RTL to routed layout), `power.py` (activity-based power per workload), `results.py collect` (records a run in `flow/records/`, committed). `flow/results.md` is generated from the records only, and CI checks it.
-- `rtl/adapters/`: bus adapters (Phase 4). `tq_axil_regs` (AXI4-Lite to the register port), `tq_axi_mem` (AXI4 master for the memory ports; needs the core's `WR_ACK = 1`), and the tops `tq_top_axil` (AXI4-Lite only) and `tq_top_axi` (both).
+- `rtl/adapters/`: bus adapters (Phase 4). `tq_axil_regs` (AXI4-Lite to the register port), `tq_axi_mem` (AXI4 master for the memory ports; needs the core's `WR_ACK = 1`), `tq_xif_regs` (CV-X-IF custom instructions `tq.wr` / `tq.rd` to the register port, only after commit), and the tops `tq_top_axil` (AXI4-Lite only), `tq_top_axi` (both) and `tq_top_xif`.
 - `sw/`: freestanding C driver (`tq.h`, `tq.c`), tested against the model's program builder and packing (`make sw-test`).
 - `bench/workloads/gemm.csv`: the single list of GEMM shapes. Benchmarks select rows by tag (`model`, `amx`, `dse`). Add shapes there, never hard-coded in a script.
 - `bench/reference/amx/`: real-hardware Apple AMX (M2 Pro) measurements and scripts comparing them with the model.
@@ -44,7 +44,7 @@ make model-results    # regenerate model/results.md and model/dse.md (bench.py +
 make rtl-lint         # verilator -Wall in 7 configurations + Yosys elaboration (both must be warning-free)
 make rtl-test         # cocotb regression, all configurations (~60 s); builds go to build/rtl/<config>/
 python3 -m pytest verif -q -k t8_default    # one RTL configuration
-make formal           # SymbiYosys: clock-gating template (check_cg_pattern.py + tq_cg.sby), FIFO (tq_fifo.sby), AXI4-Lite adapter (tq_axil_regs.sby), AXI master covers, unbounded core proof, split port (tq_core.sby split, ~3 min)
+make formal           # SymbiYosys: clock-gating template (check_cg_pattern.py + tq_cg.sby), FIFO (tq_fifo.sby), AXI4-Lite and CV-X-IF adapters (tq_axil_regs.sby, tq_xif_regs.sby), AXI master covers, unbounded core proof, split port (tq_core.sby split, ~3 min)
 make formal-nightly   # core proofs, shared port, WR_ACK and panel buffer (tq_core.sby shared/ack/panel), AXI4 master proof (tq_axi_mem.sby prove, ~10 min)
 make flow-results     # rewrite flow/results.md from flow/records/ (no flow run)
 make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets (stats in build/synth/)
@@ -52,7 +52,7 @@ make fpga             # ECP5 out-of-context synth + nextpnr (flow/fpga/; needs n
 make clean            # removes build/ and SymbiYosys work dirs
 ```
 
-RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_write_ack`, `t8_write_ack_shared`, `t8_edge_cases`, `t8_edge_shared`, `t8_panel`, `t8_panel_shared`, `t16_panel`, `t4_panel`, `t8_mac1`, `t8_mac1_csa_shared`, `t32`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs on every push: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
+RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_xif`, `t8_write_ack`, `t8_write_ack_shared`, `t8_edge_cases`, `t8_edge_shared`, `t8_panel`, `t8_panel_shared`, `t16_panel`, `t4_panel`, `t8_mac1`, `t8_mac1_csa_shared`, `t32`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs on every push: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
 
 Run model commands from `model/` (`pytest.ini` sets `pythonpath = .`, so imports are `from tri_queue...`):
 

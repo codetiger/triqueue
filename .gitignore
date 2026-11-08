@@ -33,6 +33,8 @@ verif/formal/tq_core/
 verif/formal/tq_core_*/
 verif/formal/tq_axil_regs/
 verif/formal/tq_axil_regs_*/
+verif/formal/tq_xif_regs/
+verif/formal/tq_xif_regs_*/
 verif/formal/tq_axi_mem/
 verif/formal/tq_axi_mem_*/
 verif/formal/tq_cg/

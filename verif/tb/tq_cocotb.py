@@ -7,7 +7,8 @@ Cases and the RTL configuration come from environment variables set by verif/tes
   TQ_CASES   JSON list of {m, n, k, a, b, seed, lat}, optionally prog (a tri_queue.programs
              edge program), misalign (a layout field moved off the port width), prog_poke
   TQ_HOST    "axil": the top level is tq_top_axil, registers are reached through AXI4-Lite;
-             "axi": tq_top_axi, AXI4-Lite registers and an AXI4 memory slave
+             "axi": tq_top_axi, AXI4-Lite registers and an AXI4 memory slave;
+             "xif": tq_top_xif, registers reached with tq.wr / tq.rd through CV-X-IF
 
 Checks per case (docs/golden-vectors.md, "How the RTL is checked against the model"):
   1. final memory bit-exact (and C equal to numpy)
@@ -28,7 +29,7 @@ from tri_queue import isa  # noqa: E402
 from tri_queue.core import Params, TriQueueCore, build_gemm, read_c, reference  # noqa: E402
 from tri_queue.programs import edge_program  # noqa: E402
 
-from tq_tb import TqTb, TqTbAxi, TqTbAxil  # noqa: E402
+from tq_tb import TqTb, TqTbAxi, TqTbAxil, TqTbXif  # noqa: E402
 
 DT = {"s8": np.int8, "u8": np.uint8}
 
@@ -88,7 +89,7 @@ def first_diff(xs, ys):
 async def gemm_cases(dut):
     params = json.loads(os.environ["TQ_PARAMS"])
     cases = json.loads(os.environ["TQ_CASES"])
-    tb = {"axil": TqTbAxil, "axi": TqTbAxi}.get(os.environ.get("TQ_HOST"), TqTb)(dut, params["tile"])
+    tb = {"axil": TqTbAxil, "axi": TqTbAxi, "xif": TqTbXif}.get(os.environ.get("TQ_HOST"), TqTb)(dut, params["tile"])
     await tb.start()
     failures = []
     for case in cases:

@@ -55,6 +55,8 @@ Requests never depend combinationally on `gnt`, and an ungranted request stays a
 | `adapters/tq_axi_mem.sv` | AXI4 master for the memory ports: single-beat INCR per port word, RREADY / BREADY always 1, AR and AW+W handshakes as `gnt`, `wr_done` from B. Finishes and discards a request the core drops at START / ABORT. An error response to a core transaction pulses `bus_err_o` (`STATUS.BUS_ERR`). Formally proved (`verif/formal/tq_axi_mem.sby`). |
 | `adapters/tq_top_axi.sv` | `tq_top` for an AXI SoC: AXI4-Lite registers + AXI4 memory master, `WR_ACK = 1`. Regression configuration `t8_axi`. |
 | `adapters/tq_top_axil.sv` | `tq_top` with the AXI4-Lite register port; memory ports native (for tightly coupled SRAM). Regression configuration `t8_axil`. |
+| `adapters/tq_xif_regs.sv` | CV-X-IF coprocessor adapter to the register port: `tq.wr rs1, rs2` (register[rs1] = rs2) and `tq.rd rd, rs1` (rd = register[rs1]), R-type, custom-0, funct7 0, funct3 0 / 1 (`OPCODE`, `FUNCT7` parameters). One instruction at a time; the register access happens only after commit, so killed instructions have no effect; one result per committed instruction, after the register port's response. Issue / register / commit / result fields flattened (connect the core's x-interface structs). Formally proved (`verif/formal/tq_xif_regs.sby`). |
+| `adapters/tq_top_xif.sv` | `tq_top` with the CV-X-IF register access; memory ports native. Regression configuration `t8_xif` (operand and commit transactions in random order and delay, a killed speculative copy and a foreign instruction before every write). |
 
 ## Coding rules
 

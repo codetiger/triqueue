@@ -39,7 +39,7 @@ rtl-lint:
 	done
 	@echo "yosys elaborate PANEL_BYTES=1024"; $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); \
 	  chparam -set PANEL_BYTES 1024 tq_top; hierarchy -check -top tq_top; proc; check -assert"
-	@for t in tq_top_axil tq_top_axi; do \
+	@for t in tq_top_axil tq_top_axi tq_top_xif; do \
 	  echo "verilator lint $$t"; $(VERILATOR) --lint-only -Wall -f rtl/files.f --top-module $$t || exit 1; \
 	  echo "yosys elaborate $$t"; $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); \
 	    hierarchy -check -top $$t; proc; check -assert" || exit 1; \
@@ -53,10 +53,10 @@ rtl-lint:
 rtl-test:
 	$(PYTHON) -m pytest verif -q
 
-# formal: clock-gating template (pattern check + tq_cg.sby), FIFO, AXI4-Lite adapter, AXI master covers, core proof (split port). formal-nightly: core proof, shared port (1-80 min, varies widely).
+# formal: clock-gating template (pattern check + tq_cg.sby), FIFO, AXI4-Lite and CV-X-IF adapters, AXI master covers, core proof (split port). formal-nightly: core proof, shared port (1-80 min, varies widely).
 formal:
 	$(PYTHON) verif/formal/check_cg_pattern.py
-	cd verif/formal && $(SBY) -f tq_cg.sby && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_axi_mem.sby cover && $(SBY) -f tq_core.sby split
+	cd verif/formal && $(SBY) -f tq_cg.sby && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_xif_regs.sby && $(SBY) -f tq_axi_mem.sby cover && $(SBY) -f tq_core.sby split
 
 formal-nightly:
 	cd verif/formal && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_core.sby panel && $(SBY) -f tq_axi_mem.sby prove
@@ -80,4 +80,4 @@ fpga:
 	$(PYTHON) flow/fpga/fpga.py all t8_cpa
 
 clean:
-	rm -rf build verif/formal/tq_fifo verif/formal/tq_fifo_* verif/formal/tq_core verif/formal/tq_core_*/ verif/formal/tq_axil_regs verif/formal/tq_axil_regs_*/ verif/formal/tq_axi_mem verif/formal/tq_axi_mem_*/ verif/formal/tq_cg verif/formal/tq_cg_*/
+	rm -rf build verif/formal/tq_fifo verif/formal/tq_fifo_* verif/formal/tq_core verif/formal/tq_core_*/ verif/formal/tq_axil_regs verif/formal/tq_axil_regs_*/ verif/formal/tq_xif_regs verif/formal/tq_xif_regs_*/ verif/formal/tq_axi_mem verif/formal/tq_axi_mem_*/ verif/formal/tq_cg verif/formal/tq_cg_*/

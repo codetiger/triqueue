@@ -13,3 +13,5 @@ rtl/adapters/tq_axil_regs.sv
 rtl/adapters/tq_top_axil.sv
 rtl/adapters/tq_axi_mem.sv
 rtl/adapters/tq_top_axi.sv
+rtl/adapters/tq_xif_regs.sv
+rtl/adapters/tq_top_xif.sv
