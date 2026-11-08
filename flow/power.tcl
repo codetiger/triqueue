@@ -50,7 +50,9 @@ foreach m [lrange $missing 0 9] {
 set n_cg 0
 set cg_missing {}
 foreach cell [get_cells -hierarchical *.u_icg.u_cell.*] {
-  set bit "[regsub {\.g_gate\.u_icg\.u_cell\..*$} [get_full_name $cell] {}].en_i"
+  # the resizer may clone a gate for fanout (clone_<n>_<name>): the copy has the same enable
+  set name [regsub {^clone_[0-9]+_} [get_full_name $cell] {}]
+  set bit "[regsub {\.g_gate\.u_icg\.u_cell\..*$} $name {}].en_i"
   if { ![dict exists $tq_bits $bit] } {
     lappend cg_missing $bit
     continue
