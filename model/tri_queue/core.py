@@ -29,6 +29,11 @@ Modelling assumptions (stated in model/README.md):
     A request that is not granted is held unchanged until it is (OBI/AXI request stability):
     no re-arbitration of the read stream, and on a shared port no read/write swap.
   * No SRAM bank conflicts.
+  * A panel buffer (panel_bytes > 0, spec 10.9): an A panel no larger than the buffer is kept as
+    it is read; a later STREAM_A of the same panel (the next tiles of the tile row) is replayed
+    from the buffer, one W-byte vector per cycle without using the memory port. QA receives its
+    vectors in order: a replay waits until no A read is in flight, and an A read waits until no
+    replayed vector is.
   * Write completion: by default a write is complete when granted (SRAM). With wr_ack (an
     interconnect such as AXI, where a write completes at its B response) each granted write
     completes wr_resp_latency cycles later, FENCE waits until none is outstanding, and no new
@@ -65,6 +70,8 @@ class Params:
     wr_resp_latency: int = 0     # with wr_ack: cycles from a write's grant to its response (0: same cycle)
     wr_out_max: int = 15         # with wr_ack: most writes granted and not yet complete
     prog_bytes: int = 64         # program buffer (PROG_BYTES); the program is NOP-padded to it
+    panel_bytes: int = 0         # A panel buffer (spec 10.9): 0 = none; else replays an A panel that fits
+    panel_latency: int = 2       # panel buffer read -> data in QA (a 1-cycle buffer + the FIFO write)
 
     def __post_init__(self):
         if not self.port_bytes:
@@ -93,6 +100,8 @@ class Stats:
     max_cell_arity: dict = field(default_factory=lambda: defaultdict(int))
     useful_macs: int = 0
     error: int = 0               # STATUS error code (isa.ERR_*); 0 for a normal FENCE
+    panel_hits: int = 0          # A panels replayed from the panel buffer instead of read
+    panel_vectors: int = 0       # W-byte vectors replayed from the panel buffer
 
     @property
     def ideal_cycles(self):
@@ -188,7 +197,10 @@ class TriQueueCore:
         self.stream = {"A": None, "B": None}  # [addr, bytes_left]
         self.fifo = {"A": ByteFifo(), "B": ByteFifo()}
         self.inflight = deque()                 # (arrive_cycle, which, data)
-        self.inflight_n = {"A": 0, "B": 0}      # bytes in flight
+        self.inflight_n = {"A": 0, "B": 0}      # bytes in flight (memory and panel buffer)
+        self.pinflight = deque()                # panel-buffer reads: (arrive_cycle, data)
+        self.panel_key = None                   # (addr, bytes) of the A panel in the buffer
+        self.panel_data = np.zeros(self.p.panel_bytes, np.uint8)
         self.rr = "A"
         # MAC + accumulator banks
         self.cur = None
@@ -260,6 +272,7 @@ class TriQueueCore:
     def all_idle(self):
         return (not self.macq and self.cur is None and not self.scmd["A"] and not self.scmd["B"]
                 and self.stream["A"] is None and self.stream["B"] is None and not self.inflight
+                and not self.pinflight
                 and self.drain is None and self.wr_out == 0)
 
     def step_front(self):
@@ -461,26 +474,67 @@ class TriQueueCore:
                 ti, tj = self.tile_coords(tile)
                 if s == "A":
                     w = panel_width(m - T * ti, T)
-                    self.stream[s] = [self.cfg[isa.A_BASE] + ti * T * kpad, w * kpad]
+                    self.stream[s] = [self.cfg[isa.A_BASE] + ti * T * kpad, w * kpad, "mem", 0]
                 else:
                     w = panel_width(n - T * tj, T)
-                    self.stream[s] = [self.cfg[isa.B_BASE] + tj * T * kpad, w * kpad]
+                    self.stream[s] = [self.cfg[isa.B_BASE] + tj * T * kpad, w * kpad, "mem", 0]
                 self.ev("se", "panel", s=s, tile=tile, addr=self.stream[s][0], bytes=self.stream[s][1])
+                nbytes = self.stream[s][1]
+                if s == "A" and 0 < nbytes <= self.p.panel_bytes:
+                    key = (self.stream[s][0], nbytes)
+                    if key == self.panel_key:            # the buffered panel: replay it
+                        self.stream[s][2] = "buf"
+                        self.stats.panel_hits += 1
+                        self.ev("se", "reuse", s=s, tile=tile)
+                    else:                                # read it and keep it
+                        self.stream[s][2] = "fill"
+                        self.panel_key = key
                 if self.stream[s][0] % self.W:
                     self.err_align = True            # ERR_ALIGN at the end of this cycle
                 if self.stream[s][1] == 0:           # K = 0: an empty panel completes at once
                     self.stream[s] = None
-            if self.stream[s] is not None and self.fifo[s].n + self.inflight_n[s] + self.W <= cap:
+            # QA takes vectors in order: an A read waits for replayed vectors still in flight
+            # (and the replay waits for A reads, step_panel)
+            if self.stream[s] is not None and self.stream[s][2] != "buf" \
+                    and not (s == "A" and self.pinflight) \
+                    and self.fifo[s].n + self.inflight_n[s] + self.W <= cap:
                 return s
         return None
+
+    def step_panel(self):
+        """Replay one vector of the buffered A panel into QA (no memory port). Waits until no A
+        read is in flight, so QA receives the vectors in order."""
+        st = self.stream["A"]
+        cap = self.p.fifo_depth * self.W
+        pin = sum(len(d) for _, d in self.pinflight)
+        if st is None or st[2] != "buf" or self.inflight_n["A"] - pin:
+            return
+        if self.fifo["A"].n + self.inflight_n["A"] + self.W > cap:
+            return
+        nb = min(self.W, st[1])
+        data = self.panel_data[st[3]:st[3] + nb].copy()
+        self.pinflight.append((self.cycle + self.p.panel_latency, data))
+        self.inflight_n["A"] += nb
+        self.ev("pb", "rd", off=st[3], n=nb)
+        st[0] += nb
+        st[1] -= nb
+        st[3] += nb
+        self.stats.panel_vectors += 1
+        if st[1] == 0:
+            self.stream["A"] = None
 
     def _issue_read(self, s):
         addr = self.stream[s][0]
         nb = min(self.W, self.stream[s][1])
-        self.inflight.append((self.cycle + self.p.mem_latency, s, self.mem[addr:addr + nb].copy()))
+        data = self.mem[addr:addr + nb].copy()
+        self.inflight.append((self.cycle + self.p.mem_latency, s, data))
+        if self.stream[s][2] == "fill":                  # keep it in the panel buffer
+            off = self.stream[s][3]
+            self.panel_data[off:off + nb] = data
         self.inflight_n[s] += nb
         self.stream[s][0] += nb
         self.stream[s][1] -= nb
+        self.stream[s][3] += nb
         if self.stream[s][1] == 0:
             self.stream[s] = None
         self.rr = "B" if s == "A" else "A"
@@ -535,6 +589,7 @@ class TriQueueCore:
             self._try_write(wr_gnt)
         elif cand:
             self._try_read(cand, rd_gnt)
+        self.step_panel()
         # write responses due this cycle (wr_ack)
         while self.wr_done_at and self.wr_done_at[0] <= self.cycle:
             self.wr_done_at.popleft()
@@ -545,6 +600,10 @@ class TriQueueCore:
             _, s, data = self.inflight.popleft()
             self.inflight_n[s] -= len(data)
             self.fifo[s].push(data)
+        while self.pinflight and self.pinflight[0][0] <= self.cycle:
+            _, data = self.pinflight.popleft()
+            self.inflight_n["A"] -= len(data)
+            self.fifo["A"].push(data)
 
     # ---- top level ------------------------------------------------------------------------
     def run(self, max_cycles=50_000_000):

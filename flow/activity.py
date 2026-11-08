@@ -33,6 +33,7 @@ WORKLOADS = {
     "gemm64":   case(64, 64, 64, lat=2),                 # dense, ~99% utilization at T = 8
     "resnet8_conv32": case(256, 32, 288, lat=2),         # ic_resnet8 conv 3x3 32->32 (16x16)
     "mbv1_pw8_16":    case(2304, 16, 8, lat=2),          # vww_mbv1 pointwise 8->16, low K
+    "fcae_fc640_128": case(1, 128, 640, lat=2),         # ad_fcae fc 640->128: GEMV, port-bound
     # the ResNet-8 shape with synthetic inference-like operands (tq_cocotb.operands, dist="relu")
     "resnet8_conv32_relu": dict(case(256, 32, 288, "u8", "s8", lat=2), dist="relu"),
 }
@@ -40,7 +41,8 @@ WORKLOADS = {
 TB_PERIOD_PS = 10_000                                   # clock in verif/tb/tq_tb.py
 
 MODEL_FIELDS = {"T": "tile", "SHARED_PORT": "shared_port", "FIFO_DEPTH": "fifo_depth",
-                "MACQ_DEPTH": "mac_queue_depth", "SCMD_DEPTH": "stream_queue_depth"}
+                "MACQ_DEPTH": "mac_queue_depth", "SCMD_DEPTH": "stream_queue_depth",
+                "PANEL_BYTES": "panel_bytes"}
 
 
 def model_params(rtl):

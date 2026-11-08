@@ -10,11 +10,13 @@
 # Run: sby -f tq_core.sby split     (~3 min, every CI push: make formal)
 #      sby -f tq_core.sby shared    (1-80 min, varies widely, nightly CI: make formal-nightly)
 #      sby -f tq_core.sby ack       (shared port, WR_ACK = 1, write responses at any latency; nightly)
+#      sby -f tq_core.sby panel     (A panel buffer of 32 bytes = 4 vectors at T = 4; nightly)
 
 [tasks]
 split
 shared
 ack
+panel
 
 [options]
 mode prove
@@ -27,6 +29,7 @@ read_verilog -sv -formal -DSYNTHESIS -DTQ_FORMAL_CORE tq_pkg.sv tq_icg.sv tq_cg.
 split:  chparam -set KERNEL 0 -set SHARED_PORT 0 tq_core_env
 shared: chparam -set KERNEL 0 -set SHARED_PORT 1 tq_core_env
 ack:    chparam -set KERNEL 0 -set SHARED_PORT 1 -set WR_ACK 1 tq_core_env
+panel:  chparam -set KERNEL 0 -set PANEL_BYTES 32 tq_core_env
 prep -top tq_core_env
 flatten
 # keep only the input cone of the assertions and assumptions (drops the datapath)

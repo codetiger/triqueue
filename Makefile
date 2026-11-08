@@ -10,7 +10,7 @@ YOSYS     ?= yosys
 SBY       ?= sby
 
 RTL       := $(shell cat rtl/files.f)
-LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
+LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GPANEL_BYTES=1024" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
 ACC_FORMS := cpa:1 csa:0
 
 .PHONY: all model-test sw-test model-results flow-results rtl-lint rtl-test formal formal-nightly synth-check clean
@@ -37,6 +37,8 @@ rtl-lint:
 	  echo "verilator lint $$p"; \
 	  $(VERILATOR) --lint-only -Wall -f rtl/files.f --top-module tq_top $$p || exit 1; \
 	done
+	@echo "yosys elaborate PANEL_BYTES=1024"; $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); \
+	  chparam -set PANEL_BYTES 1024 tq_top; hierarchy -check -top tq_top; proc; check -assert"
 	@for t in tq_top_axil tq_top_axi; do \
 	  echo "verilator lint $$t"; $(VERILATOR) --lint-only -Wall -f rtl/files.f --top-module $$t || exit 1; \
 	  echo "yosys elaborate $$t"; $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); \
@@ -56,7 +58,7 @@ formal:
 	cd verif/formal && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_axi_mem.sby cover && $(SBY) -f tq_core.sby split
 
 formal-nightly:
-	cd verif/formal && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_axi_mem.sby prove
+	cd verif/formal && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_core.sby panel && $(SBY) -f tq_axi_mem.sby prove
 
 # Synthesizability check with generic Yosys cells: no latches, no loops, no undriven nets.
 # The clock-gating cell (tq_icg, a latch by design) is kept as its own module and is the only

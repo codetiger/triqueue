@@ -106,6 +106,32 @@ CONFIGS = {
          for pr in ("opcode", "second_loop_t", "pc", "zero_in_drain")]
         + [dict(case(20, 24, 27, lat=3), misalign="c_base", wr_lat=2), dict(case(9, 13, 0), wr_lat=1)],
     ),
+    "t8_panel": (
+        # A panel buffer (spec 10.9): 1 KiB holds panels up to K = 128 (8 x 128); larger K streams
+        dict(T=8, PANEL_BYTES=1024),
+        dict(tile=8, panel_bytes=1024),
+        edge_cases(8, (1, 9, 64, 200)) + latency_sweep(8, (1, 2, 3, 6, 13))
+        + [case(64, 64, 64), case(1, 256, 128), case(4, 512, 64), case(1, 64, 200), case(37, 41, 64, lat=1)]
+        + [case(m, n, k, lat=lat, stall=s) for (m, n, k) in ((20, 24, 27), (33, 40, 64), (1, 128, 96))
+           for lat in (1, 2, 7) for s in (0.3, 0.7)]
+        + [dict(case(20, 24, 27), prog=pr) for pr in ("opcode", "zero_in_drain")] + [case(9, 13, 0)],
+    ),
+    "t8_panel_shared": (
+        dict(T=8, PANEL_BYTES=512, SHARED_PORT=1, WR_ACK=1, WR_OUT_MAX=2),
+        dict(tile=8, panel_bytes=512, shared_port=True, wr_ack=True, wr_out_max=2),
+        [dict(case(m, n, k, lat=lat, stall=s), wr_lat=wl) for (m, n, k) in ((20, 24, 27), (1, 96, 64), (40, 40, 40))
+         for lat, s, wl in ((1, 0.0, 0), (2, 0.4, 3), (5, 0.6, 9))],
+    ),
+    "t16_panel": (
+        dict(T=16, PANEL_BYTES=2048),
+        dict(tile=16, panel_bytes=2048),
+        edge_cases(16, (9, 64)) + latency_sweep(16, (1, 2, 7)) + [case(64, 64, 64), case(1, 256, 128)],
+    ),
+    "t4_panel": (
+        dict(T=4, PANEL_BYTES=256),
+        dict(tile=4, panel_bytes=256),
+        edge_cases(4, (1, 8, 64, 100)) + latency_sweep(4, (1, 2, 5)) + [case(16, 16, 16), case(1, 64, 48, stall=0.5)],
+    ),
     "t8_no_clock_gating": (
         dict(T=8, CLK_GATE=0),
         dict(tile=8),

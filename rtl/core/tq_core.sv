@@ -22,6 +22,7 @@ module tq_core #(
     parameter bit CLK_GATE    = 1'b1,  // clock gates on the wide register groups (tq_cg)
     parameter bit WR_ACK      = 1'b0,  // 1: a write completes at wr_done_i, not at its grant (AXI)
     parameter int WR_OUT_MAX  = 15,    // WR_ACK: most writes granted and not yet complete
+    parameter int PANEL_BYTES = 0,     // A panel buffer (tq_stream, spec 10.9); 0 = none
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -98,12 +99,12 @@ module tq_core #(
   // ---------------------------------------------------------------- operand FIFOs
   localparam int QCW = $clog2(FIFO_DEPTH + 1);
   logic          qa_push, qb_push;
-  logic [VB-1:0] q_data, qa0, qa1, qb0, qb1;
+  logic [VB-1:0] q_data, qa_data, qa0, qa1, qb0, qb1;
   logic [QCW-1:0] qa_cnt, qb_cnt;
   logic [1:0]    qa_pop, qb_pop;
 
   tq_fifo #(.WIDTH(VB), .DEPTH(FIFO_DEPTH), .CLK_GATE(CLK_GATE)) u_qa (
-      .clk_i, .rst_ni, .clear_i(clear), .push_i(qa_push), .data_i(q_data), .pop_i(qa_pop),
+      .clk_i, .rst_ni, .clear_i(clear), .push_i(qa_push), .data_i(qa_data), .pop_i(qa_pop),
       .head0_o(qa0), .head1_o(qa1), .count_o(qa_cnt));
   tq_fifo #(.WIDTH(VB), .DEPTH(FIFO_DEPTH), .CLK_GATE(CLK_GATE)) u_qb (
       .clk_i, .rst_ni, .clear_i(clear), .push_i(qb_push), .data_i(q_data), .pop_i(qb_pop),
@@ -238,7 +239,7 @@ module tq_core #(
   // ---------------------------------------------------------------- stream engine + ports
   logic stream_idle, stream_align_err, rd_fire, wr_req;
   tq_stream #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .SCMD_DEPTH(SCMD_DEPTH), .SHARED_PORT(SHARED_PORT),
-              .CLK_GATE(CLK_GATE)) u_stream (
+              .CLK_GATE(CLK_GATE), .PANEL_BYTES(PANEL_BYTES)) u_stream (
       .clk_i, .rst_ni, .clear_i(clear), .run_i(running_q),
       .scmd_a_push_i(scmd_a_push), .scmd_a_i(scmd_a_in),
       .scmd_b_push_i(scmd_b_push), .scmd_b_i(scmd_b_in),
@@ -246,7 +247,7 @@ module tq_core #(
       .qa_pop_i(qa_pop), .qb_pop_i(qb_pop),
       .wr_pending_i(wr_pending_room), .swap_wait_i(swap_wait || zero_wait), .wr_gnt_i, .wr_req_o(wr_req), .wr_fire_o(wr_fire),
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i, .rd_fire_o(rd_fire),
-      .qa_push_o(qa_push), .qb_push_o(qb_push), .q_data_o(q_data),
+      .qa_push_o(qa_push), .qb_push_o(qb_push), .q_data_o(q_data), .qa_data_o(qa_data),
       .idle_o(stream_idle), .align_err_o(stream_align_err));
 
   assign wr_req_o = wr_req;

@@ -37,6 +37,9 @@ CONFIGS = {
     "t8_cpa":      dict(T=8, ACC_FORM=1, **Q),
     "t8_cpa_nocg": dict(T=8, ACC_FORM=1, CLK_GATE=0, **Q),
     "t8_shared":   dict(T=8, ACC_FORM=1, SHARED_PORT=1, **Q),
+    # A panel buffer (spec 10.9, decision 0011): its area and energy against the reads it saves
+    "t8_panel1k":  dict(T=8, ACC_FORM=1, PANEL_BYTES=1024, **Q),
+    "t8_panel4k":  dict(T=8, ACC_FORM=1, PANEL_BYTES=4096, **Q),
     "t16_csa":     dict(T=16, ACC_FORM=0, **Q),
     "t16_cpa":     dict(T=16, ACC_FORM=1, **Q),
     "t32_csa":     dict(T=32, ACC_FORM=0, **Q),

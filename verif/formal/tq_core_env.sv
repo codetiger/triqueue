@@ -26,6 +26,7 @@ module tq_core_env #(
     parameter int  PROG_BYTES  = 32,
     parameter bit  KERNEL      = 1'b0,
     parameter bit  WR_ACK      = 1'b0,       // 1: writes complete at a free wr_done_i (any latency)
+    parameter int  PANEL_BYTES = 0,          // A panel buffer (spec 10.9): its control is in the cone
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -64,7 +65,8 @@ module tq_core_env #(
 
   tq_core #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
             .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
-            .CLK_GATE(1'b0), .WR_ACK(WR_ACK), .WR_OUT_MAX(3)) dut (
+            .CLK_GATE(1'b0), .WR_ACK(WR_ACK), .WR_OUT_MAX(3),
+            .PANEL_BYTES(PANEL_BYTES)) dut (
       .clk_i, .rst_ni, .start_i, .abort_i, .prog_i(prog),
       .busy_o(busy), .done_o(done), .error_o(error), .err_code_o(err_code), .cfg_o(cfg),
       .perf_cycles_o(p_cyc), .perf_instret_o(p_ret), .perf_beats_o(p_beat),

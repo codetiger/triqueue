@@ -15,6 +15,7 @@ module tq_top_axi #(
     parameter int ACC_FORM    = tq_pkg::ACC_CPA,
     parameter bit CLK_GATE    = 1'b1,
     parameter int MAX_OUT     = 16,      // AXI transactions in flight per direction (also the core's write limit)
+    parameter int PANEL_BYTES = 0,
     parameter int ADDR_W      = 12,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
@@ -76,7 +77,8 @@ module tq_top_axi #(
 
   tq_top_axil #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
                 .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
-                .CLK_GATE(CLK_GATE), .WR_ACK(1'b1), .WR_OUT_MAX(MAX_OUT), .ADDR_W(ADDR_W)) u_tq (
+                .CLK_GATE(CLK_GATE), .WR_ACK(1'b1), .WR_OUT_MAX(MAX_OUT), .PANEL_BYTES(PANEL_BYTES),
+                .ADDR_W(ADDR_W)) u_tq (
       .clk_i, .rst_ni,
       .s_awaddr_i, .s_awprot_i, .s_awvalid_i, .s_awready_o,
       .s_wdata_i, .s_wstrb_i, .s_wvalid_i, .s_wready_o,

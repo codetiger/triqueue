@@ -118,3 +118,44 @@ Per layer:
 | `bert_tiny` | FFN up 128->512 | 128×512×128 | 2 | 100.0% | 99.8% | 99.0% |
 | `bert_tiny` | FFN down 512->128 | 128×128×512 | 2 | 100.0% | 99.8% | 99.0% |
 
+## 7. A panel buffer (spec §10.9)
+
+The stream engine keeps the A panel of the current tile row (T × Kp bytes) and replays it for the row's other tiles instead of reading it again, without using the memory port. Capacity 4 KiB at T = 8, 8 KiB at T = 16 (K ≤ 512); a panel that does not fit is streamed as before. *Best orientation*: the host may compute Cᵀ = Bᵀ·Aᵀ instead, which makes B the reused operand; the column takes the faster of the two. Bytes read are SRAM reads of A and B (C writes unchanged).
+
+| Network | T | Utilization, no buffer | with buffer | best orientation | Bytes read per MAC, no buffer | with buffer | best orientation |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `kws_dscnn` | 8 | 97.1% | 97.1% | 97.1% | 0.256 | 0.144 | 0.144 |
+| `kws_dscnn` | 16 | 94.8% | 94.8% | 94.8% | 0.129 | 0.081 | 0.081 |
+| `vww_mbv1` | 8 | 85.4% | 89.5% | 89.6% | 0.279 | 0.171 | 0.178 |
+| `vww_mbv1` | 16 | 67.6% | 69.9% | 72.0% | 0.159 | 0.106 | 0.102 |
+| `ic_resnet8` | 8 | 99.1% | 99.1% | 99.1% | 0.252 | 0.187 | 0.187 |
+| `ic_resnet8` | 16 | 97.1% | 97.1% | 97.1% | 0.126 | 0.112 | 0.112 |
+| `ad_fcae` | 8 | 16.6% | 24.1% | 24.1% | 1.500 | 1.025 | 1.025 |
+| `ad_fcae` | 16 | 8.2% | 11.7% | 11.7% | 1.502 | 1.051 | 1.051 |
+| `bert_tiny` | 8 | 99.9% | 99.9% | 99.9% | 0.250 | 0.131 | 0.131 |
+| `bert_tiny` | 16 | 99.7% | 99.7% | 99.7% | 0.125 | 0.068 | 0.068 |
+
+Per shape (tag `dse`), T = 8, 4 KiB:
+
+| M×N×K | Panel bytes (T × Kp) | Utilization, no buffer | with buffer | KiB read, no buffer | with buffer |
+| --- | --- | --- | --- | --- | --- |
+| 16×16×16 | 128 | 63.4% | 63.4% | 1.0 | 0.8 |
+| 32×32×32 | 256 | 93.8% | 93.8% | 8.0 | 5.0 |
+| 64×64×64 | 512 | 99.2% | 99.2% | 64.0 | 36.0 |
+| 128×128×128 | 1024 | 99.9% | 99.9% | 512.0 | 272.0 |
+| 256×256×256 | 2048 | 100.0% | 100.0% | 4096.0 | 2112.0 |
+| 60×60×60 | 512 | 87.5% | 93.0% | 60.0 | 33.8 |
+| 65×65×65 | 576 | 77.7% | 82.0% | 86.1 | 47.8 |
+| 100×100×100 | 832 | 92.4% | 95.9% | 264.1 | 142.2 |
+| 64×64×8 | 64 | 46.0% | 46.0% | 8.0 | 4.5 |
+| 64×64×16 | 128 | 91.3% | 91.3% | 16.0 | 9.0 |
+| 64×64×32 | 256 | 98.4% | 98.4% | 32.0 | 18.0 |
+| 64×64×128 | 1024 | 99.6% | 99.6% | 128.0 | 72.0 |
+| 64×64×1024 | 8192 | 99.9% | 99.9% | 1024.0 | 1024.0 |
+| 64×4×1024 | 8192 | 66.4% | 66.4% | 96.0 | 96.0 |
+| 4×64×1024 | 8192 | 66.4% | 93.6% | 96.0 | 68.0 |
+| 4×4×1024 | 8192 | 48.2% | 48.2% | 8.0 | 8.0 |
+| 1×512×512 | 4096 | 16.7% | 24.8% | 384.0 | 258.0 |
+| 512×1×512 | 4096 | 16.7% | 16.7% | 384.0 | 384.0 |
+| 3×3×3 | 64 | 1.8% | 1.8% | 0.1 | 0.1 |
+

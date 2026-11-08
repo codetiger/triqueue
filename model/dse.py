@@ -155,6 +155,58 @@ for r in layers:
         pct(gemm(r["m"], r["n"], r["k"], Params(tile=t)).utilization) for t in TILES) + " |")
 w("")
 
+# 7. A panel buffer (spec 10.9)
+from tri_queue.packing import kp  # noqa: E402
+
+PANEL = {8: 4096, 16: 8192}           # bytes: T x Kp up to K = 512
+
+
+def gemm_t(m, n, k, p: Params):
+    """The same GEMM computed as C^T = B^T A^T (the host swaps the operands' roles)."""
+    key = ("T", m, n, k, tuple(sorted(vars(p).items())))
+    if key not in _cache:
+        a = rng.integers(-128, 128, (m, k)).astype(np.int8)
+        b = rng.integers(-128, 128, (k, n)).astype(np.int8)
+        c, st = run_gemm(np.ascontiguousarray(b.T), np.ascontiguousarray(a.T), p)
+        assert np.array_equal(c.T, reference(a, b)), (m, n, k, p)
+        _cache[key] = st
+    return _cache[key]
+
+
+w("## 7. A panel buffer (spec §10.9)\n")
+w("The stream engine keeps the A panel of the current tile row (T × Kp bytes) and replays it for the "
+  "row's other tiles instead of reading it again, without using the memory port. Capacity "
+  + ", ".join(f"{v // 1024} KiB at T = {t}" for t, v in PANEL.items()) + " (K ≤ 512); a panel that does "
+  "not fit is streamed as before. *Best orientation*: the host may compute Cᵀ = Bᵀ·Aᵀ instead, which makes "
+  "B the reused operand; the column takes the faster of the two. Bytes read are SRAM reads of A and B "
+  "(C writes unchanged).\n")
+w("| Network | T | Utilization, no buffer | with buffer | best orientation | Bytes read per MAC, no buffer | with buffer | best orientation |")
+w("| --- | --- | --- | --- | --- | --- | --- | --- |")
+for net in nets:
+    rs = [r for r in layers if r["group"] == net]
+    macs = sum(r["count"] * r["m"] * r["n"] * r["k"] for r in rs)
+    for t in TILES[:2]:
+        p0, p1 = Params(tile=t), Params(tile=t, panel_bytes=PANEL[t])
+        cyc0 = cyc1 = cycb = rd0 = rd1 = rdb = 0
+        for r in rs:
+            c = r["count"]
+            s0, s1 = gemm(r["m"], r["n"], r["k"], p0), gemm(r["m"], r["n"], r["k"], p1)
+            sb = gemm_t(r["m"], r["n"], r["k"], p1)
+            best = s1 if s1.cycles <= sb.cycles else sb
+            cyc0 += c * s0.cycles; cyc1 += c * s1.cycles; cycb += c * best.cycles
+            rd0 += c * s0.read_bytes; rd1 += c * s1.read_bytes; rdb += c * best.read_bytes
+        u = lambda cyc: pct(macs / (t * t * cyc))  # noqa: E731
+        w(f"| `{net}` | {t} | {u(cyc0)} | {u(cyc1)} | {u(cycb)} | {rd0 / macs:.3f} | {rd1 / macs:.3f} | {rdb / macs:.3f} |")
+w("")
+w("Per shape (tag `dse`), T = 8, 4 KiB:\n")
+w("| M×N×K | Panel bytes (T × Kp) | Utilization, no buffer | with buffer | KiB read, no buffer | with buffer |")
+w("| --- | --- | --- | --- | --- | --- |")
+for m, n, k in shapes("dse"):
+    s0, s1 = gemm(m, n, k, Params(tile=8)), gemm(m, n, k, Params(tile=8, panel_bytes=PANEL[8]))
+    w(f"| {m}×{n}×{k} | {8 * kp(k)} | {pct(s0.utilization)} | {pct(s1.utilization)} | "
+      f"{s0.read_bytes / 1024:.1f} | {s1.read_bytes / 1024:.1f} |")
+w("")
+
 text = "\n".join(out)
 Path(__file__).with_name("dse.md").write_text(text + "\n")
 print(text)

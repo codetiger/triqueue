@@ -36,6 +36,8 @@ Cycle numbers are decimal and start at 0, with lines in cycle order. Inside one 
 | `fe` | `halt` | | `FENCE` complete: all streams, MACs and drains are finished |
 | `fe` | `error` | `code` | The core stops at the end of this cycle with STATUS error `code` (spec §6.4) |
 | `se` | `panel` | `s tile addr bytes` | Stream engine starts an A or B panel |
+| `se` | `reuse` | `s tile` | The A panel is in the panel buffer: it is replayed, not read (`panel_bytes` > 0, spec §10.9) |
+| `pb` | `rd` | `off n` | Panel buffer replays `n` bytes at offset `off` into QA (no memory port) |
 | `port` | `rd` | `s addr n` | Read issued for stream `s`, `n` bytes |
 | `port` | `wr` | `addr n data` | Drain write, `n` bytes |
 | `mac` | `zero` | | `ZERO_C` executed |
