@@ -10,7 +10,7 @@ A single-page interactive hardware visualization pipeline connecting:
 
 ## Local Development
 
-Regenerate the UI data bundles from `model/triqueue_mod.py`, `build/orfs_native/.../6_final.def`, and `flow/records/`:
+Regenerate the UI data bundles from `model/tri_queue/`, `build/orfs_native/.../6_final.def`, and `flow/records/`:
 
 ```bash
 make ui-data      # or: python3 ui/pipeline/build_ui_data.py

@@ -14,8 +14,6 @@ Python: `from workloads import shapes; shapes("model")`, with `bench/workloads` 
 
 The AMX programs read this file too (`bench/reference/amx/workloads.h`): `amx_gemm.c` measures the rows tagged `amx_hand` (the hand kernel needs multiples of 32; the `amx_fit` group holds the extra shapes its timing fit in `ablation.py` uses), `sgemm_sweep.c` the rows tagged `amx_sgemm`. `compare.py` shows `–` for an `amx` shape they don't measure.
 
-**To do:** add layer shapes from real int8 models (MLPerf Tiny, a small transformer), with the source model and layer named in `why`.
-
 ## Real network layers (tag `layers`)
 
 int8 inference, batch 1. Convolutions are lowered with im2col: **M = output pixels, N = output channels, K = kernel height × kernel width × input channels**. Fully connected layers at batch 1 are GEMVs (M = 1). Depthwise convolutions are not GEMMs (each channel has its own 3×3 filter) and are left out; on this core they would run as many K = 9, N = 1 matrix-vector products, or on the host.

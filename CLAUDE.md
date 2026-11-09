@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project intent
 
-The goal is an **open-source RTL matrix coprocessor for RISC-V**, comparable to Apple AMX, that is easy to integrate into larger SoCs and is benchmarked fairly against other open designs. In priority order: performance per watt, performance per component (area, kGE, state bits per MAC), design reusability (parameterized, interface-agnostic core with thin adapters), and overall efficiency (utilization across a workload suite). Peak throughput is a size parameter, not a goal.
+The goal is a **simple, efficient open-source RTL matrix coprocessor for RISC-V**, inspired by Apple AMX, Arm SME, and Gemmini, that is easy to integrate into larger SoCs and is benchmarked fairly against other open designs. In priority order: performance per watt, performance per component (area, kGE, state bits per MAC), design reusability (parameterized, interface-agnostic core with thin adapters), and overall efficiency (utilization across a workload suite). Peak throughput is a size parameter, not a goal.
 
 - `README.md` covers the goals. `docs/` is public and holds only the final design: the spec (`docs/specification.md`), its golden-vector/trace contract (`docs/golden-vectors.md`), and `docs/benchmarks.md` (a summary of completed results; update it when a generated result it quotes changes). Benchmark results live next to the scripts that generate them (`model/results.md`, `model/dse.md`, `flow/results.md`, `bench/reference/amx/*.md`).
 - Planning material is private and gitignored, in `private/` (only present in the author's checkout): `roadmap.md` (phased plan), `decisions/` (decision records), `metrics.md` (how efficiency numbers must be computed), `history/` (superseded specs). Keep progress tracking, phase status and decision history there, never in public files. Public docs must not link to `private/`. When a decision is made, record it in `private/decisions/` and put the resulting final design in the spec.
@@ -41,7 +41,7 @@ make                  # model-test, sw-test, rtl-lint, rtl-test, formal, synth-c
 make model-test       # model pytest suite
 make sw-test          # C driver against the model
 make model-results    # regenerate model/results.md and model/dse.md (bench.py + dse.py)
-make rtl-lint         # verilator -Wall in 7 configurations + Yosys elaboration (both must be warning-free)
+make rtl-lint         # verilator -Wall in 11 configurations + adapter tops + Yosys elaboration (both must be warning-free)
 make rtl-test         # cocotb regression, all configurations (~60 s); builds go to build/rtl/<config>/
 python3 -m pytest verif -q -k t8_default    # one RTL configuration
 make formal           # SymbiYosys: clock-gating template (check_cg_pattern.py + tq_cg.sby), FIFO (tq_fifo.sby), AXI4-Lite and CV-X-IF adapters (tq_axil_regs.sby, tq_xif_regs.sby), AXI master covers, unbounded core proof, split port (tq_core.sby split, ~3 min)

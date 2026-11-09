@@ -4,13 +4,13 @@
 
 Harishankar Narayanan · rev 4
 
-This is the design specification of the Tri-Queue core. Figures are for the T = 8 design point unless stated otherwise. Performance figures come from the cycle-level model in `model/` (full results in `model/results.md` and `model/dse.md`), which runs the real instruction bytes and checks every result bit-exact against numpy. The RTL in `rtl/` implements this spec and matches the model cycle for cycle (`verif/`). Area, power and clock frequency have not been measured yet, so no figure here is an efficiency claim.
+This is the design specification of the Tri-Queue core. Figures are for the T = 8 design point unless stated otherwise. Cycle and utilization figures come from the cycle-level model in `model/` (full results in `model/results.md` and `model/dse.md`), which runs the real instruction bytes and checks every result bit-exact against numpy. The RTL in `rtl/` implements this spec and matches the model cycle for cycle (`verif/`). Post-route area, clock frequency and activity-based energy on sky130hd and ASAP7 are in `flow/results.md` and summarized in `docs/benchmarks.md`.
 
 ---
 
 ## 1. Summary
 
-The Tri-Queue is an int8 matrix-multiply coprocessor with **64 multipliers** and one 128-bit SRAM read port. On a 64×64×64 GEMM the cycle model gives **99.2% of peak**: 4,130 cycles against an ideal of 4,096. It executes **2,317 instructions** from a 10-byte kernel plus 40 bytes of configuration, and holds about **10 Kbit** of operand state. It has no register file, crossbar or rename logic.
+The Tri-Queue is an int8 matrix-multiply coprocessor with **64 multipliers** and one 128-bit SRAM read port. On a 64×64×64 GEMM the cycle model and RTL give **99.2% of peak**: 4,130 cycles against an ideal of 4,096. It executes **2,317 instructions** from a 10-byte kernel plus 40 bytes of configuration, and holds about **6.5 Kbit** of architectural state (8,904 flip-flops in total after place and route). It has no register file, crossbar or rename logic.
 
 The design rests on one idea:
 
@@ -70,10 +70,10 @@ The balance law says a core with **P** multipliers and a port that supplies **W*
                  │  (variable arity 1/2/4)     │     │
                  │  ┌─────────┐ ┌─────────┐    │     │
                  │  │ Bank X  │ │ Bank Y  │    │     │
-                 │  │ 8×8 CSA │ │ 8×8 CSA │    │     │
+                 │  │8×8 int32│ │8×8 int32│    │     │
                  │  │(compute)│ │ (drain) │────┼──▶ DRAIN UNIT ──┘
-                 │  └─────────┘ └─────────┘    │    (4 × 32-bit CPA,
-                 └─────────────────────────────┘     1 vector/cycle)
+                 │  └─────────┘ └─────────┘    │    (1 vector/cycle;
+                 └─────────────────────────────┘     4 × CPA if ACC_CSA)
 ```
 
 ### 2.1 Storage
@@ -168,16 +168,16 @@ The 8×8 multiplier array splits into four 4×4 quadrants. In a reduced mode, a 
  multiplier array            accumulate-cell arity (max products summed per cycle)
  ┌──────────┬──────────┐     ┌──────────┬──────────┐
  │ TL       │ TR       │     │  4       │  2       │   8×8×1 : every cell adds 1 product
- │ rows 0-3 │ rows 0-3 │     │ 6:2 comp │ 4:2 comp │   4×8×2 : rows 0-3 add products from r and r+4
+ │ rows 0-3 │ rows 0-3 │     │ +4 prods │ +2 prods │   4×8×2 : rows 0-3 add products from r and r+4
  ├──────────┼──────────┤     ├──────────┼──────────┤   8×4×2 : cols 0-3 add products from c and c+4
  │ BL       │ BR       │     │  2       │  1       │   4×4×4 : TL cells add all four quadrants
- │ rows 4-7 │ rows 4-7 │     │ 4:2 comp │ 3:2 comp │
+ │ rows 4-7 │ rows 4-7 │     │ +2 prods │ +1 prod  │
  └──────────┴──────────┘     └──────────┴──────────┘
 ```
 
 - **Routing is fixed.** Each product wire goes to its own cell and to at most one reduced-mode cell. Gating selects which one is active, so no crossbar is needed.
 - **Each quadrant has its own operand inputs:** 4 bytes of A and 4 bytes of B, chosen by a small mux. Quadrant (qi, qj) uses k offset 0 in 8×8×1 mode, qi in 4×8×2, qj in 8×4×2, and 2·qi + qj in 4×4×4. A mux per row is not enough, because in 4×4×4 mode the left and right halves of a row need different k steps. The simulator models this routing and asserts the arity limits above.
-- **Only the TL quadrant needs a deeper compressor** (6:2). It is the only place where the critical path grows.
+- **Only the TL quadrant needs a 4-product adder** (or 6:2 compressor in the carry-save option). It is the only place where the accumulate tree grows.
 
 ### 4.2 Choosing the shape
 
@@ -344,7 +344,7 @@ Ideal = 262,144 MACs ÷ 64 = **4,096 cycles**. The simulated fixed overhead is *
 | MACs per element loaded | 4.0 | 4.0 |
 | Dynamic instructions | 2,317 | 2,317 |
 | Program bytes fetched | 10 + 40 CFG | 10 + 40 CFG |
-| Operand state | ≈ 10.5 Kbit | ≈ 10.5 Kbit |
+| Architectural state | ≈ 6.5 Kbit (10.5 Kbit with carry-save) | ≈ 6.5 Kbit |
 
 ### 7.1 What the cycle model shows
 
@@ -369,7 +369,7 @@ Not predicted by the analytic model:
 - **K padding to a multiple of 8 wastes up to 7/Kp** of the compute, for example 11% at K = 65. On the real network layers (MLPerf Tiny, BERT-tiny) it costs at most 1.4% of a network's MACs, all from the first 3×3×3 convolution (K = 27 → 32), so a per-shape Kp, which would change packing and the meaning of K in the ISA, is not worth it.
 - **Odd M or N costs more than the edge-shape table suggests,** because a 1-row remainder still occupies a 4-wide tile.
 
-A comparison against other int8 designs at the same MAC count (for example Gemmini with an 8×8 int8 mesh, an int8 register-tile engine, and RVV with int8 dot products) has not been made yet. To be fair it needs the same synthesis flow and workloads for every design.
+A comparison against other int8 designs at the same MAC count (for example Gemmini with an 8×8 int8 mesh, an int8 register-tile engine, and RVV with int8 dot products) has not been completed yet (`bench/designs/gemmini/` generates the 8×8 Gemmini RTL). To be fair it needs the same synthesis flow, SRAM boundary and workloads for every design.
 
 ### 7.2 Real-hardware reference: Apple AMX (M2 Pro)
 
@@ -407,11 +407,11 @@ These measurements were taken on an M2 Pro (`bench/reference/amx/`). AMX is undo
 **Still open:**
 
 - An integer-to-integer measurement. AMX `mac16` (int16) did not scale with independent chains in the peak benchmark, and that is unexplained.
-- Area and energy, which need RTL and synthesis.
+- Apple publishes no die area or power breakdown for AMX, so AMX comparisons remain utilization-only; Tri-Queue's own post-route area and energy are in `flow/results.md`.
 
 ### 7.3 Scaling the tile (cycle model)
 
-The model and the RTL take T as a parameter (`model/dse.md`). The RTL is verified at T = 4, 8 and 16. Every shape, the quadrant arity limits and the kernel stay the same: shapes become T or T/2 rows and columns with reduction depth 1, 2 or 4. All results are bit-exact.
+The model and the RTL take T as a parameter (`model/dse.md`). The RTL is verified at T = 4, 8, 16 and 32. Every shape, the quadrant arity limits and the kernel stay the same: shapes become T or T/2 rows and columns with reduction depth 1, 2 or 4. All results are bit-exact.
 
 | | T = 8 | T = 16 | T = 32 |
 | --- | --- | --- | --- |
@@ -448,10 +448,10 @@ The model and the RTL take T as a parameter (`model/dse.md`). The RTL is verifie
 
 ## 9. Positioning
 
-At a high level, the Tri-Queue combines the **output-stationary outer-product dataflow of Apple's AMX** with **Gemmini's decoupled load/compute/store control**. It leaves out Gemmini's scratchpad, and the host CPU doesn't issue each operation. The AMX details come from the community reverse-engineering (corsix/amx), not from Apple.
+At a high level, the Tri-Queue takes the **outer-product tile dataflow of Apple's AMX and Arm SME** and pairs it with **Gemmini's decoupled load, compute and store queues**. Unlike AMX and SME, it has no vector or tile register file: two destructive FIFOs feed one double-banked accumulator tile. Unlike Gemmini, it leaves out the large scratchpad SRAM and runs autonomously from a 10-byte hardware loop instead of CPU-issued instructions. The AMX details come from community reverse-engineering (corsix/amx), not from Apple.
 
-- **Strengths:** it runs autonomously from a 10-byte kernel, so a small in-order host is enough. It has about 10 Kbit of state, against Gemmini's roughly 320 KB of SRAM. It reaches near-peak utilization without a scoreboard or register file, and edge tiles are cheap.
-- **Weaknesses:** there is no reuse between tiles without the optional panel buffer (A and B panels are re-read from SRAM for every tile; §10.9), operands must be pre-packed, there are no built-in convolution or activation operations, and there is no compiler. It also doesn't scale to TPU size: the balance law makes the tile grow with the multiplier count, and broadcasting operands across a large tile becomes a wiring problem.
+- **Strengths:** it runs autonomously from a 10-byte kernel, so a small in-order host is enough. It holds about 6.5 Kbit of architectural state (8,904 flip-flops at T = 8), against 24 KB of SRAM in a minimal 8×8 Gemmini (`leanConfig`) or 256 KB in a default one. It reaches near-peak utilization without a scoreboard or register file, and edge tiles are cheap.
+- **Weaknesses:** there is no reuse between tiles without the optional panel buffer (A and B panels are re-read from SRAM for every tile; §10.9), operands must be pre-packed, the memory ports expect low-latency SRAM rather than cached DRAM, there are no built-in convolution or activation operations, and there is no compiler. It also doesn't scale to TPU size: the balance law makes the tile grow with the multiplier count, and broadcasting operands across a large tile becomes a wiring problem.
 - **Target niche:** a matrix engine for microcontroller-class or edge SoCs, sitting beside a small core with fast on-chip memory. This is the space of Arm's Ethos-U55 class of parts, not of datacenter TPUs.
 
 ---
@@ -470,4 +470,4 @@ At a high level, the Tri-Queue combines the **output-stationary outer-product da
 
 9. **A panel buffer (option; decision pending its area and energy).** The stream engine reads the A panel of tile (i, j) again for every j, although it is the same T × Kp bytes for the whole tile row. With `PANEL_BYTES > 0` the stream engine keeps the panel it reads, if it fits, and serves a later `STREAM_A` of the same panel from the buffer, one W-byte vector per cycle without using the memory port. The ISA and the kernel do not change: the hit is found by the panel's address and length. QA receives its vectors in order: a replay starts only when no A read is in flight, and an A read waits until no replayed vector is. In the cycle model (`model/dse.md` §7, T = 8, 4 KiB, K ≤ 512) it removes 44–48% of the SRAM reads on square shapes at the same cycle count, and it lifts the cases the port limits: M = 1 from 16.7% to 24.8% of peak (the port cap is 25%), 4×512×512 from 66.6% to 99.1%, and the FC autoencoder from 16.6% to 24.1%. The host can compute Cᵀ = Bᵀ·Aᵀ to make the more reused operand A. The buffer adds T × Kp bytes of storage (4 KiB, 32 Kbit at T = 8 for K ≤ 512), as an SRAM or latch array rather than flops, so whether it pays for itself in energy per MAC needs place and route with the SRAM energy line.
 
-Tile size is a parameter rather than a choice (§7.3): larger T reads fewer bytes per MAC but uses the array less well on small and irregular shapes, so the right T depends on the SoC's workloads and on area and energy figures that only synthesis can give.
+Tile size is a parameter rather than a choice (§7.3): larger T reads fewer bytes per MAC and improves dense area efficiency (`T = 16` on ASAP7 reaches 0.361 MACs/cycle/kGE vs. 0.294 at `T = 8`, `flow/results.md`), but uses the array less well on small and irregular shapes, so the right T depends on the SoC's workloads and clock target.
