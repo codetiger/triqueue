@@ -87,7 +87,10 @@ module tq_core #(
 
   // ---------------------------------------------------------------- MAC command queue
   localparam int MCW = $clog2(MACQ_DEPTH + 1);
-  tq_pkg::mcmd_t e0, e1;
+  tq_pkg::mcmd_t e0;
+  /* verilator lint_off UNUSEDSIGNAL */
+  tq_pkg::mcmd_t e1;                              // only kind and shape are used
+  /* verilator lint_on UNUSEDSIGNAL */
   logic [MCW-1:0] macq_cnt;
   logic [1:0]     macq_pop;
 
@@ -116,16 +119,14 @@ module tq_core #(
   // then start at most one VOUTER_MAC whose operands are all present (model: step_mac).
   logic          active_q;                        // bank being accumulated
   logic          b1_q, b1_rf_q, b1_cf_q, b1_bank_q;
-  logic [2*VB-1:0] opa_q, opb_q;
+  logic [VB-1:0] opa_q, opb_q;
   logic          drain_act, drain_act_next;
 
-  logic          has0, has1, is_zero, is_swap, ctl0, swap_wait, zero_wait, mac_start;
-  /* verilator lint_off UNUSEDSIGNAL */
-  tq_pkg::mcmd_t mc;                              // only kind and shape are used
-  /* verilator lint_on UNUSEDSIGNAL */
-  logic          mc_has, e0_ctl, sh_rf, sh_cf;
-  logic [1:0]    na, nb;
-  logic          active_n;
+  logic               has0, has1, is_zero, is_swap, ctl0, swap_wait, zero_wait, mac_start;
+  tq_pkg::mcmd_kind_e mc_kind;
+  logic               mc_rf, mc_cf, mc_has, e0_ctl, sh_rf, sh_cf;
+  logic [1:0]         na, nb;
+  logic               active_n;
 
   always_comb begin
     has0      = macq_cnt >= MCW'(1);
@@ -136,11 +137,13 @@ module tq_core #(
     is_swap   = !b1_q && has0 && e0.kind == tq_pkg::MC_SWAP && !drain_act;
     swap_wait = !b1_q && has0 && e0.kind == tq_pkg::MC_SWAP && drain_act;
     ctl0      = is_zero || is_swap;
-    mc        = ctl0 ? e1 : e0;
+    mc_kind   = ctl0 ? e1.kind  : e0.kind;
+    mc_rf     = ctl0 ? e1.rfull : e0.rfull;
+    mc_cf     = ctl0 ? e1.cfull : e0.cfull;
     mc_has    = ctl0 ? has1 : has0;
-    na        = mc.cfull ? 2'd1 : 2'd2;           // A vectors: 2*d*r bytes / 2T
-    nb        = mc.rfull ? 2'd1 : 2'd2;
-    mac_start = !b1_q && !swap_wait && mc_has && mc.kind == tq_pkg::MC_MAC
+    na        = mc_cf ? 2'd1 : 2'd2;              // A vectors: 2*d*r bytes / 2T
+    nb        = mc_rf ? 2'd1 : 2'd2;
+    mac_start = !b1_q && !swap_wait && mc_has && mc_kind == tq_pkg::MC_MAC
              && 32'(qa_cnt) >= 32'(na) && 32'(qb_cnt) >= 32'(nb);
     macq_pop  = 2'(ctl0) + 2'(mac_start);
     qa_pop    = mac_start ? na : 2'd0;
@@ -154,15 +157,14 @@ module tq_core #(
     sh_cf     = e0_ctl ? e1.cfull : e0.cfull;
   end
 
-  logic beat, beat_idx, beat_rf, beat_cf, beat_bank;
-  logic [2*VB-1:0] beat_a, beat_b;
+  logic beat, beat_rf, beat_cf, beat_bank;
+  logic [VB-1:0] beat_a, beat_b;
   assign beat      = b1_q || mac_start;
-  assign beat_idx  = b1_q;
   assign beat_rf   = b1_q ? b1_rf_q   : sh_rf;
   assign beat_cf   = b1_q ? b1_cf_q   : sh_cf;
   assign beat_bank = b1_q ? b1_bank_q : active_n;
-  assign beat_a    = b1_q ? opa_q : {qa1, qa0};
-  assign beat_b    = b1_q ? opb_q : {qb1, qb0};
+  assign beat_a    = b1_q ? opa_q : qa0;
+  assign beat_b    = b1_q ? opb_q : qb0;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
@@ -173,20 +175,20 @@ module tq_core #(
       active_q <= active_n;
       b1_q     <= mac_start;
       if (mac_start) begin
-        b1_rf_q   <= mc.rfull;
-        b1_cf_q   <= mc.cfull;
+        b1_rf_q   <= mc_rf;
+        b1_cf_q   <= mc_cf;
         b1_bank_q <= active_n;
       end
     end
   end
 
-  // beat-1 operands: written when a VOUTER_MAC starts, read in its second beat only
+  // beat-1 operands: pre-select the second beat's VB-bit slice when a VOUTER_MAC starts
   logic gclk_op;
   tq_cg #(.EN(CLK_GATE)) u_cg_op (.clk_i, .en_i(mac_start), .gclk_o(gclk_op));
   always_ff @(posedge gclk_op) begin
     if (mac_start || CLK_GATE) begin
-      opa_q <= {qa1, qa0};
-      opb_q <= {qb1, qb0};
+      opa_q <= {qa1[VB-1 : VB/2], sh_cf ? qa0[VB-1 : VB/2] : qa1[VB/2-1 : 0]};
+      opb_q <= {qb1[VB-1 : VB/2], sh_rf ? qb0[VB-1 : VB/2] : qb1[VB/2-1 : 0]};
     end
   end
 
@@ -197,7 +199,7 @@ module tq_core #(
 
   tq_mac_array #(.T(T), .ACC_FORM(ACC_FORM), .CLK_GATE(CLK_GATE), .MAC_PIPE(MAC_PIPE)) u_array (
       .clk_i, .rst_ni,
-      .beat_i(beat), .beat_idx_i(beat_idx), .rfull_i(beat_rf), .cfull_i(beat_cf),
+      .beat_i(beat), .rfull_i(beat_rf), .cfull_i(beat_cf),
       .bank_i(beat_bank), .a_i(beat_a), .b_i(beat_b),
       .a_signed_i(mode[0]), .b_signed_i(mode[1]),
       .clear_all_i(is_zero || clear), .clear_bank_i(clear_bank), .clear_bank_sel_i(clear_bank_sel),

@@ -47,52 +47,61 @@ module tq_drain #(
     output logic            active_next_o,
     output logic            align_err_o
 );
+  localparam int RCW = L2T + 1;
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_rc_hi;
+  assign unused_rc_hi = ^{rows_i[7:L2T], cols_i[7:RCW]};
+  /* verilator lint_on UNUSEDSIGNAL */
+
   // drain state
-  logic        act_q, bank_q, pdone_q, phalf_q;
-  logic [7:0]  rows_q, cols_q, prow_q;
-  logic [31:0] c_ld_q, paddr_q;
+  logic           act_q, bank_q, pdone_q, phalf_q;
+  logic [L2T-1:0] rows_q, prow_q;
+  logic [RCW-1:0] cols_q;
+  logic [31:0]    c_ld_q, paddr_q;
   // staging register
   logic           stg_v_q, stg_last_q;
   logic [31:0]    stg_addr_q;
-  logic [W-1:0]   stg_be_q;
+  logic [H-1:0]   stg_lane_q;
   logic [W*8-1:0] stg_data_q;
 
   // current drain parameters (a drain starting this cycle may produce its first word at once)
-  logic        bank, pdone, phalf, src_act, stable, produce, last;
-  logic [7:0]  rows, cols, prow, lanes;
-  logic [31:0] c_ld, paddr;
-  assign src_act = act_q || start_i;
-  assign bank    = start_i ? start_bank_i : bank_q;
-  assign rows    = start_i ? rows_i       : rows_q;
-  assign cols    = start_i ? cols_i       : cols_q;
-  assign c_ld    = start_i ? c_ld_i       : c_ld_q;
-  assign prow    = start_i ? 8'd0         : prow_q;
-  assign phalf   = start_i ? 1'b0         : phalf_q;
-  assign paddr   = start_i ? c_addr_i     : paddr_q;
-  assign pdone   = start_i ? 1'b0         : pdone_q;
+  logic           bank, pdone, phalf, src_act, stable, produce, last, cols_gt_h;
+  logic [L2T-1:0] rows, prow, lanes;
+  logic [RCW-1:0] cols;
+  logic [31:0]    c_ld, paddr;
+  assign src_act   = act_q || start_i;
+  assign bank      = start_i ? start_bank_i       : bank_q;
+  assign rows      = start_i ? rows_i[L2T-1:0]    : rows_q;
+  assign cols      = start_i ? cols_i[RCW-1:0]    : cols_q;
+  assign c_ld      = start_i ? c_ld_i             : c_ld_q;
+  assign prow      = start_i ? '0                 : prow_q;
+  assign phalf     = start_i ? 1'b0               : phalf_q;
+  assign paddr     = start_i ? c_addr_i           : paddr_q;
+  assign pdone     = start_i ? 1'b0               : pdone_q;
 
-  assign stable  = !(prod_valid_i && prod_bank_i == bank);
-  assign produce = src_act && !pdone && stable && (!stg_v_q || wr_fire_i);
-  assign lanes   = phalf ? (cols - 8'(H)) : ((cols > 8'(H)) ? 8'(H) : cols);
-  assign last    = (prow == rows - 8'd1) && (phalf || cols <= 8'(H));
+  assign stable    = !(prod_valid_i && prod_bank_i == bank);
+  assign produce   = src_act && !pdone && stable && (!stg_v_q || wr_fire_i);
+  assign cols_gt_h = cols > RCW'(H);
+  assign lanes     = phalf ? cols[L2T-1:0] - L2T'(H) : (cols_gt_h ? L2T'(H) : cols[L2T-1:0]);
+  assign last      = (prow == rows - L2T'(1)) && (phalf || !cols_gt_h);
 
   assign rd_bank_o = bank;
-  assign rd_row_o  = prow[L2T-1:0];
+  assign rd_row_o  = prow;
   assign rd_half_o = phalf;
 
-  logic [W-1:0]   be;
+  logic [H-1:0]   lane_en;
   logic [W*8-1:0] data;
   always_comb begin
     for (int l = 0; l < H; l++) begin
-      be[l*4 +: 4]    = (8'(l) < lanes) ? 4'hf : 4'h0;
-      data[l*32 +: 32] = (8'(l) < lanes) ? rd_val_i[l*32 +: 32] : 32'd0;
+      lane_en[l]       = L2T'(l) < lanes;
+      data[l*32 +: 32] = lane_en[l] ? rd_val_i[l*32 +: 32] : 32'd0;
     end
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       act_q <= 1'b0; bank_q <= 1'b0; pdone_q <= 1'b0; phalf_q <= 1'b0;
-      rows_q <= '0; cols_q <= '0; prow_q <= '0; c_ld_q <= '0; paddr_q <= '0;
+      rows_q <= '0; cols_q <= '0; prow_q <= '0;
       stg_v_q <= 1'b0; stg_last_q <= 1'b0;
     end else if (clear_i) begin
       act_q <= 1'b0; pdone_q <= 1'b0; stg_v_q <= 1'b0; stg_last_q <= 1'b0;
@@ -100,25 +109,22 @@ module tq_drain #(
       if (start_i) begin
         act_q  <= 1'b1;
         bank_q <= start_bank_i;
-        rows_q <= rows_i;
-        cols_q <= cols_i;
-        c_ld_q <= c_ld_i;
+        rows_q <= rows_i[L2T-1:0];
+        cols_q <= cols_i[RCW-1:0];
       end
       if (start_i || produce) begin
         prow_q  <= prow;
         phalf_q <= phalf;
-        paddr_q <= paddr;
         pdone_q <= pdone;
       end
       if (produce) begin
         stg_v_q    <= 1'b1;
         stg_last_q <= last;
         if (last) pdone_q <= 1'b1;
-        else if (!phalf && cols > 8'(H)) phalf_q <= 1'b1;
+        else if (!phalf && cols_gt_h) phalf_q <= 1'b1;
         else begin
           phalf_q <= 1'b0;
-          prow_q  <= prow + 8'd1;
-          paddr_q <= paddr + c_ld;
+          prow_q  <= prow + L2T'(1);
         end
       end else if (wr_fire_i) begin
         stg_v_q <= 1'b0;
@@ -127,20 +133,28 @@ module tq_drain #(
     end
   end
 
+  always_ff @(posedge clk_i) begin
+    if (start_i) c_ld_q <= c_ld_i;
+    if (start_i || produce) paddr_q <= paddr;
+    if (produce && !last && (phalf || !cols_gt_h)) paddr_q <= paddr + c_ld;
+  end
+
   // staged word: written when a word is produced, read only while stg_v_q
   logic gclk_stg;
   tq_cg #(.EN(CLK_GATE)) u_cg_stg (.clk_i, .en_i(produce), .gclk_o(gclk_stg));
   always_ff @(posedge gclk_stg) begin
     if (produce || CLK_GATE) begin
       stg_addr_q <= paddr + (phalf ? 32'(W) : 32'd0);
-      stg_be_q   <= be;
+      stg_lane_q <= lane_en;
       stg_data_q <= data;
     end
   end
 
+  for (genvar l = 0; l < H; l++) begin : g_be
+    assign wr_be_o[l*4 +: 4] = {4{stg_lane_q[l]}};
+  end
   assign wr_valid_o       = stg_v_q;
   assign wr_addr_o        = stg_addr_q;
-  assign wr_be_o          = stg_be_q;
   assign wr_data_o        = stg_data_q;
   assign clear_bank_o     = wr_fire_i && stg_last_q;
   assign clear_bank_sel_o = bank_q;

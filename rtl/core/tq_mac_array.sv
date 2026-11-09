@@ -41,12 +41,11 @@ module tq_mac_array #(
     input  logic              rst_ni,
     // beat issue
     input  logic              beat_i,       // issue a beat this cycle
-    input  logic              beat_idx_i,   // 0 or 1
     input  logic              rfull_i,      // shape: T rows (else T/2)
     input  logic              cfull_i,      // shape: T cols (else T/2)
     input  logic              bank_i,       // destination bank
-    input  logic [2*VB-1:0]   a_i,          // up to two A vectors, first vector in the low bits
-    input  logic [2*VB-1:0]   b_i,
+    input  logic [VB-1:0]     a_i,          // current beat's A slice (pre-selected in tq_core)
+    input  logic [VB-1:0]     b_i,
     input  logic              a_signed_i,
     input  logic              b_signed_i,
     // bank clears (take priority over an accumulate in the same cycle)
@@ -64,34 +63,61 @@ module tq_mac_array #(
 );
 
   // ---------------------------------------------------------------- operand select + multiply
-  logic [4*H*H*18-1:0] prod_d, prod_q;     // quadrant q = 2*qi + qj, element i*H + j
+  localparam int PW = 17;                  // int8/uint8 product in [-32640, 65025] fits 17-bit signed
+  logic [4*H*H*PW-1:0] prod_d, prod_q;     // quadrant q = 2*qi + qj, element i*H + j
   logic                pv_q, pbank_q, prf_q, pcf_q;   // the accumulate stage's beat (registered or not)
+
+  logic [H*8-1:0] ac0, ac1, ac2, ac3, bc0, bc1, bc2, bc3;
+  assign ac0 = a_i[0*H*8 +: H*8];
+  assign ac1 = a_i[1*H*8 +: H*8];
+  assign ac2 = a_i[2*H*8 +: H*8];
+  assign ac3 = a_i[3*H*8 +: H*8];
+  assign bc0 = b_i[0*H*8 +: H*8];
+  assign bc1 = b_i[1*H*8 +: H*8];
+  assign bc2 = b_i[2*H*8 +: H*8];
+  assign bc3 = b_i[3*H*8 +: H*8];
 
   for (genvar qi = 0; qi < 2; qi++) begin : g_qi
     for (genvar qj = 0; qj < 2; qj++) begin : g_qj
       localparam int Q = 2 * qi + qj;
-      logic [2:0]  d, off, kk;               // reduction depth, k-step offset, k step (0..7)
-      logic [31:0] a_off, b_off;             // byte offsets into a_i / b_i
       logic [H*8-1:0] aq, bq;
-      always_comb begin
-        d     = (rfull_i && cfull_i) ? 3'd1 : (rfull_i || cfull_i) ? 3'd2 : 3'd4;
-        // k offset: qi in 4xT shapes, qj in Tx4 shapes, 2*qi + qj in the 4x4x4 shape
-        off   = (rfull_i ? 3'd0 : (cfull_i ? 3'(qi) : 3'(2 * qi))) + (cfull_i ? 3'd0 : 3'(qj));
-        kk    = (beat_idx_i ? d : 3'd0) + off;
-        // A: kk * r + H * rb, B: kk * c + H * cb  (r, c are T or T/2; rb, cb select the half)
-        a_off = rfull_i ? ((32'(kk) << L2T) + 32'(H * qi)) : (32'(kk) << (L2T - 1));
-        b_off = cfull_i ? ((32'(kk) << L2T) + 32'(H * qj)) : (32'(kk) << (L2T - 1));
-        aq    = a_i[a_off * 8 +: H * 8];
-        bq    = b_i[b_off * 8 +: H * 8];
+      if (Q == 0) begin : g_sel0
+        assign aq = ac0;
+        assign bq = bc0;
+      end else if (Q == 1) begin : g_sel1
+        assign aq = cfull_i ? ac0 : (rfull_i ? ac2 : ac1);
+        assign bq = bc1;
+      end else if (Q == 2) begin : g_sel2
+        assign aq = (!rfull_i && !cfull_i) ? ac2 : ac1;
+        assign bq = rfull_i ? bc0 : bc2;
+      end else begin : g_sel3
+        assign aq = cfull_i ? ac1 : ac3;
+        assign bq = rfull_i ? bc1 : bc3;
       end
+
+      logic [H*7-1:0] a_inv, b_inv;
+      for (genvar m = 0; m < H; m++) begin : g_inv
+        assign a_inv[m*7 +: 7] = aq[m*8 +: 7] ^ {7{b_signed_i}};
+        assign b_inv[m*7 +: 7] = bq[m*8 +: 7] ^ {7{a_signed_i}};
+      end
+
       for (genvar i = 0; i < H; i++) begin : g_i
         for (genvar j = 0; j < H; j++) begin : g_j
-          logic signed [8:0]  av, bv;
-          logic signed [17:0] p;
-          assign av = {a_signed_i & aq[i*8+7], aq[i*8 +: 8]};
-          assign bv = {b_signed_i & bq[j*8+7], bq[j*8 +: 8]};
-          assign p  = av * bv;
-          assign prod_d[(Q*H*H + i*H + j)*18 +: 18] = p;
+          logic [7:0]  a, b;
+          logic [13:0] p_lo;
+          logic        na, nb;
+          logic [9:0]  ca, cb, cab, hi;
+          assign a    = aq[i*8 +: 8];
+          assign b    = bq[j*8 +: 8];
+          assign p_lo = a[6:0] * b[6:0];
+          assign na   = a[7] & a_signed_i;
+          assign nb   = b[7] & b_signed_i;
+          assign ca   = a[7] ? {{3{a_signed_i}}, b_inv[j*7 +: 7]} : 10'd0;
+          assign cb   = b[7] ? {{3{b_signed_i}}, a_inv[i*7 +: 7]} : 10'd0;
+          assign cab  = {(a[7] & b[7]) ? ((a_signed_i ^ b_signed_i) ? 3'b111 : 3'b001) : 3'b000,
+                         5'd0, na & nb, na ^ nb};
+          assign hi   = {3'b0, p_lo[13:7]} + ca + cb + cab;
+          assign prod_d[(Q*H*H + i*H + j)*PW +: PW] = {hi, p_lo[6:0]};
         end
       end
     end
@@ -110,14 +136,18 @@ module tq_mac_array #(
     end
     for (genvar q = 0; q < 4; q++) begin : g_preg
       logic               gclk;
-      logic [H*H*18-1:0]  pq;
+      logic [H*H*PW-1:0]  pq;
       tq_cg #(.EN(CLK_GATE)) u_cg (.clk_i, .en_i(beat_i), .gclk_o(gclk));
       always_ff @(posedge gclk) begin
-        if (beat_i || CLK_GATE) pq <= prod_d[q*H*H*18 +: H*H*18];
+        if (beat_i || CLK_GATE) pq <= prod_d[q*H*H*PW +: H*H*PW];
       end
-      assign prod_q[q*H*H*18 +: H*H*18] = pq;
+      assign prod_q[q*H*H*PW +: H*H*PW] = pq;
     end
   end else begin : g_pipe1                 // no product register: accumulate in the beat's cycle
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_rst;
+    assign unused_rst = rst_ni;
+    /* verilator lint_on UNUSEDSIGNAL */
     assign pv_q    = beat_i;
     assign pbank_q = bank_i;
     assign prf_q   = rfull_i;
@@ -145,78 +175,103 @@ module tq_mac_array #(
   // is of a beat issued before the ZERO_C, which the clear drops (model: the beat's sums are
   // cleared). With MAC_PIPE = 1 it is of a beat issued in the ZERO_C's cycle, after it (the MAC
   // unit takes ZERO_C, then VOUTER_MAC): the products land on a zero bank.
-  logic zbase, keep0, keep1;              // add onto zero; write the sum despite the clear
+  logic zbase;
   assign zbase = (MAC_PIPE == 1) && (pbank_q ? clr1 : clr0);
-  assign keep0 = (MAC_PIPE == 1) && acc0;
-  assign keep1 = (MAC_PIPE == 1) && acc1;
-  logic [3:0] dst, we0, we1, gclk0, gclk1;
+  logic [3:0] dst, keep0, keep1, we0, we1, gclk0, gclk1;
   for (genvar q = 0; q < 4; q++) begin : g_bank_cg
-    // some source quadrant writes this one (see hit below)
-    assign dst[q] = (prf_q || q / 2 == 0) && (pcf_q || q % 2 == 0);
-    assign we0[q] = clr0 || (acc0 && dst[q]);
-    assign we1[q] = clr1 || (acc1 && dst[q]);
+    // some source quadrant writes this one
+    assign dst[q]   = (prf_q || q / 2 == 0) && (pcf_q || q % 2 == 0);
+    assign keep0[q] = (MAC_PIPE == 1) && acc0 && dst[q];
+    assign keep1[q] = (MAC_PIPE == 1) && acc1 && dst[q];
+    assign we0[q]   = clr0 || (acc0 && dst[q]);
+    assign we1[q]   = clr1 || (acc1 && dst[q]);
     tq_cg #(.EN(CLK_GATE)) u_cg0 (.clk_i, .en_i(we0[q]), .gclk_o(gclk0[q]));
     tq_cg #(.EN(CLK_GATE)) u_cg1 (.clk_i, .en_i(we1[q]), .gclk_o(gclk1[q]));
   end
 
-  for (genvar R = 0; R < T; R++) begin : g_row
-    for (genvar C = 0; C < T; C++) begin : g_col
-      localparam int QR = R / H, QC = C / H, I = R % H, J = C % H;
-      logic [4*32-1:0] p_in;
-      for (genvar s = 0; s < 4; s++) begin : g_src
-        localparam int SI = s / 2, SJ = s % 2;
-        localparam int PB = (s*H*H + I*H + J) * 18;
-        logic hit;
-        // source quadrant (SI, SJ) writes destination quadrant (rfull ? SI : 0, cfull ? SJ : 0)
-        assign hit = ((prf_q ? SI : 0) == QR) && ((pcf_q ? SJ : 0) == QC);
-        assign p_in[s*32 +: 32] = hit ? {{14{prod_q[PB + 17]}}, prod_q[PB +: 18]} : 32'd0;
-      end
-      localparam int Q = 2 * QR + QC;
+  for (genvar I = 0; I < H; I++) begin : g_i_acc
+    for (genvar J = 0; J < H; J++) begin : g_j_acc
+      logic signed [PW-1:0] p0, p1, p2, p3;
+      assign p0 = signed'(prod_q[(0*H*H + I*H + J)*PW +: PW]);
+      assign p1 = signed'(prod_q[(1*H*H + I*H + J)*PW +: PW]);
+      assign p2 = signed'(prod_q[(2*H*H + I*H + J)*PW +: PW]);
+      assign p3 = signed'(prod_q[(3*H*H + I*H + J)*PW +: PW]);
+
       if (ACC_FORM == tq_pkg::ACC_CSA) begin : g_csa
-        logic [31:0] s0_q, c0_q, s1_q, c1_q, s_cur, c_cur;
-        logic [63:0] x0, x1, x2, x3;
-        assign s_cur = zbase ? '0 : pbank_q ? s1_q : s0_q;
-        assign c_cur = zbase ? '0 : pbank_q ? c1_q : c0_q;
-        assign x0 = csa(s_cur, c_cur, p_in[0 +: 32]);
-        assign x1 = csa(x0[63:32], x0[31:0], p_in[32 +: 32]);
-        assign x2 = csa(x1[63:32], x1[31:0], p_in[64 +: 32]);
-        assign x3 = csa(x2[63:32], x2[31:0], p_in[96 +: 32]);
-        always_ff @(posedge gclk0[Q] or negedge rst_ni) begin
-          if (!rst_ni) begin
-            s0_q <= '0; c0_q <= '0;
-          end else if (we0[Q] || CLK_GATE) begin
-            s0_q <= clr0 && !keep0 ? '0 : x3[63:32];
-            c0_q <= clr0 && !keep0 ? '0 : x3[31:0];
+        for (genvar QR = 0; QR < 2; QR++) begin : g_qr
+          for (genvar QC = 0; QC < 2; QC++) begin : g_qc
+            localparam int Q = 2 * QR + QC;
+            localparam int R = QR * H + I, C = QC * H + J;
+            logic [31:0] s0_q, c0_q, s1_q, c1_q, s_cur, c_cur;
+            logic [63:0] x_out;
+            assign s_cur = zbase ? '0 : pbank_q ? s1_q : s0_q;
+            assign c_cur = zbase ? '0 : pbank_q ? c1_q : c0_q;
+            if (Q == 0) begin : g_q0
+              logic [63:0] x0, x1, x2;
+              assign x0    = csa(s_cur, c_cur, 32'(p0));
+              assign x1    = csa(x0[63:32], x0[31:0], pcf_q ? 32'd0 : 32'(p1));
+              assign x2    = csa(x1[63:32], x1[31:0], prf_q ? 32'd0 : 32'(p2));
+              assign x_out = csa(x2[63:32], x2[31:0], (prf_q || pcf_q) ? 32'd0 : 32'(p3));
+            end else if (Q == 1) begin : g_q1
+              logic [63:0] x0;
+              assign x0    = csa(s_cur, c_cur, 32'(p1));
+              assign x_out = csa(x0[63:32], x0[31:0], prf_q ? 32'd0 : 32'(p3));
+            end else if (Q == 2) begin : g_q2
+              logic [63:0] x0;
+              assign x0    = csa(s_cur, c_cur, 32'(p2));
+              assign x_out = csa(x0[63:32], x0[31:0], pcf_q ? 32'd0 : 32'(p3));
+            end else begin : g_q3
+              assign x_out = csa(s_cur, c_cur, 32'(p3));
+            end
+            always_ff @(posedge gclk0[Q]) begin
+              if (we0[Q] || CLK_GATE) begin
+                s0_q <= clr0 && !keep0[Q] ? '0 : x_out[63:32];
+                c0_q <= clr0 && !keep0[Q] ? '0 : x_out[31:0];
+              end
+            end
+            always_ff @(posedge gclk1[Q]) begin
+              if (we1[Q] || CLK_GATE) begin
+                s1_q <= clr1 && !keep1[Q] ? '0 : x_out[63:32];
+                c1_q <= clr1 && !keep1[Q] ? '0 : x_out[31:0];
+              end
+            end
+            assign sum0[(R*T + C)*32 +: 32] = s0_q;
+            assign car0[(R*T + C)*32 +: 32] = c0_q;
+            assign sum1[(R*T + C)*32 +: 32] = s1_q;
+            assign car1[(R*T + C)*32 +: 32] = c1_q;
           end
         end
-        always_ff @(posedge gclk1[Q] or negedge rst_ni) begin
-          if (!rst_ni) begin
-            s1_q <= '0; c1_q <= '0;
-          end else if (we1[Q] || CLK_GATE) begin
-            s1_q <= clr1 && !keep1 ? '0 : x3[63:32];
-            c1_q <= clr1 && !keep1 ? '0 : x3[31:0];
-          end
-        end
-        assign sum0[(R*T + C)*32 +: 32] = s0_q;
-        assign car0[(R*T + C)*32 +: 32] = c0_q;
-        assign sum1[(R*T + C)*32 +: 32] = s1_q;
-        assign car1[(R*T + C)*32 +: 32] = c1_q;
       end else begin : g_cpa
-        logic [31:0] v0_q, v1_q, v_nxt;
-        assign v_nxt = (zbase ? '0 : pbank_q ? v1_q : v0_q)
-                     + p_in[0 +: 32] + p_in[32 +: 32] + p_in[64 +: 32] + p_in[96 +: 32];
-        always_ff @(posedge gclk0[Q] or negedge rst_ni) begin
-          if (!rst_ni)                     v0_q <= '0;
-          else if (we0[Q] || CLK_GATE)     v0_q <= clr0 && !keep0 ? '0 : v_nxt;
+        // Shared narrow product sums: s23 feeds both TL (when !prf_q) and BL (when prf_q)
+        logic signed [PW:0]   s01, s23, s13;
+        logic signed [PW+1:0] s0123;
+        assign s01   = (PW+1)'(p0) + (pcf_q ? 18'sd0 : (PW+1)'(p1));
+        assign s23   = (PW+1)'(p2) + (pcf_q ? 18'sd0 : (PW+1)'(p3));
+        assign s13   = (PW+1)'(p1) + (prf_q ? 18'sd0 : (PW+1)'(p3));
+        assign s0123 = (PW+2)'(s01) + (prf_q ? 19'sd0 : (PW+2)'(s23));
+
+        for (genvar QR = 0; QR < 2; QR++) begin : g_qr
+          for (genvar QC = 0; QC < 2; QC++) begin : g_qc
+            localparam int Q = 2 * QR + QC;
+            localparam int R = QR * H + I, C = QC * H + J;
+            logic [31:0] v0_q, v1_q, p_ext, v_nxt;
+            if (Q == 0)      begin : g_p0 assign p_ext = 32'(s0123); end
+            else if (Q == 1) begin : g_p1 assign p_ext = 32'(s13);   end
+            else if (Q == 2) begin : g_p2 assign p_ext = 32'(s23);   end
+            else             begin : g_p3 assign p_ext = 32'(p3);    end
+            assign v_nxt = (zbase ? '0 : pbank_q ? v1_q : v0_q) + p_ext;
+            always_ff @(posedge gclk0[Q]) begin
+              if (we0[Q] || CLK_GATE) v0_q <= clr0 && !keep0[Q] ? '0 : v_nxt;
+            end
+            always_ff @(posedge gclk1[Q]) begin
+              if (we1[Q] || CLK_GATE) v1_q <= clr1 && !keep1[Q] ? '0 : v_nxt;
+            end
+            assign sum0[(R*T + C)*32 +: 32] = v0_q;
+            assign sum1[(R*T + C)*32 +: 32] = v1_q;
+            assign car0[(R*T + C)*32 +: 32] = 32'd0;
+            assign car1[(R*T + C)*32 +: 32] = 32'd0;
+          end
         end
-        always_ff @(posedge gclk1[Q] or negedge rst_ni) begin
-          if (!rst_ni)                     v1_q <= '0;
-          else if (we1[Q] || CLK_GATE)     v1_q <= clr1 && !keep1 ? '0 : v_nxt;
-        end
-        assign sum0[(R*T + C)*32 +: 32] = v0_q;
-        assign sum1[(R*T + C)*32 +: 32] = v1_q;
-        assign car0[(R*T + C)*32 +: 32] = 32'd0;
-        assign car1[(R*T + C)*32 +: 32] = 32'd0;
       end
     end
   end

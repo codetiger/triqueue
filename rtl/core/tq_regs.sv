@@ -88,10 +88,9 @@ module tq_regs #(
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       done_q <= 1'b0; bus_err_q <= 1'b0; irq_en_q <= '0; irq_st_q <= '0;
-      rvalid_q <= 1'b0; rdata_q <= '0;
+      rvalid_q <= 1'b0;
     end else begin
       rvalid_q <= reg_req_i;
-      if (rd) rdata_q <= rdata;
       if (start_o && !busy_i) begin
         done_q    <= 1'b0;
         bus_err_q <= 1'b0;
@@ -110,10 +109,14 @@ module tq_regs #(
     end
   end
 
+  always_ff @(posedge clk_i) begin
+    if (rd) rdata_q <= rdata;
+  end
+
   // program buffer: byte i is written by a PROG write to word i / 4 with byte enable i % 4
   logic prog_wr;
   // ignored while BUSY: the loop buffer runs from here (spec 6.4)
-  assign prog_wr = wr && !busy_i && reg_addr_i >= 12'h100 && 32'(reg_addr_i) < 32'h100 + PROG_BYTES;
+  assign prog_wr = wr && !busy_i;
   for (genvar i = 0; i < PROG_BYTES; i++) begin : g_prog
     logic       we, gclk;
     logic [7:0] q;

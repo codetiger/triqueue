@@ -79,39 +79,66 @@ module tq_frontend #(
     tpos = {16'b0, t} << L2T;
   endfunction
 
-  // front-end tile shape
-  logic [31:0] fe_rows_left, fe_cols_left;
-  logic        fe_rfull, fe_cfull, fe_last;
-  assign fe_rows_left = m - tpos(fe_ti_q);
-  assign fe_cols_left = n - tpos(fe_tj_q);
-  assign fe_rfull     = fe_rows_left > 32'(H);
-  assign fe_cfull     = fe_cols_left > 32'(H);
-  assign fe_last      = (fe_rows_left <= 32'(T)) && (fe_cols_left <= 32'(T));
-
-  // stream counters: exhausted once every tile has been issued
-  logic        sa_exh, sb_exh;
-  logic [31:0] sa_cols_left, sb_cols_left, sa_rows_left;
-  assign sa_rows_left = m - tpos(sa_ti_q);
-  assign sa_cols_left = n - tpos(sa_tj_q);
-  assign sb_cols_left = n - tpos(sb_tj_q);
-  assign sa_exh       = (tpos(sa_ti_q) >= m) || (n == 0);
-  assign sb_exh       = (tpos(sb_ti_q) >= m) || (n == 0);
-
   // ---------------------------------------------------------------- decode
-  function automatic logic [7:0] prog_byte(input logic [PCW-1:0] a);
-    prog_byte = (32'(a) < PROG_BYTES) ? prog_i[32'(a) * 8 +: 8] : 8'h00;
-  endfunction
+  localparam int PSHW = $clog2(PROG_BYTES);
+  localparam int THW  = 32 - L2T;
+  logic [PROG_BYTES*8+31:0] prog_pad;
+  logic [39:0]              iwin;
+  logic [7:0]               ibyte;
+  logic [3:0]               op, arg;
+  logic [31:0]              imm;
+  logic [PCW-1:0]           isize;
+  assign prog_pad = {32'h0, prog_i};
+  assign iwin     = (32'(pc_q) < PROG_BYTES) ? prog_pad[32'(pc_q[PSHW-1:0]) * 8 +: 40] : 40'h0;
+  assign ibyte    = iwin[7:0];
+  assign op       = ibyte[7:4];
+  assign arg      = ibyte[3:0];
+  assign imm      = iwin[39:8];
+  assign isize    = (op == tq_pkg::OP_CFG) ? PCW'(5) : PCW'(1);
 
-  logic [7:0]  ibyte;
-  logic [3:0]  op, arg;
-  logic [31:0] imm;
-  logic [PCW-1:0] isize;
-  assign ibyte = prog_byte(pc_q);
-  assign op    = ibyte[7:4];
-  assign arg   = ibyte[3:0];
-  assign imm   = {prog_byte(pc_q + PCW'(4)), prog_byte(pc_q + PCW'(3)),
-                  prog_byte(pc_q + PCW'(2)), prog_byte(pc_q + PCW'(1))};
-  assign isize = (op == tq_pkg::OP_CFG) ? PCW'(5) : PCW'(1);
+  // front-end tile shape (since tpos(t) has low L2T bits == 0, m - tpos(t) needs no subtractor)
+  logic [THW-1:0] m_hi, n_hi;
+  logic [L2T-1:0] m_lo, n_lo;
+  logic           m_lo_gt_h, n_lo_gt_h, m_lo_z, n_lo_z;
+  logic [16:0]    fe_ti_inc, fe_tj_inc, s_tj_inc;
+  logic [15:0]    s_ti_inc;
+  logic           fe_r_ge_t, fe_c_ge_t, fe_r_le_t, fe_c_le_t, fe_rfull, fe_cfull, fe_last;
+  assign m_hi      = m[31:L2T];
+  assign m_lo      = m[L2T-1:0];
+  assign n_hi      = n[31:L2T];
+  assign n_lo      = n[L2T-1:0];
+  assign m_lo_gt_h = m_lo > L2T'(H);
+  assign n_lo_gt_h = n_lo > L2T'(H);
+  assign m_lo_z    = (m_lo == '0);
+  assign n_lo_z    = (n_lo == '0);
+  assign fe_ti_inc = {1'b0, fe_ti_q} + 17'd1;
+  assign fe_tj_inc = {1'b0, fe_tj_q} + 17'd1;
+  assign fe_r_ge_t = (m_hi != THW'(fe_ti_q));
+  assign fe_c_ge_t = (n_hi != THW'(fe_tj_q));
+  assign fe_rfull  = fe_r_ge_t || m_lo_gt_h;
+  assign fe_cfull  = fe_c_ge_t || n_lo_gt_h;
+  assign fe_r_le_t = !fe_r_ge_t || ((m_hi == THW'(fe_ti_inc)) && m_lo_z);
+  assign fe_c_le_t = !fe_c_ge_t || ((n_hi == THW'(fe_tj_inc)) && n_lo_z);
+  assign fe_last   = fe_r_le_t && fe_c_le_t;
+
+  // stream counters: shared datapath for STREAM_A and STREAM_B
+  logic        is_sb, s_exh, s_cols_more, s_full;
+  logic [15:0] s_ti, s_tj;
+  logic [31:0] s_base, s_off, s_addr, s_vecs, s_off_inc;
+  assign is_sb       = (op == tq_pkg::OP_STREAM_B);
+  assign s_ti        = is_sb ? sb_ti_q  : sa_ti_q;
+  assign s_tj        = is_sb ? sb_tj_q  : sa_tj_q;
+  assign s_ti_inc    = s_ti + 16'd1;
+  assign s_tj_inc    = {1'b0, s_tj} + 17'd1;
+  assign s_base      = is_sb ? cfg_q[tq_pkg::CFG_B_BASE] : cfg_q[tq_pkg::CFG_A_BASE];
+  assign s_off       = {is_sb ? sb_off_q[31:L2T+3] : sa_off_q[31:L2T+3], {(L2T+3){1'b0}}};
+  assign s_exh       = (tpos(s_ti) >= m) || (n == 0);
+  assign s_cols_more = (n_hi != THW'(s_tj)) && !((n_hi == THW'(s_tj_inc)) && n_lo_z);
+  assign s_full      = is_sb ? ((n_hi != THW'(s_tj)) || n_lo_gt_h)
+                             : ((m_hi != THW'(s_ti)) || m_lo_gt_h);
+  assign s_addr      = s_base + s_off;
+  assign s_off_inc   = s_off + panel_stride;
+  assign s_vecs      = s_full ? (kp >> 1) : (kp >> 2);
 
   logic stall, exec;
   always_comb begin
@@ -181,29 +208,29 @@ module tq_frontend #(
           else cfg_we = 1'b1;
         end
         tq_pkg::OP_STREAM_A: begin
-          if (!sa_exh) begin
+          if (!s_exh) begin
             scmd_a_push_o      = 1'b1;
-            scmd_a_data_o.addr = cfg_q[tq_pkg::CFG_A_BASE] + sa_off_q;
-            scmd_a_data_o.vecs = (sa_rows_left > 32'(H)) ? (kp >> 1) : (kp >> 2);
-            if (sa_cols_left > 32'(T)) sa_tj_n = sa_tj_q + 16'd1;
+            scmd_a_data_o.addr = s_addr;
+            scmd_a_data_o.vecs = s_vecs;
+            if (s_cols_more) sa_tj_n = s_tj_inc[15:0];
             else begin
               sa_tj_n  = '0;
-              sa_ti_n  = sa_ti_q + 16'd1;
-              sa_off_n = sa_off_q + panel_stride;
+              sa_ti_n  = s_ti_inc;
+              sa_off_n = s_off_inc;
             end
           end
         end
         tq_pkg::OP_STREAM_B: begin
-          if (!sb_exh) begin
+          if (!s_exh) begin
             scmd_b_push_o      = 1'b1;
-            scmd_b_data_o.addr = cfg_q[tq_pkg::CFG_B_BASE] + sb_off_q;
-            scmd_b_data_o.vecs = (sb_cols_left > 32'(H)) ? (kp >> 1) : (kp >> 2);
-            if (sb_cols_left > 32'(T)) begin
-              sb_tj_n  = sb_tj_q + 16'd1;
-              sb_off_n = sb_off_q + panel_stride;
+            scmd_b_data_o.addr = s_addr;
+            scmd_b_data_o.vecs = s_vecs;
+            if (s_cols_more) begin
+              sb_tj_n  = s_tj_inc[15:0];
+              sb_off_n = s_off_inc;
             end else begin
               sb_tj_n  = '0;
-              sb_ti_n  = sb_ti_q + 16'd1;
+              sb_ti_n  = s_ti_inc;
               sb_off_n = '0;
             end
           end
@@ -221,9 +248,9 @@ module tq_frontend #(
         tq_pkg::OP_SWAP_C: begin
           macq_push_o        = 1'b1;
           macq_data_o.kind   = tq_pkg::MC_SWAP;
-          macq_data_o.c_addr = cfg_q[tq_pkg::CFG_C_BASE] + fe_crow_q + ({16'b0, fe_tj_q} << (L2T + 2));
-          macq_data_o.rows   = (fe_rows_left >= 32'(T)) ? 8'(T) : fe_rows_left[7:0];
-          macq_data_o.cols   = (fe_cols_left >= 32'(T)) ? 8'(T) : fe_cols_left[7:0];
+          macq_data_o.c_addr = cfg_q[tq_pkg::CFG_C_BASE] + {fe_crow_q[31:L2T], {L2T{1'b0}}} + ({16'b0, fe_tj_q} << (L2T + 2));
+          macq_data_o.rows   = fe_r_ge_t ? 8'(T) : 8'(m_lo);
+          macq_data_o.cols   = fe_c_ge_t ? 8'(T) : 8'(n_lo);
         end
         tq_pkg::OP_LOOP_K, tq_pkg::OP_LOOP_T: begin
           if (loop_is_t)
@@ -255,26 +282,17 @@ module tq_frontend #(
       // zero-overhead loop-back: the inner frame may end and pop, then the outer frame may end
       // at the same pc (model: the while loop in step_front)
       if (sp_n == 2'd2 && pc_n == f1_end_n) begin
-        if (f1_t_n ? !fe_last : (f1_rem_n > 32'd1)) begin
+        if (f1_t_n ? !fe_last : (|f1_rem_n[31:1])) begin
           f1_rem_n   = f1_rem_n - 32'd1;
           pc_n       = f1_start_n;
           fe_advance = f1_t_n;
         end else begin
           sp_n = 2'd1;
           if (f1_t_n) fe_reset = 1'b1;
-          if (pc_n == f0_end_n) begin
-            if (f0_t_n ? !fe_last : (f0_rem_n > 32'd1)) begin
-              f0_rem_n   = f0_rem_n - 32'd1;
-              pc_n       = f0_start_n;
-              fe_advance = f0_t_n;
-            end else begin
-              sp_n = 2'd0;
-              if (f0_t_n) fe_reset = 1'b1;
-            end
-          end
         end
-      end else if (sp_n == 2'd1 && pc_n == f0_end_n) begin
-        if (f0_t_n ? !fe_last : (f0_rem_n > 32'd1)) begin
+      end
+      if (sp_n == 2'd1 && pc_n == f0_end_n) begin
+        if (f0_t_n ? !fe_last : (|f0_rem_n[31:1])) begin
           f0_rem_n   = f0_rem_n - 32'd1;
           pc_n       = f0_start_n;
           fe_advance = f0_t_n;
@@ -296,11 +314,11 @@ module tq_frontend #(
       fe_tj_n   = '0;
       fe_crow_n = '0;
     end else if (fe_advance) begin
-      if (fe_cols_left > 32'(T)) fe_tj_n = fe_tj_q + 16'd1;
+      if (!fe_c_le_t) fe_tj_n = fe_tj_inc[15:0];
       else begin
         fe_tj_n   = '0;
-        fe_ti_n   = fe_ti_q + 16'd1;
-        fe_crow_n = fe_crow_q + (cfg_q[tq_pkg::CFG_C_LD] << L2T);
+        fe_ti_n   = fe_ti_inc[15:0];
+        fe_crow_n = {fe_crow_q[31:L2T] + cfg_q[tq_pkg::CFG_C_LD][31-L2T:0], {L2T{1'b0}}};
       end
     end
   end
