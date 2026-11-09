@@ -19,8 +19,9 @@
 // bus_err_o (tq_regs latches it in STATUS.BUS_ERR); a discarded orphan's response is ignored.
 
 module tq_axi_mem #(
-    parameter int W       = 16,                // port width in bytes (2T)
-    parameter int MAX_OUT = 16,                // transactions in flight per direction
+    parameter int W           = 16,                // port width in bytes (2T)
+    parameter int MAX_OUT     = 16,                // transactions in flight per direction
+    parameter int BURST_BEATS = 1,                 // read burst beats (power of two, >= 1)
     localparam int VB  = W * 8,
     localparam int TW  = $clog2(MAX_OUT + 1)
 ) (
@@ -69,47 +70,214 @@ module tq_axi_mem #(
 );
   localparam logic [2:0] SIZE = 3'($clog2(W));
 
-  assign m_arlen_o = 8'd0;  assign m_arsize_o = SIZE;  assign m_arburst_o = 2'b01;
-  assign m_awlen_o = 8'd0;  assign m_awsize_o = SIZE;  assign m_awburst_o = 2'b01;
+  assign m_arsize_o = SIZE;  assign m_arburst_o = 2'b01;
+  assign m_awlen_o = 8'd0;   assign m_awsize_o = SIZE;  assign m_awburst_o = 2'b01;
   assign m_wlast_o = 1'b1;
   assign m_rready_o = 1'b1;
   assign m_bready_o = 1'b1;
 
-  // ---------------------------------------------------------------- read address
-  // ar_q: a request is on AR (held: VALID stays until READY); ar_orph_q: the core dropped it.
-  logic        ar_q, ar_orph_q;
-  logic [31:0] ar_addr_q;
-  logic [TW-1:0] rt_cnt;
-  logic        rt_full, ar_fire, rd_take;
-  assign rt_full     = 32'(rt_cnt) >= MAX_OUT;
-  // the core's request goes straight to AR unless an earlier one is still held
-  assign m_arvalid_o = ar_q || (rd_req_i && !rt_full);
-  assign m_araddr_o  = ar_q ? ar_addr_q : rd_addr_i;
-  assign ar_fire     = m_arvalid_o && m_arready_i;
-  assign rd_take     = rd_req_i && !rt_full && (!ar_q || !ar_orph_q);   // core request on AR now
-  assign rd_gnt_o    = rd_take && m_arready_i;
+  // ---------------------------------------------------------------- read channel
+  logic rd_err;
+  if (BURST_BEATS == 1) begin : g_rd_single
+    // ar_q: a request is on AR (held: VALID stays until READY); ar_orph_q: the core dropped it.
+    logic          ar_q, ar_orph_q;
+    logic [31:0]   ar_addr_q;
+    logic [TW-1:0] rt_cnt;
+    logic          rt_full, ar_fire, rd_take;
+    assign m_arlen_o   = 8'd0;
+    assign rt_full     = 32'(rt_cnt) >= MAX_OUT;
+    // the core's request goes straight to AR unless an earlier one is still held
+    assign m_arvalid_o = ar_q || (rd_req_i && !rt_full);
+    assign m_araddr_o  = ar_q ? ar_addr_q : rd_addr_i;
+    assign ar_fire     = m_arvalid_o && m_arready_i;
+    assign rd_take     = rd_req_i && !rt_full && (!ar_q || !ar_orph_q);   // core request on AR now
+    assign rd_gnt_o    = rd_take && m_arready_i;
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      ar_q <= 1'b0; ar_orph_q <= 1'b0; ar_addr_q <= '0;
-    end else if (ar_fire) begin
-      ar_q <= 1'b0; ar_orph_q <= 1'b0;
-    end else if (m_arvalid_o) begin
-      ar_q      <= 1'b1;                                   // not accepted: hold it
-      ar_addr_q <= m_araddr_o;
-      ar_orph_q <= ar_orph_q || !rd_req_i;                 // the core let go of it
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+      if (!rst_ni) begin
+        ar_q <= 1'b0; ar_orph_q <= 1'b0; ar_addr_q <= '0;
+      end else if (ar_fire) begin
+        ar_q <= 1'b0; ar_orph_q <= 1'b0;
+      end else if (m_arvalid_o) begin
+        ar_q      <= 1'b1;                                   // not accepted: hold it
+        ar_addr_q <= m_araddr_o;
+        ar_orph_q <= ar_orph_q || !rd_req_i;                 // the core let go of it
+      end
     end
-  end
 
-  // read tags: 1 = the response belongs to the core
-  logic rt_head;
-  logic unused_rt1;
-  tq_fifo #(.WIDTH(1), .DEPTH(MAX_OUT)) u_rtag (
-      .clk_i, .rst_ni, .clear_i(1'b0),
-      .push_i(ar_fire), .data_i(!(ar_q && (ar_orph_q || !rd_req_i))),
-      .pop_i({1'b0, m_rvalid_i}), .head0_o(rt_head), .head1_o(unused_rt1), .count_o(rt_cnt));
-  assign rd_rvalid_o = m_rvalid_i && rt_head;
-  assign rd_rdata_o  = m_rdata_i;
+    // read tags: 1 = the response belongs to the core
+    logic rt_head;
+    logic unused_rt1;
+    tq_fifo #(.WIDTH(1), .DEPTH(MAX_OUT)) u_rtag (
+        .clk_i, .rst_ni, .clear_i(1'b0),
+        .push_i(ar_fire), .data_i(!(ar_q && (ar_orph_q || !rd_req_i))),
+        .pop_i({1'b0, m_rvalid_i}), .head0_o(rt_head), .head1_o(unused_rt1), .count_o(rt_cnt));
+    assign rd_rvalid_o = m_rvalid_i && rt_head;
+    assign rd_rdata_o  = m_rdata_i;
+    assign rd_err      = rd_rvalid_o && m_rresp_i[1];
+  end else begin : g_rd_burst
+    // Four-slot read burst buffer: each miss issues an aligned BURST_BEATS-beat INCR AR burst,
+    // subsequent beats in the line grant immediately without an AR, and u_rord returns responses
+    // in exact grant order as R beats arrive.
+    localparam int NSLOTS = 4;
+    localparam int SW     = $clog2(NSLOTS);
+    localparam int LBW    = $clog2(BURST_BEATS);
+    localparam int WLOG   = $clog2(W);
+    localparam int LSW    = WLOG + LBW;
+    localparam int TAGW   = 32 - LSW;
+
+    localparam int CW     = LBW + 1;
+    localparam int LDATAW = BURST_BEATS * VB;
+
+    logic [TAGW-1:0]                req_tag;
+    logic [LBW-1:0]                 req_idx, ord_idx, r_idx;
+    logic [NSLOTS-1:0]              lv_q, l_fill_q, lmatch, lfree;
+    logic [NSLOTS*TAGW-1:0]         ltag_q;
+    logic [NSLOTS*CW-1:0]           lcnt_q;
+    logic [NSLOTS*TW-1:0]           lref_q;
+    logic [NSLOTS*BURST_BEATS-1:0]  lerr_q;
+    logic [NSLOTS*LDATAW-1:0]       ldata_q;
+    logic [SW-1:0]                  hit_slot, vic, ar_vic_q, alloc_slot, rr_vic_q;
+    logic [SW-1:0]                  r_slot, ord_slot, gnt_slot, unused_rf1;
+    logic [SW+LBW-1:0]              ord_head, unused_ord1;
+    logic [$clog2(NSLOTS+1)-1:0]    rf_cnt;
+    logic [TW-1:0]                  ord_cnt;
+    logic                           hit, has_free, ord_full, ar_q, ar_orph_q, ar_fire;
+    logic                           hit_gnt, miss_req, miss_take, r_last, ord_ready;
+    logic                           p_rd_wait_q, drop_rd;
+    logic [31:0]                    ar_addr_q, req_line_addr;
+
+    assign req_tag       = rd_addr_i[31:LSW];
+    assign req_idx       = rd_addr_i[LSW-1:WLOG];
+    assign req_line_addr = {req_tag, {LSW{1'b0}}};
+    assign drop_rd       = p_rd_wait_q && !rd_req_i;
+
+    for (genvar s = 0; s < NSLOTS; s++) begin : g_slot
+      assign lmatch[s] = lv_q[s] && (ltag_q[s*TAGW +: TAGW] == req_tag);
+      assign lfree[s]  = !l_fill_q[s] && (lref_q[s*TW +: TW] == '0);
+    end
+
+    always_comb begin
+      hit      = 1'b0;
+      hit_slot = '0;
+      for (int s = 0; s < NSLOTS; s++) begin
+        if (lmatch[s]) begin
+          hit      = 1'b1;
+          hit_slot = SW'(s);
+        end
+      end
+      has_free = 1'b0;
+      vic      = rr_vic_q;
+      for (int i = 0; i < NSLOTS; i++) begin
+        logic [SW-1:0] idx;
+        idx = rr_vic_q + SW'(i);
+        if (!has_free && lfree[idx] && !lv_q[idx]) begin
+          has_free = 1'b1;
+          vic      = idx;
+        end
+      end
+      for (int i = 0; i < NSLOTS; i++) begin
+        logic [SW-1:0] idx;
+        idx = rr_vic_q + SW'(i);
+        if (!has_free && lfree[idx]) begin
+          has_free = 1'b1;
+          vic      = idx;
+        end
+      end
+    end
+
+    assign ord_full    = 32'(ord_cnt) >= MAX_OUT;
+    assign hit_gnt     = rd_req_i && hit && !ord_full && !ar_q;
+    assign miss_req    = rd_req_i && !hit && has_free && !ord_full && (32'(rf_cnt) < NSLOTS);
+    assign alloc_slot  = ar_q ? ar_vic_q : vic;
+    assign m_arlen_o   = 8'(BURST_BEATS - 1);
+    assign m_arvalid_o = ar_q || miss_req;
+    assign m_araddr_o  = ar_q ? ar_addr_q : req_line_addr;
+    assign ar_fire     = m_arvalid_o && m_arready_i;
+    assign miss_take   = (ar_q ? (!ar_orph_q && rd_req_i) : miss_req) && m_arready_i;
+    assign rd_gnt_o    = hit_gnt || miss_take;
+    assign gnt_slot    = hit_gnt ? hit_slot : alloc_slot;
+
+    logic [CW-1:0] ord_slot_cnt;
+    assign ord_slot_cnt = lcnt_q[32'(ord_slot) * CW +: CW];
+    assign r_idx        = lcnt_q[32'(r_slot) * CW +: LBW];
+    assign r_last       = (r_idx == LBW'(BURST_BEATS - 1));
+
+    tq_fifo #(.WIDTH(SW), .DEPTH(NSLOTS)) u_rfifo (
+        .clk_i, .rst_ni, .clear_i(1'b0),
+        .push_i(ar_fire), .data_i(alloc_slot),
+        .pop_i({1'b0, m_rvalid_i && (rf_cnt != '0) && r_last}),
+        .head0_o(r_slot), .head1_o(unused_rf1), .count_o(rf_cnt));
+
+    tq_fifo #(.WIDTH(SW + LBW), .DEPTH(MAX_OUT)) u_rord (
+        .clk_i, .rst_ni, .clear_i(1'b0),
+        .push_i(rd_gnt_o), .data_i({gnt_slot, req_idx}),
+        .pop_i({1'b0, ord_ready}),
+        .head0_o(ord_head), .head1_o(unused_ord1), .count_o(ord_cnt));
+
+    assign {ord_slot, ord_idx} = ord_head;
+    assign ord_ready   = (ord_cnt != '0) && (ord_slot_cnt > {1'b0, ord_idx});
+    assign rd_rvalid_o = ord_ready;
+    assign rd_rdata_o  = ldata_q[(32'(ord_slot) * BURST_BEATS + 32'(ord_idx)) * VB +: VB];
+    assign rd_err      = ord_ready && lerr_q[32'(ord_slot) * BURST_BEATS + 32'(ord_idx)];
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+      if (!rst_ni) begin
+        lv_q <= '0; l_fill_q <= '0; ltag_q <= '0; lcnt_q <= '0;
+        lref_q <= '0; lerr_q <= '0; ldata_q <= '0;
+        ar_vic_q <= '0; rr_vic_q <= '0; ar_q <= 1'b0; ar_orph_q <= 1'b0;
+        p_rd_wait_q <= 1'b0; ar_addr_q <= '0;
+      end else begin
+        p_rd_wait_q <= rd_req_i && !rd_gnt_o;
+
+        if (ar_fire) begin
+          ar_q      <= 1'b0;
+          ar_orph_q <= 1'b0;
+          rr_vic_q  <= alloc_slot + SW'(1);
+        end else if (m_arvalid_o) begin
+          if (!ar_q) ar_vic_q <= vic;
+          ar_q      <= 1'b1;
+          ar_addr_q <= m_araddr_o;
+          ar_orph_q <= ar_orph_q || !rd_req_i;
+        end
+
+        for (int s = 0; s < NSLOTS; s++) begin
+          logic inc_ref, dec_ref;
+          inc_ref = rd_gnt_o && (gnt_slot == SW'(s));
+          dec_ref = ord_ready && (ord_slot == SW'(s));
+          lref_q[s*TW +: TW] <= lref_q[s*TW +: TW] + TW'(inc_ref) - TW'(dec_ref);
+
+          if (ar_fire && (alloc_slot == SW'(s))) begin
+            l_fill_q[s]            <= 1'b1;
+            ltag_q[s*TAGW +: TAGW] <= ar_q ? ar_addr_q[31:LSW] : req_tag;
+            lcnt_q[s*CW +: CW]     <= '0;
+            lerr_q[s*BURST_BEATS +: BURST_BEATS] <= '0;
+          end else if (m_rvalid_i && (rf_cnt != '0) && (r_slot == SW'(s))) begin
+            ldata_q[(s*BURST_BEATS + 32'(r_idx))*VB +: VB] <= m_rdata_i;
+            lerr_q[s*BURST_BEATS + 32'(r_idx)]             <= m_rresp_i[1];
+            lcnt_q[s*CW +: CW]                             <= lcnt_q[s*CW +: CW] + 1'b1;
+            if (r_last) l_fill_q[s] <= 1'b0;
+          end
+
+          if (drop_rd) begin
+            lv_q[s] <= 1'b0;
+          end else if (ar_fire && (alloc_slot == SW'(s))) begin
+            lv_q[s] <= miss_take && (req_idx != LBW'(BURST_BEATS - 1));
+          end else begin
+            if (wr_req_i && (ltag_q[s*TAGW +: TAGW] == wr_addr_i[31:LSW])) lv_q[s] <= 1'b0;
+            if (hit_gnt && (hit_slot == SW'(s)) && (req_idx == LBW'(BURST_BEATS - 1))) begin
+              lv_q[s] <= 1'b0;
+            end
+          end
+        end
+      end
+    end
+
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_low;
+    assign unused_low = ^{rd_addr_i[WLOG-1:0], wr_addr_i[LSW-1:0]};
+    /* verilator lint_on UNUSEDSIGNAL */
+  end
 
   // ---------------------------------------------------------------- write address + data
   // AW and W are separate handshakes; wr_gnt when both are done for the core's request.
@@ -162,7 +330,7 @@ module tq_axi_mem #(
       .push_i(wr_all), .data_i(!(wv_q && (w_orph_q || !wr_req_i))),
       .pop_i({1'b0, m_bvalid_i}), .head0_o(wt_head), .head1_o(unused_wt1), .count_o(wt_cnt));
   assign wr_done_o = m_bvalid_i && wt_head;
-  assign bus_err_o = (rd_rvalid_o && m_rresp_i[1]) || (wr_done_o && m_bresp_i[1]);
+  assign bus_err_o = rd_err || (wr_done_o && m_bresp_i[1]);
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused;

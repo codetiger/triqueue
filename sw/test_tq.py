@@ -50,8 +50,8 @@ def lib(tmp_path_factory):
     so.tq_pack_a.argtypes = so.tq_pack_b.argtypes = [u8p, u8p, ctypes.c_uint32, ctypes.c_uint32,
                                                      ctypes.c_size_t, ctypes.c_uint32]
     so.tq_kp.argtypes = [ctypes.c_uint32]
-    so.tq_c_ld.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
-    so.tq_kp.restype = so.tq_c_ld.restype = ctypes.c_uint32
+    so.tq_c_ld.argtypes = so.tq_c_ld_int8.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+    so.tq_kp.restype = so.tq_c_ld.restype = so.tq_c_ld_int8.restype = ctypes.c_uint32
     so.tq_probe.argtypes = [ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(Info)]
     so.tq_run.argtypes = [ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(Info), u8p, ctypes.c_size_t,
                           ctypes.c_uint32]
@@ -79,6 +79,12 @@ def test_program_and_layout(lib, tile):
         b = np.zeros((k, n), np.int8 if b_s else np.uint8)
         _, prog, L = build_gemm(a, b, Params(tile=tile))
         assert lib.tq_c_ld(n, 2 * tile) == L["c_ld"]
+        _, prog8, L8 = build_gemm(a, b, Params(tile=tile, out_bytes=1, out_shift=6))
+        assert lib.tq_c_ld_int8(n, 2 * tile) == L8["c_ld"]
+        g8 = Gemm(m, n, k, L8["a_base"], L8["b_base"], L8["c_base"], L8["c_ld"], L8["mode"])
+        out8 = np.zeros(64, np.uint8)
+        size8 = lib.tq_gemm_program(ptr(out8), 64, ctypes.byref(g8))
+        assert bytes(out8[:size8]) == prog8
         g = Gemm(m, n, k, L["a_base"], L["b_base"], L["c_base"], L["c_ld"], L["mode"])
         out = np.zeros(64, np.uint8)
         size = lib.tq_gemm_program(ptr(out), 64, ctypes.byref(g))

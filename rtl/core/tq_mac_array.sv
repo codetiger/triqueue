@@ -52,11 +52,10 @@ module tq_mac_array #(
     input  logic              clear_all_i,
     input  logic              clear_bank_i,
     input  logic              clear_bank_sel_i,
-    // drain read port: values after the carry-propagate add
+    // drain read port: one T-value tile row after the carry-propagate add
     input  logic              rd_bank_i,
     input  logic [L2T-1:0]    rd_row_i,
-    input  logic              rd_half_i,    // columns [0, T/2) or [T/2, T)
-    output logic [H*32-1:0]   rd_val_o,
+    output logic [T*32-1:0]   rd_val_o,
     // product register status (drain must not read a bank with an accumulate still pending)
     output logic              prod_valid_o,
     output logic              prod_bank_o
@@ -277,16 +276,16 @@ module tq_mac_array #(
   end
 
   // ---------------------------------------------------------------- drain read port
-  // Select T/2 lanes of (sum, carry), then T/2 carry-propagate adders (spec 8: drain CPA lanes).
+  // Select one T-value tile row of (sum, carry), then T carry-propagate adders in ACC_CSA mode.
   // In the CPA form the lanes are the stored values themselves.
   localparam int BW = $clog2(T * T * 32);
   logic [BW-1:0]   base;
-  logic [H*32-1:0] rs, rc;
-  assign base = BW'((32'(rd_row_i) * T + (rd_half_i ? H : 0)) * 32);
-  assign rs   = rd_bank_i ? sum1[base +: H * 32] : sum0[base +: H * 32];
-  assign rc   = rd_bank_i ? car1[base +: H * 32] : car0[base +: H * 32];
+  logic [T*32-1:0] rs, rc;
+  assign base = BW'(32'(rd_row_i) * T * 32);
+  assign rs   = rd_bank_i ? sum1[base +: T * 32] : sum0[base +: T * 32];
+  assign rc   = rd_bank_i ? car1[base +: T * 32] : car0[base +: T * 32];
   if (ACC_FORM == tq_pkg::ACC_CSA) begin : g_drain_cpa
-    for (genvar l = 0; l < H; l++) begin : g_lane
+    for (genvar l = 0; l < T; l++) begin : g_lane
       assign rd_val_o[l*32 +: 32] = rs[l*32 +: 32] + rc[l*32 +: 32];
     end
   end else begin : g_drain_direct

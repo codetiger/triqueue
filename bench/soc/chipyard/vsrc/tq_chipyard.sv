@@ -76,7 +76,7 @@ module tq_chipyard #(
   assign s_rid   = rid_q;
   assign s_rlast = 1'b1;
 
-  tq_top_axi #(.T(T), .ADDR_W(12)) u_tq (
+  tq_top_axi #(.T(T), .BURST_BEATS(4), .ADDR_W(12)) u_tq (
       .clk_i(clock), .rst_ni(!reset),
       .s_awaddr_i(s_awaddr[11:0]), .s_awprot_i(s_awprot), .s_awvalid_i(s_awvalid), .s_awready_o(s_awready),
       .s_wdata_i(s_wdata), .s_wstrb_i(s_wstrb), .s_wvalid_i(s_wvalid), .s_wready_o(s_wready),

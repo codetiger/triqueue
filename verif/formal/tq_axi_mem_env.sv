@@ -12,7 +12,8 @@
 // never reaches it); wr_done only for the core's granted writes.
 
 module tq_axi_mem_env #(
-    parameter int MAX_OUT = 3
+    parameter int MAX_OUT     = 3,
+    parameter int BURST_BEATS = 1
 ) (
     input  logic        clk_i,
     input  logic        rst_ni,
@@ -38,7 +39,7 @@ module tq_axi_mem_env #(
   logic [3:0]  wstrb;
   logic [31:0] rdata;
 
-  tq_axi_mem #(.W(4), .MAX_OUT(MAX_OUT)) dut (
+  tq_axi_mem #(.W(4), .MAX_OUT(MAX_OUT), .BURST_BEATS(BURST_BEATS)) dut (
       .clk_i, .rst_ni,
       .rd_req_i, .rd_addr_i, .rd_gnt_o(rd_gnt), .rd_rvalid_o(rd_rvalid), .rd_rdata_o(rd_rdata),
       .wr_req_i, .wr_addr_i, .wr_be_i, .wr_wdata_i, .wr_gnt_o(wr_gnt), .wr_done_o(wr_done), .bus_err_o(),
@@ -66,15 +67,17 @@ module tq_axi_mem_env #(
     p_wr_wdata <= wr_wdata_i;                     p_wr_be <= wr_be_i;
   end
   always_comb begin
+    if (BURST_BEATS > 1) assume (rd_addr_i[1:0] == 2'b00 && rd_addr_i[31:6] == '0 && wr_addr_i[31:6] == '0);
     if (run && p_rd_wait) assume (!rd_req_i || rd_addr_i == p_rd_addr);           // held or dropped
     if (run && p_wr_wait) assume (!wr_req_i || (wr_addr_i == p_wr_addr && wr_wdata_i == p_wr_wdata
                                                 && wr_be_i == p_wr_be));
   end
 
   // ---------------------------------------------------------------- AXI slave (assumptions)
-  // R: a FIFO of accepted AR addresses; R carries the oldest one, never in the AR cycle.
-  logic [MAX_OUT:0][31:0] ar_q;
-  logic [2:0]  ar_n;
+  // R: a FIFO of accepted AR beat addresses; R carries the oldest one, never in the AR cycle.
+  localparam int RQ_MAX = ((BURST_BEATS > 1) ? 4 : MAX_OUT) * BURST_BEATS;
+  logic [RQ_MAX:0][31:0] ar_q;
+  logic [3:0]  ar_n;
   logic [2:0]  b_n;
   logic        ar_fire, aw_fire, w_fire;
   logic        aw_open_q, w_open_q;                 // AW / W of the current write accepted
@@ -85,10 +88,13 @@ module tq_axi_mem_env #(
     if (!rst_ni) begin
       ar_n <= '0; b_n <= '0; aw_open_q <= 1'b0; w_open_q <= 1'b0;
     end else begin
-      for (int i = 0; i < MAX_OUT; i++)
+      for (int i = 0; i < RQ_MAX; i++)
         ar_q[i] <= (m_rvalid_i ? ar_q[i + 1] : ar_q[i]);
-      if (ar_fire) ar_q[32'(ar_n) - 32'(m_rvalid_i)] <= araddr;
-      ar_n <= ar_n + 3'(ar_fire) - 3'(m_rvalid_i);
+      if (ar_fire) begin
+        for (int b = 0; b < BURST_BEATS; b++)
+          ar_q[32'(ar_n) - 32'(m_rvalid_i) + b] <= araddr + 32'(b * 4);
+      end
+      ar_n <= ar_n + (ar_fire ? 4'(BURST_BEATS) : 4'd0) - 4'(m_rvalid_i);
       // a write is complete in the slave when both AW and W are in
       if ((aw_fire || aw_open_q) && (w_fire || w_open_q)) begin
         aw_open_q <= 1'b0; w_open_q <= 1'b0;
@@ -124,14 +130,15 @@ module tq_axi_mem_env #(
       if (p_aw_wait) assert (awvalid && awaddr == p_awaddr);
       if (p_w_wait)  assert (wvalid && wdata == p_wdata && wstrb == p_wstrb);
       assert (rready && bready && wlast);
-      assert (arlen == 0 && awlen == 0 && arsize == 3'd2 && awsize == 3'd2 && arburst == 2'b01 && awburst == 2'b01);
+      assert (arlen == 8'(BURST_BEATS - 1) && awlen == 0 && arsize == 3'd2 && awsize == 3'd2
+              && arburst == 2'b01 && awburst == 2'b01);
       assert (!rd_gnt || rd_req_i);
       assert (!wr_gnt || wr_req_i);
     end
   end
 
-  // The core's reads: a FIFO of granted read addresses; every response the core gets must be
-  // the oldest one (R data is the AR address), and none may come with none outstanding.
+  // The core's reads: in single-beat mode, a FIFO of granted read addresses; in burst mode,
+  // hits complete in the grant cycle with rd_rdata == rd_addr_i.
   logic [MAX_OUT:0][31:0] cr_q;
   logic [2:0]  cr_n, cw_n;
   always_ff @(posedge clk_i or negedge rst_ni) begin

@@ -83,13 +83,17 @@ module tq_frontend #(
   localparam int PSHW = $clog2(PROG_BYTES);
   localparam int THW  = 32 - L2T;
   logic [PROG_BYTES*8+31:0] prog_pad;
+  logic [159:0]             win160;
+  logic [63:0]              win64;
   logic [39:0]              iwin;
   logic [7:0]               ibyte;
   logic [3:0]               op, arg;
   logic [31:0]              imm;
   logic [PCW-1:0]           isize;
   assign prog_pad = {32'h0, prog_i};
-  assign iwin     = (32'(pc_q) < PROG_BYTES) ? prog_pad[32'(pc_q[PSHW-1:0]) * 8 +: 40] : 40'h0;
+  assign win160   = prog_pad[32'(pc_q[PSHW-1:4]) * 128 +: 160];
+  assign win64    = win160[32'(pc_q[3:2]) * 32 +: 64];
+  assign iwin     = (32'(pc_q) < PROG_BYTES) ? win64[32'(pc_q[1:0]) * 8 +: 40] : 40'h0;
   assign ibyte    = iwin[7:0];
   assign op       = ibyte[7:4];
   assign arg      = ibyte[3:0];
@@ -248,7 +252,9 @@ module tq_frontend #(
         tq_pkg::OP_SWAP_C: begin
           macq_push_o        = 1'b1;
           macq_data_o.kind   = tq_pkg::MC_SWAP;
-          macq_data_o.c_addr = cfg_q[tq_pkg::CFG_C_BASE] + {fe_crow_q[31:L2T], {L2T{1'b0}}} + ({16'b0, fe_tj_q} << (L2T + 2));
+          macq_data_o.c_addr = cfg_q[tq_pkg::CFG_C_BASE] + {fe_crow_q[31:L2T], {L2T{1'b0}}}
+                             + (cfg_q[tq_pkg::CFG_MODE][tq_pkg::MODE_OUT_INT8]
+                                ? ({16'b0, fe_tj_q} << L2T) : ({16'b0, fe_tj_q} << (L2T + 2)));
           macq_data_o.rows   = fe_r_ge_t ? 8'(T) : 8'(m_lo);
           macq_data_o.cols   = fe_c_ge_t ? 8'(T) : 8'(n_lo);
         end

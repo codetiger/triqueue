@@ -1,6 +1,6 @@
 # Tri-Queue RTL
 
-Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specification.md`). RTL v0: int8/uint8 operands, int32 results, T×T tile.
+Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specification.md`). RTL v0: int8/uint8 operands, int32 or saturating-shift int8 results, T×T tile.
 
 `rtl/files.f` lists the sources in compile order. The top level is `tq_top`.
 
@@ -16,7 +16,8 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specifica
 | `PROG_BYTES` | 64 | Program buffer size (8 `CFG` + 10-byte kernel = 50 bytes) |
 | `WR_ACK` | 0 | 1: a write is complete at its `wr_done_i` pulse, not at its grant (AXI B). FENCE waits for every write response. 0: `wr_done_i` is ignored (tie it to 0 for an SRAM). |
 | `PANEL_BYTES` | 0 | A panel buffer (spec §10.9): an A panel of at most this many bytes is kept as it is read and replayed for the tile row's later tiles without the memory port. A multiple of 2T; 0 = none. Flops for now (a macro later); same results, fewer reads, and cycles change only where the port was the limit. |
-| `MAC_PIPE` | 2 | 2: product register between multiply and accumulate. 1: none (the 64 × 18-bit register at T = 8 goes); multiply and accumulate in one cycle, a longer critical path. Model `mac_pipe`. |
+| `MAC_PIPE` | 2 | 2: product register between multiply and accumulate. 1: none (the 64 × 17-bit register at T = 8 goes); multiply and accumulate in one cycle, a longer critical path. Model `mac_pipe`. |
+| `PERF` | 1 | 1: five 32-bit performance counters, clock-gated while idle. 0: counters omitted and tied to 0 for area-constrained MCUs. |
 | `WR_OUT_MAX` | 15 | With `WR_ACK`: most writes granted and not yet complete; the core holds back new writes at the limit. |
 | `CLK_GATE` | 1 | 1: clock gates (`tq_cg`) on the wide register groups: accumulator banks (one gate per bank and quadrant, open only for a clear or an accumulate that reaches the quadrant), product register, beat-1 operands, every queue entry at least 16 bits wide, drain staging register and each program-buffer byte (102 gates at T = 8). 0: plain enable flops. Same results and cycle timing. |
 | `ACC_FORM` | `tq_pkg::ACC_CPA` | Accumulator cell (spec §10.2): `ACC_CPA` one 32-bit value with a carry-propagate adder in the loop (the default: smaller and lower energy after place and route), or `ACC_CSA` carry-save (sum, carry) with CPA lanes at the drain (twice the accumulator state). Same results and cycle timing. |
@@ -41,7 +42,7 @@ Requests never depend combinationally on `gnt`, and an ungranted request stays a
 | File | Block |
 | --- | --- |
 | `core/tq_pkg.sv` | Opcodes, config register indices, error codes, internal command formats |
-| `common/tq_icg.sv` | Clock-gating cell: latch + AND model for simulation and generic synthesis; `OPENROAD_CLKGATE` (the PDK cell) in the ORFS flow. An SoC flow replaces this file with its own cell. |
+| `common/tq_icg.sv` | Clock-gating cell: latch + AND model for simulation and generic synthesis; `OPENROAD_CLKGATE` (the PDK cell) in the ORFS flow. An SoC flow replaces this file with its own library ICG cell (connecting scan/test enable `TE`/`SE` to the SoC scan-mode signal for DFT). |
 | `common/tq_cg.sv` | Clock gate for one register group (`tq_icg`, or the clock itself when `EN = 0`) |
 | `common/tq_fifo.sv` | Ring-buffer FIFO, 1 push / up to 2 pops per cycle, optional per-entry clock gates. Formally proved (`verif/formal`). |
 | `core/tq_frontend.sv` | Decoder, 2-level zero-overhead loop stack, tile walker, stream command counters. No multipliers: tile addresses are running offsets. |
@@ -52,7 +53,7 @@ Requests never depend combinationally on `gnt`, and an ungranted request stays a
 | `core/tq_regs.sv` | Register port and program buffer |
 | `core/tq_top.sv` | Registers + core |
 | `adapters/tq_axil_regs.sv` | AXI4-Lite slave to the register port: one transaction at a time, reads and writes alternate when both wait, B / R after the register port's response. Formally proved (`verif/formal/tq_axil_regs.sby`). |
-| `adapters/tq_axi_mem.sv` | AXI4 master for the memory ports: single-beat INCR per port word, RREADY / BREADY always 1, AR and AW+W handshakes as `gnt`, `wr_done` from B. Finishes and discards a request the core drops at START / ABORT. An error response to a core transaction pulses `bus_err_o` (`STATUS.BUS_ERR`). Formally proved (`verif/formal/tq_axi_mem.sby`). |
+| `adapters/tq_axi_mem.sv` | AXI4 master for the memory ports: single-beat INCR per port word (`BURST_BEATS = 1`, default) or a 2-stream read line buffer issuing aligned `BURST_BEATS`-beat INCR bursts (`BURST_BEATS > 1`), RREADY / BREADY always 1, `wr_done` from B. Finishes and discards a request the core drops at START / ABORT. An error response to a core transaction pulses `bus_err_o` (`STATUS.BUS_ERR`). Formally proved (`verif/formal/tq_axi_mem.sby`). |
 | `adapters/tq_top_axi.sv` | `tq_top` for an AXI SoC: AXI4-Lite registers + AXI4 memory master, `WR_ACK = 1`. Regression configuration `t8_axi`. |
 | `adapters/tq_top_axil.sv` | `tq_top` with the AXI4-Lite register port; memory ports native (for tightly coupled SRAM). Regression configuration `t8_axil`. |
 | `adapters/tq_xif_regs.sv` | CV-X-IF coprocessor adapter to the register port: `tq.wr rs1, rs2` (register[rs1] = rs2) and `tq.rd rd, rs1` (rd = register[rs1]), R-type, custom-0, funct7 0, funct3 0 / 1 (`OPCODE`, `FUNCT7` parameters). One instruction at a time; the register access happens only after commit, so killed instructions have no effect; one result per committed instruction, after the register port's response. Issue / register / commit / result fields flattened (connect the core's x-interface structs). Formally proved (`verif/formal/tq_xif_regs.sby`). |

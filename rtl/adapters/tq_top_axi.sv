@@ -16,6 +16,7 @@ module tq_top_axi #(
     parameter bit CLK_GATE    = 1'b1,
     parameter int MAX_OUT     = 16,      // AXI transactions in flight per direction (also the core's write limit)
     parameter int PANEL_BYTES = 0,
+    parameter int BURST_BEATS = 1,       // read burst beats (power of two, >= 1)
     parameter int ADDR_W      = 12,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
@@ -90,7 +91,7 @@ module tq_top_axi #(
       .wr_req_o(wr_req), .wr_addr_o(wr_addr), .wr_be_o(wr_be), .wr_wdata_o(wr_wdata), .wr_gnt_i(wr_gnt),
       .wr_done_i(wr_done), .bus_err_i(bus_err));
 
-  tq_axi_mem #(.W(W), .MAX_OUT(MAX_OUT)) u_axi (
+  tq_axi_mem #(.W(W), .MAX_OUT(MAX_OUT), .BURST_BEATS(BURST_BEATS)) u_axi (
       .clk_i, .rst_ni,
       .rd_req_i(rd_req), .rd_addr_i(rd_addr), .rd_gnt_o(rd_gnt), .rd_rvalid_o(rd_rvalid), .rd_rdata_o(rd_rdata),
       .wr_req_i(wr_req), .wr_addr_i(wr_addr), .wr_be_i(wr_be), .wr_wdata_i(wr_wdata), .wr_gnt_o(wr_gnt),

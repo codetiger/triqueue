@@ -32,6 +32,12 @@ package tq_pkg;
   localparam int CFG_N      = 6;
   localparam int CFG_MODE   = 7;
 
+  // ---- MODE register bits (CFG_MODE, spec 6.1, 10.1) ----
+  localparam int MODE_A_SIGNED  = 0;
+  localparam int MODE_B_SIGNED  = 1;
+  localparam int MODE_OUT_INT8  = 2;   // 1: C written as int8, clip(acc >> shift, -128, 127), T lanes
+  localparam int MODE_SHIFT_LSB = 3;   // MODE[7:3]: right shift (0..31) for int8 output
+
   // ---- error codes (STATUS.err_code) ----
   localparam logic [3:0] ERR_NONE      = 4'd0;
   localparam logic [3:0] ERR_OPCODE    = 4'd1;  // undefined opcode

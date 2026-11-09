@@ -148,13 +148,13 @@ class TqTb:
             if val(d.wr_req_o) and wr_gnt:
                 addr, be, data = val(d.wr_addr_o), val(d.wr_be_o), val(d.wr_wdata_o)
                 raw = data.to_bytes(W, "little")
-                n = 0
-                for j in range(W):
-                    if be >> j & 1:
-                        mem[addr + j] = raw[j]
-                        n = j + 1
-                assert be == (1 << n) - 1, f"non-contiguous byte enables {be:#x}"
-                rec.writes.append((cyc, addr, n, raw[:n]))
+                assert addr % W == 0, f"unaligned wr_addr {addr:#x}"
+                lo = (be & -be).bit_length() - 1 if be else 0
+                n = be.bit_count()
+                assert lo in (0, self.T) and be == ((1 << n) - 1) << lo, f"non-contiguous byte enables {be:#x}"
+                for j in range(lo, lo + n):
+                    mem[addr + j] = raw[j]
+                rec.writes.append((cyc, addr + lo, n, raw[lo:lo + n]))
                 if wr_resp_latency is not None:
                     wr_due.append(absc + wr_resp_latency)
             # write responses for this cycle (one grant per cycle, so at most one is due)
@@ -338,37 +338,44 @@ class TqTbAxi(TqTbAxil):
             w = (val(d.m_wdata_o), val(d.m_wstrb_o), val(d.m_wlast_o)) if wv else None
             for name, now, held in (("AR", ar, held_ar), ("AW", aw, held_aw), ("W", w, held_w)):
                 assert held is None or now == held, f"cycle {cyc}: {name} changed or dropped before READY"
-            for x in (ar, aw):
-                assert x is None or (x[1], x[2], x[3]) == (0, size, 1), f"cycle {cyc}: not a 1-beat INCR of W bytes"
+            assert ar is None or (ar[2], ar[3]) == (size, 1), f"cycle {cyc}: bad AR size/burst {ar}"
+            assert aw is None or (aw[1], aw[2], aw[3]) == (0, size, 1), f"cycle {cyc}: not a 1-beat INCR AW"
             assert w is None or w[2] == 1
             held_ar = ar if ar and not rd_gnt else None
             held_aw = aw if aw and not wr_gnt else None
             held_w = w if w and not wr_gnt else None
             if ar and rd_gnt:
-                addr = ar[0]
-                r_due.append((absc + sram_lat, int.from_bytes(mem[addr:addr + W].tobytes(), "little")))
-                rec.reads.append((cyc, addr))
+                addr, beats = ar[0], ar[1] + 1
+                base_due = max(absc + sram_lat, r_due[-1][0] + 1 if r_due else 0)
+                for b in range(beats):
+                    ba = addr + b * W
+                    r_due.append((base_due + b, int.from_bytes(mem[ba:ba + W].tobytes(), "little"), int(b == beats - 1)))
+            if (ar and rd_gnt) if ar else val(core.rd_gnt_i):
+                rec.reads.append((cyc, val(core.rd_addr_o)))
             if (aw and wr_gnt) or (w and wr_gnt):
                 assert aw and w, f"cycle {cyc}: AW and W of a write accepted in different cycles"
                 addr, (data, be, _) = aw[0], w
                 raw = data.to_bytes(W, "little")
-                n = 0
-                for j in range(W):
-                    if be >> j & 1:
-                        mem[addr + j] = raw[j]
-                        n = j + 1
-                assert be == (1 << n) - 1, f"non-contiguous byte enables {be:#x}"
-                rec.writes.append((cyc, addr, n, raw[:n]))
+                assert addr % W == 0, f"unaligned wr_addr {addr:#x}"
+                lo = (be & -be).bit_length() - 1 if be else 0
+                n = be.bit_count()
+                assert lo in (0, self.T) and be == ((1 << n) - 1) << lo, f"non-contiguous byte enables {be:#x}"
+                for j in range(lo, lo + n):
+                    mem[addr + j] = raw[j]
+                rec.writes.append((cyc, addr + lo, n, raw[lo:lo + n]))
                 b_due.append(absc + wr_resp_latency)
             if val(core.mac_start):
                 rf, cf = val(core.beat_rf), val(core.beat_cf)
                 r, c = (self.T if rf else H), (self.T if cf else H)
                 rec.mac_starts.append((cyc, f"{r}x{c}x{self.T * self.T // (r * c)}"))
             if r_due and r_due[0][0] == absc:
+                _, rword, rlast = r_due.pop(0)
                 d.m_rvalid_i.value = 1
-                d.m_rdata_i.value = r_due.pop(0)[1]
+                d.m_rdata_i.value = rword
+                d.m_rlast_i.value = rlast
             else:
                 d.m_rvalid_i.value = 0
+                d.m_rlast_i.value = 1
             d.m_bvalid_i.value = int(bool(b_due) and b_due[0] == absc)
             d.m_bresp_i.value = 0
             if b_due and b_due[0] == absc:
@@ -382,7 +389,9 @@ class TqTbAxi(TqTbAxil):
         while r_due or b_due:                                  # in flight when the core stopped (error)
             d.m_rvalid_i.value = int(bool(r_due) and r_due[0][0] == absc)
             if r_due and r_due[0][0] == absc:
-                d.m_rdata_i.value = r_due.pop(0)[1]
+                _, rword, rlast = r_due.pop(0)
+                d.m_rdata_i.value = rword
+                d.m_rlast_i.value = rlast
             d.m_bvalid_i.value = int(bool(b_due) and b_due[0] == absc)
             if b_due and b_due[0] == absc:
                 b_due.pop(0)

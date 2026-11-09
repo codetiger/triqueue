@@ -61,8 +61,10 @@ enum tq_err {
 };
 
 // MODE bits (CFG register 7)
-#define TQ_MODE_A_SIGNED 0x1u
-#define TQ_MODE_B_SIGNED 0x2u
+#define TQ_MODE_A_SIGNED     0x1u
+#define TQ_MODE_B_SIGNED     0x2u
+#define TQ_MODE_OUT_INT8     0x4u
+#define TQ_MODE_OUT_SHIFT(s) (((uint32_t)(s) & 0x1Fu) << 3)
 
 // Size of the program tq_gemm_program builds: 8 x CFG (5 bytes) + 10-byte kernel.
 #define TQ_GEMM_PROGRAM_BYTES 50u
@@ -98,6 +100,7 @@ void tq_read_perf(volatile uint32_t *base, tq_perf *perf);
 // ---- host-side helpers (no device access) ----
 uint32_t tq_kp(uint32_t k);                                  // K padded to a multiple of 8
 uint32_t tq_c_ld(uint32_t n, uint32_t port_bytes);           // C row stride: 4n up to whole port words
+uint32_t tq_c_ld_int8(uint32_t n, uint32_t port_bytes);      // int8 C row stride: n up to whole port words
 size_t tq_packed_a_bytes(uint32_t m, uint32_t k, uint32_t tile);
 size_t tq_packed_b_bytes(uint32_t k, uint32_t n, uint32_t tile);
 // A (m x k, row stride lda bytes) -> column panels, B (k x n, row stride ldb bytes) -> row panels.

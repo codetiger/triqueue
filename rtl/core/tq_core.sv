@@ -24,6 +24,7 @@ module tq_core #(
     parameter int WR_OUT_MAX  = 15,    // WR_ACK: most writes granted and not yet complete
     parameter int PANEL_BYTES = 0,     // A panel buffer (tq_stream, spec 10.9); 0 = none
     parameter int MAC_PIPE    = 2,     // MAC stages (tq_mac_array): 2, or 1 without the product register
+    parameter bit PERF        = 1'b1,  // 1: five 32-bit performance counters; 0: tied to 0
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -193,17 +194,17 @@ module tq_core #(
   end
 
   // ---------------------------------------------------------------- MAC array
-  logic             prod_valid, prod_bank, clear_bank, clear_bank_sel, rd_bank, rd_half;
+  logic             prod_valid, prod_bank, clear_bank, clear_bank_sel, rd_bank;
   logic [$clog2(T)-1:0] rd_row;
-  logic [T/2*32-1:0] rd_val;
+  logic [T*32-1:0]  rd_val;
 
   tq_mac_array #(.T(T), .ACC_FORM(ACC_FORM), .CLK_GATE(CLK_GATE), .MAC_PIPE(MAC_PIPE)) u_array (
       .clk_i, .rst_ni,
       .beat_i(beat), .rfull_i(beat_rf), .cfull_i(beat_cf),
       .bank_i(beat_bank), .a_i(beat_a), .b_i(beat_b),
-      .a_signed_i(mode[0]), .b_signed_i(mode[1]),
+      .a_signed_i(mode[tq_pkg::MODE_A_SIGNED]), .b_signed_i(mode[tq_pkg::MODE_B_SIGNED]),
       .clear_all_i(is_zero || clear), .clear_bank_i(clear_bank), .clear_bank_sel_i(clear_bank_sel),
-      .rd_bank_i(rd_bank), .rd_row_i(rd_row), .rd_half_i(rd_half), .rd_val_o(rd_val),
+      .rd_bank_i(rd_bank), .rd_row_i(rd_row), .rd_val_o(rd_val),
       .prod_valid_o(prod_valid), .prod_bank_o(prod_bank));
 
   // ---------------------------------------------------------------- drain
@@ -212,8 +213,11 @@ module tq_core #(
       .clk_i, .rst_ni, .clear_i(clear),
       .start_i(is_swap), .start_bank_i(active_q), .c_addr_i(e0.c_addr),
       .rows_i(e0.rows), .cols_i(e0.cols), .c_ld_i(c_ld),
+      .c_base_err_i(c_base[$clog2(T):0] != '0),
+      .out_int8_i(mode[tq_pkg::MODE_OUT_INT8]),
+      .out_shift_i(mode[tq_pkg::MODE_SHIFT_LSB +: 5]),
       .prod_valid_i(prod_valid), .prod_bank_i(prod_bank),
-      .rd_bank_o(rd_bank), .rd_row_o(rd_row), .rd_half_o(rd_half), .rd_val_i(rd_val),
+      .rd_bank_o(rd_bank), .rd_row_o(rd_row), .rd_val_i(rd_val),
       .wr_valid_o(wr_pending), .wr_addr_o(wr_addr_o), .wr_be_o(wr_be_o), .wr_data_o(wr_wdata_o),
       .wr_fire_i(wr_fire),
       .clear_bank_o(clear_bank), .clear_bank_sel_o(clear_bank_sel),
@@ -303,18 +307,32 @@ module tq_core #(
 
   // ---------------------------------------------------------------- performance counters
   logic [31:0] pc_cyc_q, pc_ret_q, pc_beat_q, pc_rd_q, pc_wr_q;
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      pc_cyc_q <= '0; pc_ret_q <= '0; pc_beat_q <= '0; pc_rd_q <= '0; pc_wr_q <= '0;
-    end else if (start) begin
-      pc_cyc_q <= '0; pc_ret_q <= '0; pc_beat_q <= '0; pc_rd_q <= '0; pc_wr_q <= '0;
-    end else if (running_q) begin
-      pc_cyc_q  <= pc_cyc_q  + 32'd1;
-      pc_ret_q  <= pc_ret_q  + 32'(retire);
-      pc_beat_q <= pc_beat_q + 32'(beat);
-      pc_rd_q   <= pc_rd_q   + 32'(rd_fire);
-      pc_wr_q   <= pc_wr_q   + 32'(wr_fire);
+  if (PERF) begin : g_perf
+    logic gclk_perf;
+    tq_cg #(.EN(CLK_GATE)) u_cg_perf (.clk_i, .en_i(start || running_q), .gclk_o(gclk_perf));
+    always_ff @(posedge gclk_perf or negedge rst_ni) begin
+      if (!rst_ni) begin
+        pc_cyc_q <= '0; pc_ret_q <= '0; pc_beat_q <= '0; pc_rd_q <= '0; pc_wr_q <= '0;
+      end else if (start) begin
+        pc_cyc_q <= '0; pc_ret_q <= '0; pc_beat_q <= '0; pc_rd_q <= '0; pc_wr_q <= '0;
+      end else if (running_q || CLK_GATE) begin
+        pc_cyc_q  <= pc_cyc_q  + 32'd1;
+        pc_ret_q  <= pc_ret_q  + 32'(retire);
+        pc_beat_q <= pc_beat_q + 32'(beat);
+        pc_rd_q   <= pc_rd_q   + 32'(rd_fire);
+        pc_wr_q   <= pc_wr_q   + 32'(wr_fire);
+      end
     end
+  end else begin : g_no_perf
+    assign pc_cyc_q  = '0;
+    assign pc_ret_q  = '0;
+    assign pc_beat_q = '0;
+    assign pc_rd_q   = '0;
+    assign pc_wr_q   = '0;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_perf;
+    assign unused_perf = ^{retire, rd_fire};
+    /* verilator lint_on UNUSEDSIGNAL */
   end
   assign perf_cycles_o  = pc_cyc_q;
   assign perf_instret_o = pc_ret_q;

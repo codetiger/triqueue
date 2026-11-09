@@ -89,18 +89,21 @@ def first_diff(xs, ys):
 async def gemm_cases(dut):
     params = json.loads(os.environ["TQ_PARAMS"])
     cases = json.loads(os.environ["TQ_CASES"])
-    tb = {"axil": TqTbAxil, "axi": TqTbAxi, "xif": TqTbXif}.get(os.environ.get("TQ_HOST"), TqTb)(dut, params["tile"])
+    host = os.environ.get("TQ_HOST")
+    burst = host == "axi_burst"
+    tb = {"axil": TqTbAxil, "axi": TqTbAxi, "axi_burst": TqTbAxi, "xif": TqTbXif}.get(host, TqTb)(dut, params["tile"])
     await tb.start()
     failures = []
     for case in cases:
         stall = case.get("stall", 0.0)
         p = Params(**params, mem_latency=case["lat"], gnt_stall=stall, gnt_seed=case["seed"],
+                   **({"out_bytes": 1, "out_shift": case["shift"]} if "shift" in case else {}),
                    **({"wr_resp_latency": case["wr_lat"]} if "wr_lat" in case else {}))
         a, b = operands(case)
         mem0, prog, layout, mem_model, s, ev = model_run(a, b, p, case)
         mem = mem0.copy()
         name = f"{case['m']}x{case['n']}x{case['k']} {case['a']}/{case['b']} lat={case['lat']}"
-        for key in ("prog", "misalign", "prog_poke"):
+        for key in ("prog", "misalign", "prog_poke", "shift"):
             if key in case:
                 name += f" {key}={case[key]}"
         if case.get("stall"):
@@ -121,20 +124,29 @@ async def gemm_cases(dut):
                 await tb.reg_write(0xFFC, 0, 0)
             continue
         errs = []
-        if not s.error and "misalign" not in case and not np.array_equal(read_c(mem, layout), reference(a, b)):
+        want = (np.clip(reference(a, b) >> p.out_shift, -128, 127).astype(np.int8)
+                if p.out_bytes == 1 else reference(a, b))
+        if not s.error and "misalign" not in case and not np.array_equal(read_c(mem, layout), want):
             errs.append("C differs from numpy")
         if not np.array_equal(mem, mem_model):
             errs.append("final memory differs from model")
-        checks = (("reads", rec.reads, ev["rd"]), ("writes", rec.writes, ev["wr"]),
-                  ("mac starts", rec.mac_starts, ev["start"]))
+        if burst:
+            b0 = layout["b_base"]
+            checks = (("reads A", [a for _, a in rec.reads if a < b0], [a for _, a in ev["rd"] if a < b0]),
+                      ("reads B", [a for _, a in rec.reads if a >= b0], [a for _, a in ev["rd"] if a >= b0]),
+                      ("writes", [w[1:] for w in rec.writes], [w[1:] for w in ev["wr"]]),
+                      ("mac starts", [m for _, m in rec.mac_starts], [m for _, m in ev["start"]]))
+        else:
+            checks = (("reads", rec.reads, ev["rd"]), ("writes", rec.writes, ev["wr"]),
+                      ("mac starts", rec.mac_starts, ev["start"]))
         for label, xs, ys in checks:
             d = first_diff(xs, ys)
             if d:
                 errs.append(f"{label} {d}")
         expect = {"instret": s.instructions, "beats": s.beats, "reads": s.read_vectors,
-                  "writes": s.write_vectors, "cycles": s.cycles}
+                  "writes": s.write_vectors, "cycles": rec.cycles if burst else s.cycles}
         got = dict(rec.perf)
-        if rec.cycles != s.cycles:
+        if not burst and rec.cycles != s.cycles:
             errs.append(f"busy cycles rtl {rec.cycles} vs model {s.cycles}")
         for k_, v in expect.items():
             if got[k_] != v:

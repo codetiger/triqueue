@@ -77,6 +77,10 @@ uint32_t tq_c_ld(uint32_t n, uint32_t port_bytes) {
     return (4u * n + port_bytes - 1u) / port_bytes * port_bytes;
 }
 
+uint32_t tq_c_ld_int8(uint32_t n, uint32_t port_bytes) {
+    return (n + port_bytes - 1u) / port_bytes * port_bytes;
+}
+
 // A panel is T wide, or T/2 for a final panel with at most T/2 rows (cols) left.
 static uint32_t panel_width(uint32_t left, uint32_t tile) { return left <= tile / 2u ? tile / 2u : tile; }
 

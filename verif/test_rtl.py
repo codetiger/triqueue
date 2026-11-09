@@ -50,12 +50,15 @@ CONFIGS = {
         dict(tile=8),
         edge_cases(8, (1, 7, 8, 9, 33)) + signedness(8) + latency_sweep(8)
         + [case(64, 64, 64), case(60, 60, 60), case(64, 64, 8), case(64, 64, 16),
-           case(1, 64, 64), case(64, 1, 64), case(3, 3, 3), case(20, 24, 27, "s8", "u8")],
+           case(1, 64, 64), case(64, 1, 64), case(3, 3, 3), case(20, 24, 27, "s8", "u8")]
+        + [dict(c, shift=sh) for c, sh in zip(edge_cases(8, (1, 9)), itertools.cycle((0, 1, 6, 12, 31)))]
+        + [dict(case(64, 64, 8), shift=5), dict(case(64, 64, 16), shift=6), dict(case(20, 24, 27, "s8", "u8"), shift=7)],
     ),
     "t8_shared_port": (
         dict(T=8, SHARED_PORT=1),
         dict(tile=8, shared_port=True),
-        edge_cases(8, (9,)) + latency_sweep(8, (1, 2, 6)) + [case(64, 64, 64), case(32, 32, 8)],
+        edge_cases(8, (9,)) + latency_sweep(8, (1, 2, 6)) + [case(64, 64, 64), case(32, 32, 8)]
+        + [dict(case(64, 64, 64), shift=8), dict(case(20, 24, 27), shift=6), dict(case(9, 13, 9), shift=4)],
     ),
     "t8_small_queues": (
         dict(T=8, FIFO_DEPTH=2, MACQ_DEPTH=2, SCMD_DEPTH=2),
@@ -67,7 +70,8 @@ CONFIGS = {
         dict(tile=8),
         [dict(c, stall=s) for c in edge_cases(8, (9, 33))[::3] for s in (0.3,)]
         + [case(m, n, k, lat=lat, stall=s) for (m, n, k) in ((20, 24, 27), (33, 17, 40), (64, 64, 32))
-           for lat in (1, 2, 6) for s in (0.1, 0.5, 0.8)],
+           for lat in (1, 2, 6) for s in (0.1, 0.5, 0.8)]
+        + [dict(case(20, 24, 27, lat=2, stall=0.4), shift=6), dict(case(33, 17, 16, lat=3, stall=0.5), shift=5)],
     ),
     "t8_shared_backpressure": (
         dict(T=8, SHARED_PORT=1),
@@ -79,7 +83,8 @@ CONFIGS = {
         dict(T=8, ACC_FORM=0),
         dict(tile=8),
         edge_cases(8, (1, 9, 33)) + signedness(8)
-        + [case(64, 64, 64), case(64, 64, 8), case(1, 64, 64), case(20, 24, 27, lat=3, stall=0.4)],
+        + [case(64, 64, 64), case(64, 64, 8), case(1, 64, 64), case(20, 24, 27, lat=3, stall=0.4)]
+        + [dict(case(64, 64, 8), shift=5), dict(case(20, 24, 27, lat=3, stall=0.4), shift=6)],
     ),
     "t8_reference_queues": (
         dict(T=8, FIFO_DEPTH=4, MACQ_DEPTH=3),
@@ -95,7 +100,8 @@ CONFIGS = {
          ("opcode", "cfg_reg", "cfg_loop", "loop_depth", "second_loop_t", "pc", "zero_in_drain")]
         + [dict(case(20, 24, 27, lat=lat, stall=0.3), prog="zero_in_drain") for lat in (1, 4)]
         + [dict(case(20, 24, 27), misalign=f) for f in ("a_base", "b_base", "c_base", "c_ld")]
-        + [case(9, 13, 0), case(16, 16, 0, lat=3), case(1, 1, 0)]
+        + [dict(case(20, 24, 27), misalign="c_base", shift=6), dict(case(20, 24, 27), misalign="c_ld", shift=6)]
+        + [case(9, 13, 0), dict(case(9, 13, 0), shift=4), case(16, 16, 0, lat=3), case(1, 1, 0)]
         + [dict(case(64, 64, 64), prog_poke=True), dict(case(20, 24, 27, stall=0.4), prog_poke=True)]
         + [case(20, 24, 27)],                          # a normal run after the errors
     ),
@@ -180,8 +186,17 @@ CONFIGS = {
         [dict(c, wr_lat=wl) for c in edge_cases(8, (9,))[::4] for wl in (1, 3)]
         + [dict(case(m, n, k, lat=lat, stall=s), wr_lat=wl) for (m, n, k) in ((64, 64, 64), (20, 24, 27))
            for lat, s, wl in ((2, 0.0, 1), (3, 0.5, 6), (1, 0.8, 20))]
+        + [dict(case(20, 24, 27, lat=2, stall=0.3), wr_lat=3, shift=6), dict(case(64, 64, 8), wr_lat=1, shift=5)]
         # an SLVERR write response sets STATUS.BUS_ERR, and the next START clears it
         + [dict(case(20, 24, 27), wr_lat=2, bus_err=3), dict(case(9, 9, 9), wr_lat=1)],
+    ),
+    "t8_axi_burst": (
+        dict(T=8, BURST_BEATS=4),
+        dict(tile=8, wr_ack=True, wr_out_max=16),
+        [dict(c, wr_lat=2) for c in edge_cases(8, (9,))[::4]]
+        + [dict(case(64, 64, 64, lat=8), wr_lat=2),
+           dict(case(20, 24, 27, lat=4, stall=0.3), wr_lat=3, shift=6),
+           dict(case(64, 64, 8, lat=2), wr_lat=1, shift=5)],
     ),
     "t32": (
         dict(T=32),
@@ -192,18 +207,21 @@ CONFIGS = {
     "t16": (
         dict(T=16),
         dict(tile=16),
-        edge_cases(16, (1, 9, 40)) + signedness(16) + latency_sweep(16, (1, 2, 7)) + [case(64, 64, 64)],
+        edge_cases(16, (1, 9, 40)) + signedness(16) + latency_sweep(16, (1, 2, 7)) + [case(64, 64, 64)]
+        + [dict(case(37, 41, 16), shift=6), dict(case(64, 64, 8), shift=5)],
     ),
     "t4": (
         dict(T=4),
         dict(tile=4),
-        edge_cases(4, (1, 8, 9, 33)) + latency_sweep(4, (1, 2, 5)) + [case(16, 16, 16)],
+        edge_cases(4, (1, 8, 9, 33)) + latency_sweep(4, (1, 2, 5)) + [case(16, 16, 16)]
+        + [dict(case(9, 13, 8), shift=4), dict(case(16, 16, 8), shift=5)],
     ),
 }
 
 
 # configurations whose top level is not tq_top (the testbench host driver follows it)
-TOPS = {"t8_axil": ("tq_top_axil", "axil"), "t8_axi": ("tq_top_axi", "axi"), "t8_xif": ("tq_top_xif", "xif")}
+TOPS = {"t8_axil": ("tq_top_axil", "axil"), "t8_axi": ("tq_top_axi", "axi"),
+        "t8_axi_burst": ("tq_top_axi", "axi_burst"), "t8_xif": ("tq_top_xif", "xif")}
 
 
 @pytest.mark.parametrize("name", list(CONFIGS))

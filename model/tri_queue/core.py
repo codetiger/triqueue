@@ -34,8 +34,8 @@ Modelling assumptions (stated in model/README.md):
     from the buffer, one W-byte vector per cycle without using the memory port. QA receives its
     vectors in order: a replay waits until no A read is in flight, and an A read waits until no
     replayed vector is.
-  * Output requantization study (out_bytes, out_shift, drain_lanes; no ISA or RTL): C as int8 =
-    clip(acc >> out_shift, -128, 127), drain_lanes values per drain write (default W / 4).
+  * Output requantization (MODE_OUT_INT8, spec 6.1, 10.1): C as int8 =
+    clip(acc >> out_shift, -128, 127), T values per drain write by default (drain_lanes overrides).
   * Write completion: by default a write is complete when granted (SRAM). With wr_ack (an
     interconnect such as AXI, where a write completes at its B response) each granted write
     completes wr_resp_latency cycles later, FENCE waits until none is outstanding, and no new
@@ -74,9 +74,9 @@ class Params:
     prog_bytes: int = 64         # program buffer (PROG_BYTES); the program is NOP-padded to it
     panel_bytes: int = 0         # A panel buffer (spec 10.9): 0 = none; else replays an A panel that fits
     panel_latency: int = 2       # panel buffer read -> data in QA (a 1-cycle buffer + the FIFO write)
-    # Output requantization study (decision 0007; model only, no ISA or RTL): out_bytes = 1 writes
-    # C as int8, clip(acc >> out_shift, -128, 127); drain_lanes = values the drain reads per cycle
-    # (0: one port word of int32, W / 4, the RTL's CPA lanes).
+    # Output requantization (spec 6.1, 10.1): out_bytes = 1 sets MODE_OUT_INT8 with out_shift in
+    # build_gemm, writing C as int8 = clip(acc >> out_shift, -128, 127); drain_lanes overrides the
+    # values the drain reads per cycle (0: RTL default, W/4 for int32 and T for int8).
     out_bytes: int = 4
     out_shift: int = 8
     drain_lanes: int = 0
@@ -87,7 +87,7 @@ class Params:
         assert self.tile >= 4 and self.tile & (self.tile - 1) == 0, "tile must be a power of two >= 4"
         assert self.port_bytes >= 4 and self.port_bytes % 4 == 0, "port must hold whole int32 lanes"
         assert 0.0 <= self.gnt_stall < 1.0, "gnt_stall must be in [0, 1)"
-        assert self.out_bytes in (1, 4) and self.drain_lanes >= 0
+        assert self.out_bytes in (1, 4) and 0 <= self.out_shift < 32 and self.drain_lanes >= 0
         assert self.wr_resp_latency >= 0 and self.wr_out_max >= 1
 
 
@@ -397,15 +397,19 @@ class TriQueueCore:
 
     def start_drain(self, bank, tile):
         m, n, *_ = self.dims
-        T, ob = self.T, self.p.out_bytes
+        mode = self.cfg[isa.MODE]
+        int8_mode = bool(mode & isa.MODE_OUT_INT8)
+        T = self.T
+        ob = 1 if int8_mode else self.p.out_bytes
+        shift = ((mode >> isa.MODE_OUT_SHIFT) & 0x1F) if int8_mode else self.p.out_shift
+        default_lanes = T if ob == 1 else self.W // 4
         # values per drain write: what fits a port word, limited by the drain's read lanes
-        lanes_per_write = min(self.W // ob, self.p.drain_lanes or self.W // 4)
+        lanes_per_write = min(self.W // ob, self.p.drain_lanes or default_lanes)
         ti, tj = self.tile_coords(tile)
         rows, cols = min(T, m - T * ti), min(T, n - T * tj)
         vals = (self.sum[bank] + self.carry[bank]).view(np.int32)  # CPA, wraps mod 2^32
         base = self.cfg[isa.C_BASE] + T * ti * self.cfg[isa.C_LD] + ob * T * tj
-        # RTL: the tile's C address and C_LD, W-aligned. With W = 2T that is C_BASE and C_LD;
-        # a wider model port (a DSE knob) may leave tile addresses unaligned, which is allowed.
+        # RTL: C_BASE and C_LD are W-aligned.
         if self.cfg[isa.C_BASE] % self.W or self.cfg[isa.C_LD] % self.W:
             self.err_align = True                # ERR_ALIGN at the end of this cycle
         writes = deque()
@@ -414,7 +418,7 @@ class TriQueueCore:
                 lo = lanes_per_write * v
                 lanes = min(lanes_per_write, cols - lo)
                 v = vals[rr, lo:lo + lanes]
-                data = (np.clip(v >> self.p.out_shift, -128, 127).astype(np.int8).tobytes() if ob == 1
+                data = (np.clip(v >> shift, -128, 127).astype(np.int8).tobytes() if ob == 1
                         else v.astype("<i4").tobytes())
                 writes.append((base + rr * self.cfg[isa.C_LD] + ob * lo, data))
         ready = max(self.cycle, self.last_write[bank]) + self.p.cpa_latency
@@ -663,6 +667,8 @@ def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None):
     mem[a_base:a_base + len(pa)] = pa
     mem[b_base:b_base + len(pb)] = pb
     mode = (isa.MODE_A_SIGNED if a.dtype == np.int8 else 0) | (isa.MODE_B_SIGNED if b.dtype == np.int8 else 0)
+    if p.out_bytes == 1:
+        mode |= isa.mode_out_int8(p.out_shift)
     prog = isa.gemm_config(a_base, b_base, c_base, c_ld, k, m, n, mode) + isa.gemm_kernel()
     layout = dict(m=m, n=n, k=k, a_base=a_base, b_base=b_base, c_base=c_base, c_ld=c_ld, mode=mode,
                   out_bytes=p.out_bytes)

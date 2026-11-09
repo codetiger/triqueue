@@ -21,6 +21,14 @@ A_BASE, B_BASE, C_BASE, C_LD, K, M, N, MODE = range(8)
 ERR_NONE, ERR_OPCODE, ERR_CFG_REG, ERR_LOOP, ERR_CFG_LOOP, ERR_PC, ERR_ALIGN = range(7)
 MODE_A_SIGNED = 0x1
 MODE_B_SIGNED = 0x2
+MODE_OUT_INT8 = 0x4
+MODE_OUT_SHIFT = 3
+
+
+def mode_out_int8(shift: int = 0) -> int:
+    """MODE bits for int8 output: clip(acc >> shift, -128, 127), 0 <= shift < 32."""
+    assert 0 <= shift < 32
+    return MODE_OUT_INT8 | (shift << MODE_OUT_SHIFT)
 
 # VOUTER_MAC argument
 AUTO = 0x8

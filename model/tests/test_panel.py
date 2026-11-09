@@ -67,8 +67,8 @@ def test_off_by_default():
     assert s.panel_hits == 0 and s.panel_vectors == 0
 
 
-# ---- output requantization study knobs (decision 0007; model only) -----------------------------
-@pytest.mark.parametrize("lanes", [0, 8, 16])
+# ---- output requantization (MODE_OUT_INT8, spec 6.1, 10.1) -------------------------------------
+@pytest.mark.parametrize("lanes", [0, 4, 8, 16])
 @pytest.mark.parametrize("shared", [False, True])
 def test_int8_output_is_requantized_c(lanes, shared):
     rng = np.random.default_rng(lanes + shared)
@@ -78,6 +78,28 @@ def test_int8_output_is_requantized_c(lanes, shared):
     want = np.clip(reference(a, b) >> 6, -128, 127).astype(np.int8)
     assert np.array_equal(c, want)
     assert s.write_bytes == 37 * 41
+
+
+@pytest.mark.parametrize("shift", [0, 1, 7, 15, 31])
+@pytest.mark.parametrize("tile", [4, 8, 16])
+def test_int8_output_shifts_and_edge_tiles(shift, tile):
+    rng = np.random.default_rng(shift * 17 + tile)
+    m, n, k = tile + 3, 2 * tile + 1, 19
+    a, b = rand(rng, (m, k), np.int8), rand(rng, (k, n), np.uint8)
+    c, s = run_gemm(a, b, Params(tile=tile, out_bytes=1, out_shift=shift))
+    want = np.clip(reference(a, b) >> shift, -128, 127).astype(np.int8)
+    assert np.array_equal(c, want)
+    assert s.write_bytes == m * n
+
+
+def test_int8_output_halves_drain_writes_and_lifts_small_k():
+    rng = np.random.default_rng(9)
+    a, b = rand(rng, (64, 8), np.int8), rand(rng, (8, 64), np.int8)
+    _, s32 = run_gemm(a, b, Params())
+    c8, s8 = run_gemm(a, b, Params(out_bytes=1, out_shift=5))
+    assert np.array_equal(c8, np.clip(reference(a, b) >> 5, -128, 127).astype(np.int8))
+    assert s32.write_vectors == 64 * 16 and s8.write_vectors == 64 * 8
+    assert s32.utilization < 0.47 and s8.utilization > 0.85
 
 
 def test_int32_default_unchanged_by_study_knobs():

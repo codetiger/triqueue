@@ -10,7 +10,7 @@ YOSYS     ?= yosys
 SBY       ?= sby
 
 RTL       := $(shell cat rtl/files.f)
-LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GPANEL_BYTES=1024" "-GMAC_PIPE=1" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
+LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GPANEL_BYTES=1024" "-GMAC_PIPE=1" "-GPERF=0" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
 ACC_FORMS := cpa:1 csa:0
 
 .PHONY: all model-test sw-test model-results flow-results rtl-lint rtl-test formal formal-nightly synth-check fpga ui-data ui-serve clean
@@ -44,6 +44,9 @@ rtl-lint:
 	  echo "yosys elaborate $$t"; $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); \
 	    hierarchy -check -top $$t; proc; check -assert" || exit 1; \
 	done
+	@echo "verilator lint tq_top_axi -GBURST_BEATS=4"; $(VERILATOR) --lint-only -Wall -f rtl/files.f --top-module tq_top_axi -GBURST_BEATS=4 || exit 1
+	@echo "yosys elaborate tq_top_axi BURST_BEATS=4"; $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); \
+	  chparam -set BURST_BEATS 4 tq_top_axi; hierarchy -check -top tq_top_axi; proc; check -assert" || exit 1
 	@for f in $(ACC_FORMS); do \
 	  echo "yosys elaborate ACC_FORM=$${f#*:}"; \
 	  $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); chparam -set ACC_FORM $${f#*:} tq_top; \
@@ -56,7 +59,7 @@ rtl-test:
 # formal: clock-gating template (pattern check + tq_cg.sby), FIFO, AXI4-Lite and CV-X-IF adapters, AXI master covers, core proof (split port). formal-nightly: core proof, shared port (1-80 min, varies widely).
 formal:
 	$(PYTHON) verif/formal/check_cg_pattern.py
-	cd verif/formal && $(SBY) -f tq_cg.sby && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_xif_regs.sby && $(SBY) -f tq_axi_mem.sby cover && $(SBY) -f tq_core.sby split
+	cd verif/formal && $(SBY) -f tq_cg.sby && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_xif_regs.sby && $(SBY) -f tq_axi_mem.sby cover burst && $(SBY) -f tq_core.sby split
 
 formal-nightly:
 	cd verif/formal && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_core.sby panel && $(SBY) -f tq_axi_mem.sby prove

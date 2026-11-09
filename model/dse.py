@@ -211,8 +211,8 @@ for m, n, k in shapes("dse"):
 w("")
 
 # 8. output requantization (decision 0007, spec 10.1): int8 C and the drain's lanes
-OUTS = (("int32, W/4 lanes (RTL)", dict()), ("int8, W/4 lanes", dict(out_bytes=1)),
-        ("int8, T lanes", None))
+OUTS = (("int32, W/4 lanes (RTL)", dict()), ("int8, W/4 lanes", "w4"),
+        ("int8, T lanes", dict(out_bytes=1)))
 w("## 8. Output requantization (spec §10.1)\n")
 w("C written as int8 (a saturating shift stands in for the scale; model only) and the number of values "
   "the drain reads per cycle. W/4 lanes is the RTL's drain (one port word of int32 per cycle); T lanes "
@@ -225,7 +225,7 @@ for t in TILES[:2]:
             m = n = 8 * t
             cells, writes = [], []
             for name, kw in OUTS:
-                kw = dict(out_bytes=1, drain_lanes=t) if kw is None else kw
+                kw = dict(out_bytes=1, drain_lanes=t // 2) if kw == "w4" else kw
                 st = gemm(m, n, k, Params(tile=t, shared_port=shared, **kw))
                 cells.append(pct(st.utilization))
                 writes.append(st.write_vectors // ((m // t) * (n // t)))

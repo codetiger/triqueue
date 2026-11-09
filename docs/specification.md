@@ -269,7 +269,7 @@ Encoding: `opcode [7:4] | arg [3:0]`. `CFG` is the only multi-byte instruction.
 | 4 | `K` | Inner dimension. Kp and the loop counts are derived from it. K = 0 is a valid GEMM: the panels are empty and C is written with zeros. |
 | 5 | `M` | Rows of A and C: sets the tile count, `AUTO` shapes and edge masks |
 | 6 | `N` | Columns of B and C, used the same way |
-| 7 | `MODE` | bit 0: A signed, bit 1: B signed. Other bits are reserved (output requantization, §10.1). |
+| 7 | `MODE` | bit 0: A signed, bit 1: B signed, bit 2: int8 output, bits [7:3]: unsigned right shift (0–31) before saturating int8 clamp (§10.1). |
 
 Tile walk: row-major over the ⌈M/T⌉ × ⌈N/T⌉ tiles. Tile (ti, tj) writes to `C_BASE + T·ti·C_LD + 4T·tj` (T = 8: `C_BASE + 8·ti·C_LD + 32·tj`).
 
@@ -433,13 +433,13 @@ The model and the RTL take T as a parameter (`model/dse.md`). The RTL is verifie
 
 | Block | Contents |
 | --- | --- |
-| Multiplier array | 64 × 9×9 signed multipliers, 18-bit output, 1 pipeline stage |
+| Multiplier array | 64 × 9×9 signed multipliers, 17-bit output, 1 pipeline stage |
 | Accumulate cells | 64 cells, shared by both banks, each a 32-bit adder of its products and the stored value: 16 × 4 products (TL), 32 × 2 (TR, BL), 16 × 1 (BR) |
 | Accumulator storage | 2 banks × 64 × 32-bit flops |
 | Operand routing | Per-quadrant mux selecting 4 A bytes and 4 B bytes from up to 4 k offsets (k-depth modes) |
-| Drain unit | Staging register, edge-mask byte enables, C address generator (4 × 32-bit CPA in the carry-save option) |
+| Drain unit | Staging register, T-lane saturating int8 shift/clamp, edge-mask byte enables, C address generator (T × 32-bit CPA in the carry-save option) |
 | Stream engine | 2 increment-only panel walkers, A/B arbiter on one read port, 2-deep command queues |
-| Pipeline registers | Product register (64 × 18 b) and beat-1 operand register (2 × 32 B), so a beat's multiply and accumulate take one stage each |
+| Pipeline registers | Product register (64 × 17 b) and beat-1 operand register (2 × 32 B), so a beat's multiply and accumulate take one stage each |
 | Clock gates | One integrated clock-gating cell per register group (§10.8): 8 on the accumulator banks (bank × quadrant), 4 on the product register, 1 on the beat-1 operands, 1 per queue entry, 1 on the drain staging register, 1 per program-buffer byte. 93 at T = 8 with the reference queues |
 | Control | 4-bit opcode decoder, 4-deep MAC command queue, 2-level loop counters, 64-byte program buffer (holds `CFG` + kernel, so the loop body is never refetched), tile walker with running address offsets (no multipliers), AUTO shape logic |
 | Not needed | Register file, operand crossbar, rename or scoreboard, branch unit |
