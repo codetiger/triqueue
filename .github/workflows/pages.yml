@@ -1,0 +1,76 @@
+name: pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "ui/**"
+      - "model/**"
+      - "flow/records/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Regenerate cycle-exact UI traces and PPA records
+        run: python ui/pipeline/build_ui_data.py
+
+      - name: Verify UI JavaScript syntax and data bundles
+        run: |
+          node --check ui/app.js
+          node --check ui/chip3d.js
+          test -s ui/data/traces_data.js
+          test -s ui/data/chip_asap7.js
+          test -s ui/data/chip_sky130hd.js
+          test -s ui/data/ppa_records.js
+
+      - name: Stage static site bundle
+        run: |
+          rm -rf _site
+          mkdir -p _site/data
+          cp ui/index.html ui/styles.css ui/app.js ui/chip3d.js _site/
+          cp ui/data/*.js _site/data/
+          touch _site/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "_site"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

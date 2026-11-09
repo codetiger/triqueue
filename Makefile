@@ -13,7 +13,7 @@ RTL       := $(shell cat rtl/files.f)
 LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GPANEL_BYTES=1024" "-GMAC_PIPE=1" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
 ACC_FORMS := cpa:1 csa:0
 
-.PHONY: all model-test sw-test model-results flow-results rtl-lint rtl-test formal formal-nightly synth-check fpga clean
+.PHONY: all model-test sw-test model-results flow-results rtl-lint rtl-test formal formal-nightly synth-check fpga ui-data ui-serve clean
 
 all: model-test sw-test rtl-lint rtl-test formal synth-check
 
@@ -78,6 +78,13 @@ synth-check:
 # ECP5 out-of-context build (flow/fpga, needs nextpnr-ecp5; not part of all)
 fpga:
 	$(PYTHON) flow/fpga/fpga.py all t8_cpa
+
+# Interactive RTL-to-Silicon UI Pipeline (ui/)
+ui-data:
+	$(PYTHON) ui/pipeline/build_ui_data.py
+
+ui-serve:
+	$(PYTHON) -m http.server 8080 --directory ui
 
 clean:
 	rm -rf build verif/formal/tq_fifo verif/formal/tq_fifo_* verif/formal/tq_core verif/formal/tq_core_*/ verif/formal/tq_axil_regs verif/formal/tq_axil_regs_*/ verif/formal/tq_xif_regs verif/formal/tq_xif_regs_*/ verif/formal/tq_axi_mem verif/formal/tq_axi_mem_*/ verif/formal/tq_cg verif/formal/tq_cg_*/
