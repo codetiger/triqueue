@@ -9,6 +9,8 @@
 //   2. tq_pack_a/b()         pack A and B into the core's panel layout in its SRAM (spec 5.3)
 //   3. tq_gemm_program()     build the 50-byte program: 8 CFG + the 10-byte kernel (spec 6.2)
 //   4. tq_run()              load the program, START, wait for DONE (polling)
+// Set TQ_MODE_OUT_INT8 | TQ_MODE_OUT_SHIFT(s) to write C as saturating int8 and use
+// tq_c_ld_int8(); the one-call GEMM API writes int32 only.
 // Registers are memory-mapped at `base`; with -DTQ_XIF they are reached with the CV-X-IF
 // instructions tq.wr / tq.rd (rtl/adapters/tq_xif_regs.sv) and `base` is ignored.
 // C rows are tq_c_ld() bytes apart (padded to whole port words). The addresses given to the

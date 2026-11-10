@@ -13,9 +13,9 @@ RTL       := $(shell cat rtl/files.f)
 LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GPANEL_BYTES=1024" "-GMAC_PIPE=1" "-GPERF=0" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
 ACC_FORMS := cpa:1 csa:0
 
-.PHONY: all model-test sw-test model-results flow-results lock-check rtl-lint rtl-test formal formal-nightly synth-check fpga ui-data ui-serve clean
+.PHONY: all model-test sw-test model-results flow-results lock-check spdx-check rtl-lint rtl-test formal formal-nightly synth-check fpga ui-data ui-serve clean
 
-all: model-test sw-test lock-check rtl-lint rtl-test formal synth-check
+all: model-test sw-test spdx-check lock-check rtl-lint rtl-test formal synth-check
 
 model-test:
 	cd model && $(PYTHON) -m pytest -q
@@ -23,6 +23,10 @@ model-test:
 # C driver (sw/) checked against the model's program builder and packing
 sw-test:
 	$(PYTHON) -m pytest sw -q
+
+# Every checked-in source/config file carries an SPDX license identifier
+spdx-check:
+	$(PYTHON) tools/check_spdx.py
 
 model-results:
 	cd model && $(PYTHON) bench.py > /dev/null && $(PYTHON) dse.py > /dev/null

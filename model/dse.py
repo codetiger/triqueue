@@ -38,7 +38,7 @@ def pct(x):
     return f"{100 * x:.1f}%"
 
 
-MCMD_BITS = 52   # MAC command queue entry in RTL v0 (rtl/core/tq_pkg.sv, MCMD_W)
+MCMD_BITS = 52   # MAC command queue entry in RTL v1 (rtl/core/tq_pkg.sv, MCMD_W)
 ACC_BITS = 32    # accumulator bits per cell and bank: plain 32-bit adder, the RTL default
                  # (ACC_FORM = ACC_CPA, spec 10.2); the carry-save form stores 64 (sum + carry)
 
@@ -210,13 +210,13 @@ for m, n, k in shapes("dse"):
       f"{s0.read_bytes / 1024:.1f} | {s1.read_bytes / 1024:.1f} |")
 w("")
 
-# 8. output requantization (decision 0007, spec 10.1): int8 C and the drain's lanes
-OUTS = (("int32, W/4 lanes (RTL)", dict()), ("int8, W/4 lanes", "w4"),
-        ("int8, T lanes", dict(out_bytes=1)))
+# 8. output requantization (spec 10.1): int8 C and the drain's lanes
+OUTS = (("int32, W/4 lanes (RTL int32)", dict()), ("int8, W/4 lanes (study)", "w4"),
+        ("int8, T lanes (RTL int8)", dict(out_bytes=1)))
 w("## 8. Output requantization (spec §10.1)\n")
-w("C written as int8 (a saturating shift stands in for the scale; model only) and the number of values "
-  "the drain reads per cycle. W/4 lanes is the RTL's drain (one port word of int32 per cycle); T lanes "
-  "drains one tile row per cycle. Utilization, and drain write transactions per tile.\n")
+w("The RTL implements int8 output with T lanes (`MODE[2]`); the W/4-lane int8 column is a study. "
+  "The scale is a saturating arithmetic shift, not a per-tensor multiplier. Utilization and drain "
+  "write transactions per tile.\n")
 w("| T | Port | M×N×K | " + " | ".join(name for name, _ in OUTS) + " | Writes per tile (int32 → int8, T lanes) |")
 w("| --- | --- | --- |" + " --- |" * len(OUTS) + " --- |")
 for t in TILES[:2]:

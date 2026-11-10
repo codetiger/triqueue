@@ -47,7 +47,7 @@ python3 flow/ppa.py sweep asap7 t8_cpa 950 900 850   # clock sweep: one run per 
 python3 flow/ppa.py sweep-util asap7 t8_cpa 60 66 72 # utilization sweep in isolated <config>_u<util> dirs
 python3 flow/power.py sky130hd t8_cpa gemm64         # after the flow: activity-based power
 python3 flow/results.py collect sky130hd t8_cpa      # record the run, rewrite results.md
-python3 flow/release_layout.py --version v0.2.0      # extract 100% 1:1 3D layouts & update LAYOUT_LOCK.json
+python3 flow/release_layout.py --version v1.0.0      # extract 100% 1:1 3D layouts & update LAYOUT_LOCK.json
 python3 flow/check_lock.py                           # verify SHA-256 lock (run by `make` and CI)
 ```
 

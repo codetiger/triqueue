@@ -36,7 +36,7 @@ Defaults: 64 int8 MACs, 128-bit read port, separate write port, memory latency 2
 
 ## 3. Drain hiding vs K (64×64×K)
 
-Spec claim: the 16-cycle drain hides under compute only when K ≥ 16.
+Spec claim: the 16-write drain hides under compute once Kp ≥ 24.
 
 | K | Cycles | Utilization | wait_drain cycles |
 | --- | --- | --- | --- |

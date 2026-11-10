@@ -161,9 +161,9 @@ Per shape (tag `dse`), T = 8, 4 KiB:
 
 ## 8. Output requantization (spec §10.1)
 
-C written as int8 (a saturating shift stands in for the scale; model only) and the number of values the drain reads per cycle. W/4 lanes is the RTL's drain (one port word of int32 per cycle); T lanes drains one tile row per cycle. Utilization, and drain write transactions per tile.
+The RTL implements int8 output with T lanes (`MODE[2]`); the W/4-lane int8 column is a study. The scale is a saturating arithmetic shift, not a per-tensor multiplier. Utilization and drain write transactions per tile.
 
-| T | Port | M×N×K | int32, W/4 lanes (RTL) | int8, W/4 lanes | int8, T lanes | Writes per tile (int32 → int8, T lanes) |
+| T | Port | M×N×K | int32, W/4 lanes (RTL int32) | int8, W/4 lanes (study) | int8, T lanes (RTL int8) | Writes per tile (int32 → int8, T lanes) |
 | --- | --- | --- | --- | --- | --- | --- |
 | 8 | split | 64×64×8 | 46.0% | 46.0% | 85.2% | 16 → 8 |
 | 8 | split | 64×64×16 | 91.3% | 91.3% | 97.5% | 16 → 8 |

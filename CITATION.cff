@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use Tri-Queue in academic work, please cite this repository."
+title: "Tri-Queue: an int8 outer-product matrix coprocessor for RISC-V"
+abstract: >-
+  Tri-Queue is an open-source int8 matrix-multiply coprocessor in SystemVerilog for RISC-V SoCs.
+  It computes outer products into a double-banked accumulator tile, runs autonomously from a
+  10-byte hardware-looped program, and is verified cycle-for-cycle against a bit-exact Python model.
+version: "1.0.0"
+date-released: "2026-11-10"
+license: "Apache-2.0"
+repository-code: "https://github.com/codetiger/triqueue"
+url: "https://github.com/codetiger/triqueue"
+keywords:
+  - matrix multiply
+  - GEMM
+  - RISC-V
+  - accelerator
+  - SystemVerilog
+  - int8
+authors:
+  - family-names: "Narayanan"
+    given-names: "Harishankar"
+    email: "nharishankar@gmail.com"

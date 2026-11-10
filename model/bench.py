@@ -74,9 +74,9 @@ for m, n, k in shapes("model"):
       f"{shapes} | {stalls(s)} |")
 w("")
 
-# 3. drain-hiding condition K >= 16
+# 3. drain-hiding condition Kp >= 24 (spec 5.1)
 w("## 3. Drain hiding vs K (64×64×K)\n")
-w("Spec claim: the 16-cycle drain hides under compute only when K ≥ 16.\n")
+w("Spec claim: the 16-write drain hides under compute once Kp ≥ 24.\n")
 w("| K | Cycles | Utilization | wait_drain cycles |")
 w("| --- | --- | --- | --- |")
 for k in (8, 16, 24, 32, 64, 128):

@@ -20,7 +20,7 @@ python3 -m tri_queue.vectors --m 20 --n 9 --k 33 --tile 16 --a u8 -o ../build/ve
 
 **Word images:** line *i* holds bytes `[i·W, (i+1)·W)`. The byte at the lowest address is the least significant, so a `logic [8*W-1:0] mem [N]` loaded with `$readmemh` has byte *j* of a word at bits `[8j+7 : 8j]`.
 
-**Alignment (ISA rule):** `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` are multiples of W. The host pads each C row to a whole number of words. Every drain write is then one aligned W-byte word with byte enables on its low `n` bytes.
+**Alignment (ISA rule):** `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` are multiples of W. The host pads each C row to a whole number of words. In int32 mode every drain write is one aligned W-byte word with byte enables on its low `n` bytes. In int8 mode a write carries one T-byte tile row in the low or high half of the W-byte word (odd tile columns use the high half), so the byte enables are contiguous within a half but may start at byte T. `meta.json` records `mode`, which selects the interpretation.
 
 ## Trace lines
 

@@ -1,20 +1,20 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides shared guidance to AI coding agents when working with code in this repository. It is the common reference for all agents; keep it public-safe and up to date with the release.
 
 ## Project intent
 
 The goal is a **simple, efficient open-source RTL matrix coprocessor for RISC-V**, inspired by Apple AMX, Arm SME, and Gemmini, that is easy to integrate into larger SoCs and is benchmarked fairly against other open designs. In priority order: performance per watt, performance per component (area, kGE, state bits per MAC), design reusability (parameterized, interface-agnostic core with thin adapters), and overall efficiency (utilization across a workload suite). Peak throughput is a size parameter, not a goal.
 
-- `README.md` covers the goals. `docs/` is public and holds only the final design: the spec (`docs/specification.md`), its golden-vector/trace contract (`docs/golden-vectors.md`), and `docs/benchmarks.md` (a summary of completed results; update it when a generated result it quotes changes). Benchmark results live next to the scripts that generate them (`model/results.md`, `model/dse.md`, `flow/results.md`, `bench/reference/amx/*.md`).
+- `README.md` covers the goals. `docs/` is public and holds only the final design: the spec (`docs/specification.md`), its golden-vector/trace contract (`docs/golden-vectors.md`), the SoC integration contract (`docs/integration.md`), the verification scope (`docs/verification.md`), and `docs/benchmarks.md` (a summary of completed results; update it when a generated result it quotes changes). Benchmark results live next to the scripts that generate them (`model/results.md`, `model/dse.md`, `flow/results.md`, `bench/reference/amx/*.md`).
 - Planning material is private and gitignored, in `private/` (only present in the author's checkout): `roadmap.md` (phased plan), `decisions/` (decision records), `metrics.md` (how efficiency numbers must be computed), `history/` (superseded specs). Keep progress tracking, phase status and decision history there, never in public files. Public docs must not link to `private/`. When a decision is made, record it in `private/decisions/` and put the resulting final design in the spec.
 - Efficiency claims are only valid once RTL has been through synthesis and place-and-route. Until then only utilization is known. Don't present model numbers or generic Yosys gate counts as power or area results.
 
 ## Current state
 
-RTL v0 exists and matches the model cycle for cycle. The architecture is the **Tri-Queue**: an int8 outer-product engine with a T×T int32 accumulator tile (double-banked, plain 32-bit adder by default, carry-save selectable), T² 9×9 multipliers and one 2T-byte SRAM read port. T is a parameter; the spec's design point and all spec figures are T = 8 (64 MACs, 128-bit port).
+RTL v1.0 exists and matches the model cycle for cycle. The architecture is the **Tri-Queue**: an int8 outer-product engine with a T×T int32 accumulator tile (double-banked, plain 32-bit adder by default, carry-save selectable), T² 9×9 multipliers and one 2T-byte SRAM read port. T is a parameter; the spec's design point and all spec figures are T = 8 (64 MACs, 128-bit port).
 
-- `docs/specification.md`: the spec (rev 4) and the source of truth, including the memory (§6.3) and host (§6.4) interfaces and the design choices (§10). `docs/golden-vectors.md` is the golden-vector and trace contract between the model and the RTL testbenches.
+- `docs/specification.md`: the spec (rev 5) and the source of truth, including the memory (§6.3) and host (§6.4) interfaces and the design choices (§10). `docs/golden-vectors.md` is the golden-vector and trace contract between the model and the RTL testbenches.
 - `model/`: a cycle-level Python model of the spec that runs the real instruction bytes and checks every result bit-exact against numpy. It is the golden reference for the RTL.
 - `rtl/`: SystemVerilog, top `tq_top`, sources in compile order in `rtl/files.f`. `rtl/README.md` covers parameters, the register and memory port contracts, the block map and the Yosys-compatible coding rules.
 - `verif/`: cocotb + Verilator regression against the model (`test_rtl.py` holds the configurations and cases; `tb/` the testbench), plus SymbiYosys proofs in `formal/`.
@@ -28,7 +28,7 @@ The spec's performance numbers come from the model. If you change the model or t
 
 **The RTL and the model must stay cycle-exact.** The RTL's per-cycle evaluation order mirrors the model's (memory responses → MAC unit → ports → front end): later stages see earlier stages' pops in the same cycle, and halt detection uses this cycle's post-update state, like the model's `all_idle`. An SRAM latency of L in the testbench corresponds to model `mem_latency = L + 1`. A behaviour change goes into the model first (spec + tests), then the RTL. `make rtl-test` must stay green, with exact cycle counts, in every configuration. The spec rules that keep the hardware simple are enforced by the model too: at most one `ZERO_C`/`SWAP_C` per MAC cycle, and loop bodies contain only 1-byte instructions.
 
-Every source file starts with an SPDX header: `Apache-2.0` for software, and `Apache-2.0 WITH SHL-2.1` for files under `rtl/`, `verif/` and `flow/`.
+Every source file starts with an SPDX header: `Apache-2.0` for software, and `Apache-2.0 WITH SHL-2.1` for files under `rtl/`, `verif/` and `flow/`. `make spdx-check` (`tools/check_spdx.py`) enforces this in CI.
 
 ## Commands
 
@@ -37,14 +37,15 @@ Setup: `pip install -r requirements.txt` (Python 3.10+). RTL work also needs Ver
 From the repo root:
 
 ```
-make                  # model-test, sw-test, rtl-lint, rtl-test, formal, synth-check
+make                  # model-test, sw-test, spdx-check, lock-check, rtl-lint, rtl-test, formal, synth-check
 make model-test       # model pytest suite
 make sw-test          # C driver against the model
+make spdx-check       # every checked-in source/config file has an SPDX header
 make model-results    # regenerate model/results.md and model/dse.md (bench.py + dse.py)
-make rtl-lint         # verilator -Wall in 11 configurations + adapter tops + Yosys elaboration (both must be warning-free)
-make rtl-test         # cocotb regression, all configurations (~60 s); builds go to build/rtl/<config>/
+make rtl-lint         # verilator -Wall in 12 configurations + adapter tops + burst AXI + Yosys elaboration (both must be warning-free)
+make rtl-test         # cocotb regression, 1,709 cases in 25 configurations (~165 s); builds go to build/rtl/<config>/
 python3 -m pytest verif -q -k t8_default    # one RTL configuration
-make formal           # SymbiYosys: clock-gating template (check_cg_pattern.py + tq_cg.sby), FIFO (tq_fifo.sby), AXI4-Lite and CV-X-IF adapters (tq_axil_regs.sby, tq_xif_regs.sby), AXI master covers, unbounded core proof, split port (tq_core.sby split, ~3 min)
+make formal           # SymbiYosys: clock-gating template (check_cg_pattern.py + tq_cg.sby), FIFO (tq_fifo.sby), AXI4-Lite and CV-X-IF adapters (tq_axil_regs.sby, tq_xif_regs.sby), AXI master burst cover, unbounded core proof, split port (tq_core.sby split, ~3 min)
 make formal-nightly   # core proofs, shared port, WR_ACK and panel buffer (tq_core.sby shared/ack/panel), AXI4 master proof (tq_axi_mem.sby prove, ~10 min)
 make flow-results     # rewrite flow/results.md from flow/records/ (no flow run)
 make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets (stats in build/synth/)
@@ -52,7 +53,7 @@ make fpga             # ECP5 out-of-context synth + nextpnr (flow/fpga/; needs n
 make clean            # removes build/ and SymbiYosys work dirs
 ```
 
-RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_xif`, `t8_write_ack`, `t8_write_ack_shared`, `t8_edge_cases`, `t8_edge_shared`, `t8_panel`, `t8_panel_shared`, `t16_panel`, `t4_panel`, `t8_mac1`, `t8_mac1_csa_shared`, `t32`, `t16`, `t4`. CI (`.github/workflows/ci.yml`) runs three jobs on every push: model tests, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
+RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_axi_burst`, `t8_xif`, `t8_write_ack`, `t8_write_ack_shared`, `t8_edge_cases`, `t8_edge_shared`, `t8_panel`, `t8_panel_shared`, `t16_panel`, `t4_panel`, `t8_mac1`, `t8_mac1_csa_shared`, `t32`, `t16`, `t4` (25 configurations, 1,709 cases). CI (`.github/workflows/ci.yml`) runs four jobs on every push: model tests on Python 3.10/3.12, SPDX headers, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
 
 Run model commands from `model/` (`pytest.ini` sets `pythonpath = .`, so imports are `from tri_queue...`):
 
@@ -86,14 +87,14 @@ python3 ablation.py    # writes ablation.md (~40 s)
 
 - `isa.py`: the ISA. One byte per instruction (`opcode[7:4] | arg[3:0]`); only `CFG` is multi-byte (1 + 32-bit LE immediate). Defines opcodes, the 8 config registers (`A_BASE, B_BASE, C_BASE, C_LD, K, M, N, MODE`), the encoder, `decode`/`disassemble`, and `gemm_kernel()`, the 10-byte reference kernel from spec §6.2.
 - `packing.py`: host-side panel packing (spec §5.3). A becomes column panels and B row panels, k-major, T wide (T/2 wide for a final panel with ≤T/2 left), K padded to `kp(k)` (multiple of 8 for every T). `auto_shape` picks the per-tile `(r, c, d)` with `r·c·d = T²`, giving four shapes (at T = 8: 8x8x1, 8x4x2, 4x8x2, 4x4x4). The ISA encodes shapes as full/half, so it's independent of T.
-- `core.py`: `TriQueueCore`, plus `build_gemm` (packs and builds the memory image and program), `run_gemm(a, b, params, trace=None)` (returns `(C, Stats)`), `read_c` and `reference(a, b)` (numpy int32 GEMM). Each cycle runs in a fixed order: memory responses land → MAC unit → memory port(s) → front end. `Params` holds the size parameters (`tile` T, `port_bytes` W, which defaults to 2T) and the tunable microarchitecture knobs (memory latency, FIFO depth in W-byte vectors, queue depths, `shared_port`, `banks`, `gnt_stall`/`gnt_seed`). `Stats` records cycles, instruction count, per-shape MAC counts, MAC stall reasons (`mac_state`), front-end stall reasons, read/write transactions and bytes, and `gnt` stalls per port (`port_stall`). Passing a list as `trace` collects the event lines defined in `docs/golden-vectors.md`; tracing must never change timing.
+- `core.py`: `TriQueueCore`, plus `build_gemm` (packs and builds the memory image and program), `run_gemm(a, b, params, trace=None)` (returns `(C, Stats)`), `read_c` and `reference(a, b)` (numpy int32 GEMM). Each cycle runs in a fixed order: memory responses land → MAC unit → memory port(s) → front end. `Params` holds the size parameters (`tile` T, `port_bytes` W, which defaults to 2T) and the tunable microarchitecture knobs (memory latency, FIFO depth in W-byte vectors, queue depths, `shared_port`, `banks`, `gnt_stall`/`gnt_seed`, `wr_ack`/`wr_resp_latency`/`wr_out_max`, `mac_pipe`, `panel_bytes`, `out_bytes`/`out_shift`/`drain_lanes`). `Stats` records cycles, instruction count, per-shape MAC counts, MAC stall reasons (`mac_state`), front-end stall reasons, read/write transactions and bytes, and `gnt` stalls per port (`port_stall`). Passing a list as `trace` collects the event lines defined in `docs/golden-vectors.md`; tracing must never change timing.
 - `vectors.py`: the golden-vector exporter for RTL (`python3 -m tri_queue.vectors`).
 
 Properties the model enforces and the tests check:
 - Arithmetic is done the hardware way: 9×9 multiplies with sign extension per `MODE`, and 32-bit wrapping 3:2 carry-save accumulation (`_csa_reduce`). The carry-propagate add happens only at drain. The RTL's default plain adder gives the same values mod 2³², so this checks both forms. Don't replace this with a plain numpy matmul inside the core; the tests compare against `reference()`.
 - Per-quadrant arity limits (`HW_CELL_ARITY`: TL 4, TR 2, BL 2, BR 1) are asserted, so a shape/operand-selection bug fails loudly.
 - Illegal programs stop with the RTL's error codes at the RTL's cycle (`Stats.error`); `tri_queue/programs.py` holds the edge-case programs shared with the RTL regression (`t8_edge_cases`).
-- `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` must be multiples of W (asserted). C rows are padded to whole words, so `C_LD` is not always `4·N`; use `read_c` to extract C.
+- `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` must be multiples of W (asserted). C rows are padded to whole words, so `C_LD` is not always `4·N` (or `N` for int8 output); use `read_c` to extract C.
 - The modelling assumptions are listed in both `model/README.md` and the `core.py` docstring: 1 instruction decoded per cycle, zero-overhead loops, `ZERO_C`/`SWAP_C` take no MAC cycle, `VOUTER_MAC` waits for all its operand bytes, pipelined SRAM reads with fixed latency, ports always granted unless `gnt_stall` > 0 (seeded random `gnt` back-pressure that the RTL testbench reproduces through the shared `GrantSource`; an ungranted request is held unchanged until granted), writes complete at their grant unless `wr_ack` (then after `wr_resp_latency`, FENCE waits for them), no bank conflicts. If you change an assumption, update both places.
 
 `bench.py` writes `results.md` section by section and labels each spec claim ✅/❌ against the simulated value. When you add a claim to the spec, add a row for it there.

@@ -2,15 +2,17 @@
 
 **An int8 outer-product matrix coprocessor for RISC-V SoCs**
 
-Harishankar Narayanan · rev 4
+Harishankar Narayanan · rev 5
 
 This is the design specification of the Tri-Queue core. Figures are for the T = 8 design point unless stated otherwise. Cycle and utilization figures come from the cycle-level model in `model/` (full results in `model/results.md` and `model/dse.md`), which runs the real instruction bytes and checks every result bit-exact against numpy. The RTL in `rtl/` implements this spec and matches the model cycle for cycle (`verif/`). Post-route area, clock frequency and activity-based energy on sky130hd and ASAP7 are in `flow/results.md` and summarized in `docs/benchmarks.md`.
+
+Rev 5 makes the public contract match the v1 RTL: shift-only int8 output (`MODE[2]`, `MODE[7:3]`), int8 `C` addressing and byte strobes, the AXI read burst buffer, 17-bit products, and the current reference flop counts. See [`docs/integration.md`](integration.md) for the SoC integration contract and [`docs/verification.md`](verification.md) for what is and is not proved.
 
 ---
 
 ## 1. Summary
 
-The Tri-Queue is an int8 matrix-multiply coprocessor with **64 multipliers** and one 128-bit SRAM read port. On a 64×64×64 GEMM the cycle model and RTL give **99.2% of peak**: 4,130 cycles against an ideal of 4,096. It executes **2,317 instructions** from a 10-byte kernel plus 40 bytes of configuration, and holds about **6.5 Kbit** of architectural state (8,904 flip-flops in total after place and route). It has no register file, crossbar or rename logic.
+The Tri-Queue is an int8 matrix-multiply coprocessor with **64 multipliers** and one 128-bit SRAM read port. It computes int8 or uint8 products into an int32 accumulator tile and can write the result as int32 or as saturating int8 (`MODE[2]`, §10.1). On a 64×64×64 GEMM the cycle model and RTL give **99.2% of peak**: 4,130 cycles against an ideal of 4,096. It executes **2,317 instructions** from a 10-byte kernel plus 40 bytes of configuration, and holds about **6.5 Kbit** of architectural state (8,562 flip-flops in total after place and route with the reference queues). It has no register file, crossbar or rename logic.
 
 The design rests on one idea:
 
@@ -60,7 +62,7 @@ The balance law says a core with **P** multipliers and a port that supplies **W*
                    8 B/beat │           │ 8 B/beat     │
                  ┌────────▼───────────▼────────┐     │
                  │   8×8 MULTIPLIER ARRAY      │     │
-                 │   64 × (9×9 → 18-bit)       │     │
+                 │   64 × (9×9 → 17-bit)       │     │
                  │   one full 8×8 outer        │     │
                  │   product per beat          │     │
                  └─────────────┬───────────────┘     │
@@ -87,7 +89,7 @@ The balance law says a core with **P** multipliers and a port that supplies **W*
 | **MAC command queue** | 4 × 52 b | 208 b | In-order queue of `ZERO_C` / `VOUTER_MAC` / `SWAP_C`. A `SWAP_C` entry carries the finished tile's C address and size, computed by the front end. | Lets the decoder run ahead of execution (§5.2) |
 | **Total** | | **≈ 6.5 Kbit** | | |
 
-This is the architectural state (1 Kbit = 1024 bits). RTL v0 adds pipeline registers (the 64 × 18-bit product register and a 2 × 32-byte beat-1 operand register), the two stream command queues and the 64-byte program buffer: 10,002 flip-flops in total at T = 8 after place and route with the default queues, and 8,904 with the queues sized for a 1-cycle SRAM (FIFO depth 4, MAC queue depth 3), the reference configuration in `flow/results.md`. The carry-save option (§10.2) doubles SC to 8 Kbit (12,872 flip-flops with the reference queues).
+This is the architectural state (1 Kbit = 1024 bits). The RTL adds pipeline registers (the 64 × 17-bit product register and a 2 × 32-byte beat-1 operand register), the two stream command queues and the 64-byte program buffer: **8,562 flip-flops** in total at T = 8 after place and route with the reference queues (FIFO depth 4, MAC queue depth 3; §5.2 and §10.8), the configuration in `flow/results.md`. The carry-save option (§10.2) doubles SC to 8 Kbit (12,872 flip-flops with the reference queues).
 
 Each FIFO holds 16 k steps of operands. In the cycle model, depth 8 fully hides SRAM latency up to 8 cycles and still reaches 94% at 16 cycles. Depth 16 hides up to 16 cycles (`model/results.md` §5). A depth equal to the read latency seen by the FIFO (SRAM latency + 1) loses no cycle, and a MAC command queue of 3 entries is enough. Choose the depth from the target SRAM's latency.
 
@@ -132,12 +134,12 @@ beat 1:  SC[r][c] += A[r][k+1] × B[k+1][c]    for all 64 (r, c)
 ### 3.1 MAC pipeline
 
 ```
- issue → MUL: 9×9 signed multiply → 18-bit product → ACC: add into SC (32-bit)
+ issue → MUL: 9×9 signed multiply → 17-bit product → ACC: add into SC (32-bit)
 ```
 
 - **9×9 signed multipliers** cover int8 and uint8 alike. The 9th bit is the operand's sign or zero extension, chosen by `MODE`.
-- **Two stages by default** (`MAC_PIPE = 2`): a product register between the multiply and the accumulate. `MAC_PIPE = 1` drops it (64 × 18 bits at T = 8): multiply and accumulate in one cycle, the bank holds the result a cycle earlier, and the critical path runs through the multiplier and the adder. For a slow clock (sky130 at 100 MHz) that can fit and saves flip-flops and clock power; at 1 GHz on ASAP7 it would not (the cycle model has the same option, `mac_pipe`).
-- Products are only 18 bits wide, so a full carry-propagate add inside the multiplier is cheap. Each accumulate cell then adds its products (1, 2 or 4 by quadrant, §4) to the stored 32-bit value with one carry-propagate adder, in one cycle. Because the accumulate loop is one cycle, the core can update the same 64 accumulators every cycle with no forwarding and no stall. After place and route the loop closes at 1 GHz on ASAP7 with slack to spare; the multiplier stage, not the accumulator, sets the clock (§10.2).
+- **Two stages by default** (`MAC_PIPE = 2`): a product register between the multiply and the accumulate. `MAC_PIPE = 1` drops it (64 × 17 bits at T = 8): multiply and accumulate in one cycle, the bank holds the result a cycle earlier, and the critical path runs through the multiplier and the adder. For a slow clock (sky130 at 100 MHz) that can fit and saves flip-flops and clock power; at 1 GHz on ASAP7 it would not (the cycle model has the same option, `mac_pipe`).
+- Products are only 17 bits wide, so a full carry-propagate add inside the multiplier is cheap. Each accumulate cell then adds its products (1, 2 or 4 by quadrant, §4) to the stored 32-bit value with one carry-propagate adder, in one cycle. Because the accumulate loop is one cycle, the core can update the same 64 accumulators every cycle with no forwarding and no stall. After place and route the loop closes at 1 GHz on ASAP7 with slack to spare; the multiplier stage, not the accumulator, sets the clock (§10.2).
 - **Overflow:** |int8 × int8| ≤ 2¹⁴ and uint8 × uint8 < 2¹⁶. An int32 accumulator therefore cannot overflow for any K ≤ 32,768 in any signedness mode.
 - The drain reads finished int32 values directly. A carry-save option (§10.2) instead keeps (sum, carry) per cell and does the carry-propagate add once per output element in the drain.
 
@@ -210,7 +212,7 @@ write port              [d0]        [d1]       [d2]
 
 - Loading and compute take the same time per tile, so neither waits on the other.
 - The drain (16 writes, plus about 3 cycles of MAC pipeline and CPA latency) hides under the next tile's compute (Kp cycles). In the model it is **fully hidden once Kp ≥ 24**. At Kp = 16 it overruns by about 1 cycle per tile (91% utilization), and at Kp = 8 utilization drops to 46%.
-- **The separate write port is required at int8.** Results are int32 while inputs are int8, so the drain carries a quarter of the read traffic. On a shared port each tile would take 64 + 16 = 80 cycles, which is only 80% utilization. Requantizing the output to int8 cuts the drain to 4 vectors (94% on a shared port; see §9).
+- **The separate write port is required at int8.** Results are int32 while inputs are int8, so the drain carries a quarter of the read traffic. On a shared port each tile would take 64 + 16 = 80 cycles, which is only 80% utilization. The int8 output mode (§10.1) writes one tile row per drain write (8 writes per tile at T = 8), which cuts the drain traffic by half and lifts a shared port at 64³ from 79.8% to 88.7% in the cycle model (`model/dse.md` §8).
 
 ### 5.2 Instruction issue
 
@@ -264,16 +266,16 @@ Encoding: `opcode [7:4] | arg [3:0]`. `CFG` is the only multi-byte instruction.
 | --- | --- | --- |
 | 0 | `A_BASE` | Address of the first packed A panel |
 | 1 | `B_BASE` | Address of the first packed B panel |
-| 2 | `C_BASE` | Address of C[0][0] (int32) |
-| 3 | `C_LD` | Row stride of C, in bytes |
+| 2 | `C_BASE` | Address of C[0][0], int32 or int8 according to `MODE[2]` |
+| 3 | `C_LD` | Row stride of C, in bytes (multiple of W in either output mode) |
 | 4 | `K` | Inner dimension. Kp and the loop counts are derived from it. K = 0 is a valid GEMM: the panels are empty and C is written with zeros. |
 | 5 | `M` | Rows of A and C: sets the tile count, `AUTO` shapes and edge masks |
 | 6 | `N` | Columns of B and C, used the same way |
-| 7 | `MODE` | bit 0: A signed, bit 1: B signed, bit 2: int8 output, bits [7:3]: unsigned right shift (0–31) before saturating int8 clamp (§10.1). |
+| 7 | `MODE` | bit 0: A signed, bit 1: B signed, bit 2: int8 output, bits [7:3]: arithmetic right shift (0–31) before saturating int8 clamp (§10.1). Bits 8 and above are reserved. |
 
-Tile walk: row-major over the ⌈M/T⌉ × ⌈N/T⌉ tiles. Tile (ti, tj) writes to `C_BASE + T·ti·C_LD + 4T·tj` (T = 8: `C_BASE + 8·ti·C_LD + 32·tj`).
+Tile walk: row-major over the ⌈M/T⌉ × ⌈N/T⌉ tiles. Tile (ti, tj) writes to `C_BASE + T·ti·C_LD + ob·T·tj`, where `ob = 4` for int32 output and `ob = 1` for int8 output (T = 8: `C_BASE + 8·ti·C_LD + 32·tj` for int32, `+ 8·tj` for int8).
 
-**Alignment:** `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` must be multiples of the port width W (16 bytes at T = 8). The host pads each C row to whole words, so every read and every drain write is one aligned word, and partial words use byte enables. The model asserts this rule, and the RTL stops with `ERR_ALIGN` if it is broken (§6.3).
+**Alignment:** `A_BASE`, `B_BASE`, `C_BASE` and `C_LD` must be multiples of the port width W (16 bytes at T = 8). The host pads each C row to whole words, so every read and every drain write is one aligned W-byte word. In int32 mode the valid bytes start at the low byte. In int8 mode one write carries one T-byte tile row in the low or high half of the word (odd tile columns use the high half), so byte enables are contiguous within a half but not necessarily from the low byte. A C row wastes at most W − 4 bytes in int32 mode and at most W − 1 bytes in int8 mode. The model asserts the alignment rule, and the RTL stops with `ERR_ALIGN` if it is broken (§6.3).
 
 ### 6.2 Complete GEMM kernel
 
@@ -302,31 +304,32 @@ The core has two native ports, W = 2T bytes wide, with OBI-style (OpenHW Open Bu
 | Port | Signals | Rules |
 | --- | --- | --- |
 | Read | `rd_req`, `rd_addr` → `rd_gnt`; `rd_rvalid`, `rd_rdata` | A request is accepted when `req && gnt`. Responses return in order, any number of cycles later (including the request cycle). The stream engine only requests when the destination FIFO has room for the response, so `rvalid` never needs backpressure. |
-| Write | `wr_req`, `wr_addr`, `wr_be`, `wr_wdata` → `wr_gnt`; `wr_done` | Drain writes, accepted when `req && gnt`. Byte enables are contiguous from the low byte. With `SHARED_PORT` the core never requests both ports in one cycle, so both can share a single-port SRAM (§5.1). `wr_done` is the write response, used when the core is built with `WR_ACK` (below). |
+| Write | `wr_req`, `wr_addr`, `wr_be`, `wr_wdata` → `wr_gnt`; `wr_done` | Drain writes, accepted when `req && gnt`. In int32 mode byte enables are contiguous from the low byte; in int8 mode they are contiguous within the low or high T-byte half of the word (§6.1). With `SHARED_PORT` the core never requests both ports in one cycle, so both can share a single-port SRAM (§5.1). `wr_done` is the write response, used when the core is built with `WR_ACK` (below). |
 
 - Requests never depend combinationally on `gnt`, and a request that isn't granted stays asserted with the same address and data until it is (OBI, and AXI `xVALID`, request stability). START or ABORT drops it.
-- Every read and every drain write is one aligned W-byte word (alignment rule, §6.1). C rows are padded to whole words, which wastes at most W − 4 bytes per row.
+- Every read and every drain write is one aligned W-byte word (alignment rule, §6.1). C rows are padded to whole words, which wastes at most W − 4 bytes per row in int32 mode and W − 1 bytes in int8 mode.
+- **Memory contract.** A, B and C must not overlap. The core assumes the host does not write A, B or C while a run is active, and it is not coherent with a host data cache: flush or invalidate the operand and result buffers before/after a run, or place them in uncached memory. See [`docs/integration.md`](integration.md).
 - With an SRAM that always grants and answers L cycles after the request, the RTL matches the cycle model run with `mem_latency = L + 1`. The extra cycle is the operand FIFO write. SRAM latency costs only FIFO depth: depth 8 hides up to 8 cycles at every T (`model/dse.md` §5).
 - **Write completion.** On an SRAM a write is complete when it is granted, and `wr_done` is tied to 0. Behind an interconnect such as AXI a write is complete only at its response, so the core is built with `WR_ACK = 1`: each granted write stays outstanding until its `wr_done` pulse (in order, in the grant cycle or later), `FENCE` (and so `DONE`) waits until none is outstanding, and no new write is requested while `WR_OUT_MAX` are. When software sees `DONE`, C is in memory. With responses in the grant cycle the timing is that of an SRAM; the cycle model has the same option (`wr_ack`, `wr_resp_latency`).
-- **AXI.** `tq_axi_mem` turns the two ports into an AXI4 master with a W-byte data bus: one single-beat INCR transaction per port word, `RREADY` and `BREADY` always 1 (the core never back-pressures a response), AR and AW/W ready acting as `gnt`. AXI does not allow a VALID to be withdrawn, so a request the core drops at START or ABORT is finished by the adapter and its response discarded. An error response (SLVERR or DECERR) to one of the core's own transactions sets `STATUS.BUS_ERR` (§6.4). `tq_top_axi` combines it with the AXI4-Lite register port (§6.4) and `WR_ACK = 1`.
+- **AXI.** `tq_axi_mem` turns the two ports into an AXI4 master with a W-byte data bus. With `BURST_BEATS = 1` (the default) each port word is one single-beat INCR transaction. With `BURST_BEATS > 1` reads use a small two-stream line buffer that issues aligned `BURST_BEATS`-beat INCR bursts and serves later beats from the line; writes remain single-beat. `RREADY` and `BREADY` are always 1 (the core never back-pressures a response), and AR and AW/W ready act as `gnt`. AXI does not allow a VALID to be withdrawn, so a request the core drops at START or ABORT is finished by the adapter and its response discarded. An error response (SLVERR or DECERR) to one of the core's own transactions sets `STATUS.BUS_ERR` (§6.4). `tq_top_axi` combines it with the AXI4-Lite register port (§6.4) and `WR_ACK = 1`. The adapter exposes a subset of AXI4: it does not drive `AxID`, `AxPROT`, `AxCACHE`, `AxQOS`, `AxREGION` or `AxUSER`, and ignores `RID`/`BID`; tie these off at the SoC boundary. The line buffer is not coherent with host writes during a run.
 - `gnt` back-pressure is supported and part of the cycle model: an ungranted request holds the port: the read keeps its stream (no re-arbitration and no panel loads meanwhile), and on a shared port a held read or write keeps the port. The RTL matches the model cycle for cycle under random stalls of up to 80% on both ports.
 
 ### 6.4 Host interface
 
-The core exposes one 32-bit register port (OBI-style: always grants, read data one cycle after the request) and an interrupt. Bus or CPU attachment is a thin adapter on this port: AXI4-Lite (`tq_axil_regs`, implemented) or APB for any SoC, CV-X-IF for custom-instruction issue from CVA6 or CV32E40X (`tq_xif_regs`, implemented: `tq.wr rs1, rs2` writes register `rs1[11:0]`, `tq.rd rd, rs1` reads it; R-type on custom-0, funct3 0 / 1, made only after the instruction commits), or RoCC for Chipyard. A GEMM is 50 bytes of program, after which the host only waits, so the interface carries very little traffic.
+The core exposes one 32-bit register port (OBI-style: always grants, read data one cycle after the request) and an interrupt. Bus or CPU attachment is a thin adapter on this port: AXI4-Lite (`tq_axil_regs`) for a bus, or CV-X-IF for custom-instruction issue from CVA6 or CV32E40X (`tq_xif_regs`: `tq.wr rs1, rs2` writes register `rs1[11:0]`, `tq.rd rd, rs1` reads it; R-type on custom-0, funct3 0 / 1, made only after the instruction commits). The CV-X-IF adapter is a reference implementation and has not yet been validated on a real CVA6/CV32E40X; check its field names against the core's package when integrating. APB and RoCC adapters are not included in this repository. A GEMM is 50 bytes of program, after which the host only waits, so the interface carries very little traffic.
 
 | Offset | Name | Access | Contents |
 | --- | --- | --- | --- |
 | `0x000` | `ID` | RO | `0x5451_0001` ("TQ", register map version 1) |
-| `0x004` | `HW_CONFIG` | RO | `[7:0]` T, `[15:8]` FIFO depth, `[19:16]` MAC queue depth, `[20]` shared port, `[31:24]` program buffer bytes / 4. Software reads this instead of assuming a size. |
-| `0x008` | `CTRL` | WO | bit 0 `START` (run the program buffer from offset 0), bit 1 `ABORT` |
-| `0x00C` | `STATUS` | RO | bit 0 `BUSY`, bit 1 `DONE` (sticky until `START`), bit 2 `ERROR`, bit 3 `BUS_ERR` (an interconnect error response to one of the run's memory accesses, sticky until `START`; the run itself continues), `[11:8]` error code |
+| `0x004` | `HW_CONFIG` | RO | `[7:0]` T, `[15:8]` FIFO depth, `[19:16]` MAC queue depth, `[20]` shared port, `[31:24]` program buffer bytes / 4. Software reads this instead of assuming a size. Build-time options not reported here (int8 output, `PERF`, `MAC_PIPE`, `ACC_FORM`, `PANEL_BYTES`, `WR_ACK`) are part of the integration contract. |
+| `0x008` | `CTRL` | WO | bit 0 `START` (run the program buffer from offset 0), bit 1 `ABORT`. A `START` while `BUSY` is ignored. |
+| `0x00C` | `STATUS` | RO | bit 0 `BUSY`, bit 1 `DONE` (sticky until an accepted `START`), bit 2 `ERROR`, bit 3 `BUS_ERR` (an interconnect error response to one of the run's memory accesses, sticky until `START`; the run itself continues, so C must be treated as invalid), `[11:8]` error code. `ABORT` clears `BUSY` but does not set `DONE` or `ERROR`; poll `BUSY`. |
 | `0x010` / `0x014` | `IRQ_EN` / `IRQ_STATUS` | RW / W1C | bit 0 done, bit 1 error, bit 2 bus error |
-| `0x020`–`0x030` | `PERF_CYCLES`, `PERF_INSTRET`, `PERF_BEATS`, `PERF_READS`, `PERF_WRITES` | RO | Cleared at `START`. Every benchmark result can be read from the hardware. |
+| `0x020`–`0x030` | `PERF_CYCLES`, `PERF_INSTRET`, `PERF_BEATS`, `PERF_READS`, `PERF_WRITES` | RO | Cleared at `START`. Every benchmark result can be read from the hardware. `PERF = 0` builds tie them to 0. |
 | `0x040`–`0x05C` | `CFG[0..7]` | RO | Configuration registers as last written by the program |
 | `0x100`– | `PROG` | WO | Program buffer (64 bytes by default): `CFG` instructions + kernel. The loop buffer runs from here, so writes while `BUSY` are ignored. Bytes past the program should be 0 (`NOP`): running off the end is error 5. |
 
-Error codes: 1 undefined opcode, 2 `CFG` to a register ≥ 8, 3 a third loop level or a second `LOOP_T`, 4 `CFG` inside a loop body, 5 instruction past the program buffer, 6 misaligned base or `C_LD`. The front end checks the instruction it executes, the stream engine a panel's base when it loads the panel, and the MAC unit a tile's C address and `C_LD` when its drain starts. The core stops at the end of that cycle: work still in its queues is dropped (the last tile's drain may be incomplete), memory requests stop, and accesses already in flight complete. The next `START` begins from a clean state. The cycle model reports the same codes at the same cycle.
+Error codes: 1 undefined opcode, 2 `CFG` to a register ≥ 8, 3 a third loop level or a second `LOOP_T`, 4 `CFG` inside a loop body, 5 instruction past the program buffer, 6 misaligned base or `C_LD`. The front end checks the instruction it executes, the stream engine a panel's base when it loads the panel, and the MAC unit a tile's C address and `C_LD` when its drain starts. The core stops at the end of that cycle: work still in its queues is dropped (the last tile's drain may be incomplete), memory requests stop, and accesses already in flight complete. The next `START` begins from a clean state. The cycle model reports the same codes at the same cycle. After an error or abort, wait for `BUSY = 0` and for any outstanding writes to complete before reusing C.
 
 ---
 
@@ -345,6 +348,9 @@ Ideal = 262,144 MACs ÷ 64 = **4,096 cycles**. The simulated fixed overhead is *
 | Dynamic instructions | 2,317 | 2,317 |
 | Program bytes fetched | 10 + 40 CFG | 10 + 40 CFG |
 | Architectural state | ≈ 6.5 Kbit (10.5 Kbit with carry-save) | ≈ 6.5 Kbit |
+| Flip-flops after place and route (reference queues) | 8,562 | 8,905 |
+
+With `MODE[2]` set, the same run writes C as int8. The cycle count is unchanged on a separate port at 64³; on a shared port the drain halves to 8 writes per tile and 64³ reaches 88.7% instead of 79.8% (`model/dse.md` §8).
 
 ### 7.1 What the cycle model shows
 
@@ -422,10 +428,11 @@ The model and the RTL take T as a parameter (`model/dse.md`). The RTL is verifie
 | 64³ / 256³ utilization | 99.2% / 100% | 95.3% / 99.9% | 75.1% / 99.5% |
 | Geometric mean over the `dse` workload shapes | 56.0% | 35.4% | 20.1% |
 
-- **The port must be exactly 2T bytes.** At T = 16, a 128-bit port gives 49.8% and a 512-bit port gives the same 99.6% as 256 bits.
+- **The port must be exactly 2T bytes.** At T = 16, a 128-bit port gives 49.8%; a 256-bit port gives 99.4% and a 512-bit port 99.6%, so the extra width buys almost nothing.
 - **FIFO depth doesn't depend on T.** In W-byte vectors, depth 8 hides 8 cycles of latency at every size.
-- **Drain hiding needs Kp ≥ 2T + 8,** because each tile drains 2T words (T rows × 4T bytes ÷ W).
+- **Drain hiding needs Kp ≥ 2T + 8** for int32 output and **Kp ≥ T + 8** for int8 output, because an int32 tile drains 2T W-byte words (T rows × 4T bytes ÷ W) and an int8 tile drains T writes (one T-byte row per W-byte word).
 - **Large tiles lose on small and narrow problems.** The half-width shapes recover only up to 50% of the array, so a 1-row remainder or a GEMV wastes more as T grows.
+- **The T = 16 record closes at 858 MHz** against a 1 GHz target (`flow/results.md`); quote its energy at that clock until a T = 16 clock sweep is recorded.
 
 ---
 
@@ -440,7 +447,7 @@ The model and the RTL take T as a parameter (`model/dse.md`). The RTL is verifie
 | Drain unit | Staging register, T-lane saturating int8 shift/clamp, edge-mask byte enables, C address generator (T × 32-bit CPA in the carry-save option) |
 | Stream engine | 2 increment-only panel walkers, A/B arbiter on one read port, 2-deep command queues |
 | Pipeline registers | Product register (64 × 17 b) and beat-1 operand register (2 × 32 B), so a beat's multiply and accumulate take one stage each |
-| Clock gates | One integrated clock-gating cell per register group (§10.8): 8 on the accumulator banks (bank × quadrant), 4 on the product register, 1 on the beat-1 operands, 1 per queue entry, 1 on the drain staging register, 1 per program-buffer byte. 93 at T = 8 with the reference queues |
+| Clock gates | One integrated clock-gating cell per register group (§10.8): the accumulator banks (one per bank and quadrant), the product register, the beat-1 operands, each wide queue entry, the drain staging register, each program-buffer byte and each `CFG` register. The exact count depends on the queue depths and build options |
 | Control | 4-bit opcode decoder, 4-deep MAC command queue, 2-level loop counters, 64-byte program buffer (holds `CFG` + kernel, so the loop body is never refetched), tile walker with running address offsets (no multipliers), AUTO shape logic |
 | Not needed | Register file, operand crossbar, rename or scoreboard, branch unit |
 
@@ -450,24 +457,45 @@ The model and the RTL take T as a parameter (`model/dse.md`). The RTL is verifie
 
 At a high level, the Tri-Queue takes the **outer-product tile dataflow of Apple's AMX and Arm SME** and pairs it with **Gemmini's decoupled load, compute and store queues**. Unlike AMX and SME, it has no vector or tile register file: two destructive FIFOs feed one double-banked accumulator tile. Unlike Gemmini, it leaves out the large scratchpad SRAM and runs autonomously from a 10-byte hardware loop instead of CPU-issued instructions. The AMX details come from community reverse-engineering (corsix/amx), not from Apple.
 
-- **Strengths:** it runs autonomously from a 10-byte kernel, so a small in-order host is enough. It holds about 6.5 Kbit of architectural state (8,904 flip-flops at T = 8), against 24 KB of SRAM in a minimal 8×8 Gemmini (`leanConfig`) or 256 KB in a default one. It reaches near-peak utilization without a scoreboard or register file, and edge tiles are cheap.
-- **Weaknesses:** there is no reuse between tiles without the optional panel buffer (A and B panels are re-read from SRAM for every tile; §10.9), operands must be pre-packed, the memory ports expect low-latency SRAM rather than cached DRAM, there are no built-in convolution or activation operations, and there is no compiler. It also doesn't scale to TPU size: the balance law makes the tile grow with the multiplier count, and broadcasting operands across a large tile becomes a wiring problem.
+- **Strengths:** it runs autonomously from a 10-byte kernel, so a small in-order host is enough. It holds about 6.5 Kbit of architectural state (8,562 flip-flops at T = 8 with the reference queues), against 24 KB of SRAM in a minimal 8×8 Gemmini (`leanConfig`) or 256 KB in a default one. It reaches near-peak utilization without a scoreboard or register file, edge tiles are cheap, and `MODE[2]` gives a saturating int8 result path without a separate requantization pass.
+- **Weaknesses:** there is no reuse between tiles without the optional panel buffer (A and B panels are re-read from SRAM for every tile; §10.9), operands must be pre-packed, the memory ports expect low-latency SRAM rather than cached DRAM, the core is not coherent with host caches, there are no built-in convolution, bias, activation or per-tensor scale operations (int8 output is shift-only), and there is no compiler. It also doesn't scale to TPU size: the balance law makes the tile grow with the multiplier count, and broadcasting operands across a large tile becomes a wiring problem.
 - **Target niche:** a matrix engine for microcontroller-class or edge SoCs, sitting beside a small core with fast on-chip memory. This is the space of Arm's Ethos-U55 class of parts, not of datacenter TPUs.
 
 ---
 
 ## 10. Design choices and open questions
 
-1. **Output requantization (deferred).** Scale, shift and clamp to int8 in the drain would cut drain write traffic 4×, which int8 inference layers need anyway. But the drain has two costs: write-port traffic, which requantization cuts, and bank occupancy, which depends on the number of CPA lanes (W/4 today) and not on the output width. The cycle model now measures this (`model/dse.md` §8; int8 output with a saturating shift standing in for the scale). With the RTL's W/4 drain lanes, int8 changes nothing: the same number of writes and cycles. With T lanes, one tile row per write, the drain is twice as fast (16 → 8 writes per tile at T = 8): 64×64×8 goes from 46.0% to 85.2%, 64×64×16 from 91.3% to 97.5%, and a shared port at 64³ from 79.8% to 88.7% (not the 94% once estimated). More than T lanes does not help, since a row has T values. A tile row is then T bytes, half a port word, so odd tile columns need byte enables that do not start at the low byte. The current core writes int32. The drain is a pipeline with a slot between the CPA and the write formatter for a later requantization stage, and `MODE` bits 2 and above are reserved. The next step is the scale scheme (per tensor in `CFG`, or per channel from memory), modelled before any hardware is added.
-2. **Accumulator form (settled: plain adder).** Each cell either keeps one 32-bit value with a carry-propagate adder in the loop (`ACC_CPA`, the default) or a carry-save (sum, carry) pair with 3:2 compressors in the loop and the carry-propagate add in the drain (`ACC_CSA`). Carry-save shortens the accumulate loop but doubles SC to 8 Kbit. Placed and routed at T = 8 on sky130hd (100 MHz target) and ASAP7 (1 GHz target), the plain adder is 22–24% smaller, has 31% fewer flip-flops and uses 15–20% less energy per MAC (geometric mean), at the same clock within 1%: its loop closes with slack, both forms are limited by the multiplier stage, and carry-save moves the critical add into the drain. Carry-save stays available behind `ACC_FORM` for clocks where the 32-bit add would limit. Both give identical results and cycles, so the same golden vectors check either.
+1. **Output requantization (implemented: shift-only; scale deferred).** With `MODE[2]` set, the drain writes C as int8: each 32-bit accumulator value is arithmetically shifted right by `MODE[7:3]` (0–31) and saturated to [−128, 127]. The drain reads T values and writes one T-byte tile row per W-byte word, so at T = 8 an int32 tile takes 16 writes and an int8 tile takes 8. In the cycle model this lifts a shared port at 64³ from 79.8% to 88.7%, 64×64×8 from 46.0% to 85.2%, and 64×64×16 from 91.3% to 97.5% (`model/dse.md` §8). More than T lanes does not help, since a row has T values. A tile row is T bytes, half a port word, so odd tile columns use byte enables in the high half of the word (§6.1).
+
+   This is **shift-only** requantization, not a full quantized-output path. There is no per-tensor or per-channel multiplier, no bias, and no activation. A real int8 inference layer usually needs a non-power-of-two scale; the next step is to choose a scale delivery scheme (per tensor in `CFG`, or per channel from memory), model it, and add the multiplier in the drain pipeline's spare slot before claiming quantized-layer support. `MODE` bits 8 and above remain reserved.
+2. **Accumulator form (settled: plain adder).** Each cell either keeps one 32-bit value with a carry-propagate adder in the loop (`ACC_CPA`, the default) or a carry-save (sum, carry) pair with 3:2 compressors in the loop and the carry-propagate add in the drain (`ACC_CSA`). Carry-save shortens the accumulate loop but doubles SC to 8 Kbit. Placed and routed at T = 8 on sky130hd (100 MHz target) and ASAP7 (1 GHz target), the plain adder is substantially smaller, has about one third fewer flip-flops and uses about one third less energy per MAC, at the same clock within a few percent: its loop closes with slack, both forms are limited by the multiplier stage, and carry-save moves the critical add into the drain. `flow/results.md` has the exact per-record numbers and names the RTL commit each record was built from; the v1 release re-records all comparison configurations at one commit. Carry-save stays available behind `ACC_FORM` for clocks where the 32-bit add would limit. Both give identical results and cycles, so the same golden vectors check either.
 3. **Data types.** int8 and uint8 with int32 accumulation only. int4 doubles the MACs per beat, so by the balance law the tile has to grow. fp16 and bf16 need a floating-point accumulator: its accumulate latency removes the double-bank advantage (§7.2), so they need their own accumulator design.
 4. **Host interface (settled).** A register port with thin adapters (§6.4), so one core works with every host.
 5. **Packing.** Operands are pre-packed by the host. A strided stream mode that reads unpacked row-major data would save the packing pass, at the cost of more address logic, SRAM bank-conflict risk, and losing the one-aligned-word-per-read property (§6.3).
 6. **Matrix-vector work (M = 1).** Every element of the matrix is used once, so the port caps it at 16 MACs per cycle (25% of peak) in any mode. The current design reaches 16.7%. A dedicated mode could reach the cap by keeping the vector in QA instead of re-streaming it for each tile.
 7. **Small-GEMM overhead (not pursued).** The fixed 34-cycle start and end cost could be hidden by letting the host queue the next GEMM's `CFG` and streams before the previous one's `FENCE`, with a shadow `CFG` set, or by host-writable `CFG` registers (8 cycles). Measured on the real network layers (MLPerf Tiny, BERT-tiny), the cycles before the first beat and after the last are at most 0.8% of a network's cycles at T = 8 and 2.5% at T = 16, so even hiding all of them would add at most 0.5 and 2.4 points of utilization. The overhead matters only for tiny standalone GEMMs (16³: 63%), so it does not pay for a shadow `CFG` and a new instruction.
 
-8. **Clock gating (settled).** Every wide register group has its own clock gate (`CLK_GATE`, default on), opened only in cycles where the group is written: an accumulator bank quadrant for a clear or for an accumulate that reaches it (in the reduced-depth shapes only part of the tile receives products), the product register on a beat, a queue entry on its push, a program-buffer byte on its register write. Gated registers keep their write condition, so turning the gates off gives an equivalent enable-flop design, which is what the formal proofs check. Placed and routed at T = 8, gating cuts power by 18–22% at full utilization and by 29–36% at 47% utilization, and cell area by 5–7% (the flops lose their enable muxes); energy per MAC falls 22–27% (geometric mean, `flow/results.md`). The remaining power is mostly the multiplier array's switching, which follows the operands rather than the clock. Gating needs an integrated clock-gating cell in the target library (`rtl/common/tq_icg.sv` maps to it).
+8. **Clock gating (settled).** Every wide register group has its own clock gate (`CLK_GATE`, default on), opened only in cycles where the group is written: an accumulator bank quadrant for a clear or for an accumulate that reaches it (in the reduced-depth shapes only part of the tile receives products), the product register on a beat, a queue entry on its push, a program-buffer byte on its register write, and each `CFG` register on a `CFG` write. Gated registers keep their write condition, so turning the gates off gives an equivalent enable-flop design, which is what the formal proofs check. The committed records show a large cut in power, area and energy per MAC, and at lower utilization the relative saving is larger because the gated clock trees and registers stop switching; `flow/results.md` has the per-record numbers and names the RTL commit. The remaining power is mostly the multiplier array's combinational switching, which follows the operands rather than the clock; operand isolation on idle and unused quadrants is the next power lever (§11). Gating needs an integrated clock-gating cell in the target library (`rtl/common/tq_icg.sv` maps to it); an SoC with scan must replace it with a cell that has a test enable and connect that enable to the scan-mode signal.
 
-9. **A panel buffer (option; decision pending its area and energy).** The stream engine reads the A panel of tile (i, j) again for every j, although it is the same T × Kp bytes for the whole tile row. With `PANEL_BYTES > 0` the stream engine keeps the panel it reads, if it fits, and serves a later `STREAM_A` of the same panel from the buffer, one W-byte vector per cycle without using the memory port. The ISA and the kernel do not change: the hit is found by the panel's address and length. QA receives its vectors in order: a replay starts only when no A read is in flight, and an A read waits until no replayed vector is. In the cycle model (`model/dse.md` §7, T = 8, 4 KiB, K ≤ 512) it removes 44–48% of the SRAM reads on square shapes at the same cycle count, and it lifts the cases the port limits: M = 1 from 16.7% to 24.8% of peak (the port cap is 25%), 4×512×512 from 66.6% to 99.1%, and the FC autoencoder from 16.6% to 24.1%. The host can compute Cᵀ = Bᵀ·Aᵀ to make the more reused operand A. The buffer adds T × Kp bytes of storage (4 KiB, 32 Kbit at T = 8 for K ≤ 512), as an SRAM or latch array rather than flops, so whether it pays for itself in energy per MAC needs place and route with the SRAM energy line.
+9. **A panel buffer (option; implemented, default off).** The stream engine reads the A panel of tile (i, j) again for every j, although it is the same T × Kp bytes for the whole tile row. With `PANEL_BYTES > 0` the stream engine keeps the panel it reads, if it fits, and serves a later `STREAM_A` of the same panel from the buffer, one W-byte vector per cycle without using the memory port. The ISA and the kernel do not change: the hit is found by the panel's address and length. QA receives its vectors in order: a replay starts only when no A read is in flight, and an A read waits until no replayed vector is. In the cycle model (`model/dse.md` §7, T = 8, 4 KiB, K ≤ 512) it removes 44–48% of the SRAM reads on square shapes at the same cycle count, and it lifts the cases the port limits: M = 1 from 16.7% to 24.8% of peak (the port cap is 25%), 4×64×1024 from 66.4% to 93.6%, and the FC autoencoder from 16.6% to 24.1%. The host can compute Cᵀ = Bᵀ·Aᵀ to make the more reused operand A.
+
+   The RTL implements `PANEL_BYTES` today as flip-flops, so the default is 0 and the option is not part of the reference configuration. A 1 KiB buffer is about 8 K flip-flops, which is not competitive with an SRAM macro. The buffer adds T × Kp bytes of storage (4 KiB, 32 Kbit at T = 8 for K ≤ 512), and whether it pays for itself in energy per MAC needs place and route with the SRAM energy line. Until that record exists, treat the panel buffer as experimental.
 
 Tile size is a parameter rather than a choice (§7.3): larger T reads fewer bytes per MAC and improves dense area efficiency (`T = 16` on ASAP7 reaches 0.361 MACs/cycle/kGE vs. 0.294 at `T = 8`, `flow/results.md`), but uses the array less well on small and irregular shapes, so the right T depends on the SoC's workloads and clock target.
+
+---
+
+## 11. Integration and known limitations
+
+The full integration contract is in [`docs/integration.md`](integration.md); the verification scope is in [`docs/verification.md`](verification.md). The points a v1 integrator must know:
+
+- **Memory contract.** A, B and C must not overlap. The core is not coherent with a host data cache: flush/invalidate the buffers before and after a run, or place them in uncached memory. No host writes to A, B or C while `BUSY`. The memory port must be W bytes wide, honor per-byte write enables (including the high-half int8 strobes), return reads in order with no `rvalid` backpressure, and have latency hidden by the FIFO depth (`docs/integration.md`).
+- **AXI subset.** `tq_top_axi` exposes an AXI4-Lite slave and an AXI4 master without `AxID`, `AxPROT`, `AxCACHE`, `AxQOS`, `AxREGION` or `AxUSER`; tie them off at the SoC boundary. The read burst line buffer is not coherent with concurrent host writes.
+- **DFT.** `tq_icg` is a simulation/generic-synthesis model with no test enable. An SoC with scan must replace it with the library ICG cell and connect the test enable to scan mode (`rtl/README.md`).
+- **Int8 output is shift-only.** There is no per-tensor/per-channel scale, bias or activation. `MODE[7:3]` is an arithmetic right shift, not a general requantization.
+- **Panel buffer is experimental.** `PANEL_BYTES > 0` works and is verified, but uses flip-flops and has no PPA record.
+- **T = 16 closes at 858 MHz**, not 1 GHz; quote its energy at the recorded clock.
+- **Cached-DRAM integration is not a v1 use case.** On the Chipyard Rocket SoC the 8-word FIFOs do not hide DRAM latency and 64³ runs at 10.6% (`docs/benchmarks.md` §6). Use tightly coupled SRAM, or a deeper FIFO/burst profile once it is measured.
+- **Build-time options are not discoverable through `HW_CONFIG`.** int8 output, `PERF`, `MAC_PIPE`, `ACC_FORM`, `PANEL_BYTES` and `WR_ACK` are part of the build configuration; software must know the profile it was built for.
+- **Host control semantics.** `START` while `BUSY` is ignored; `ABORT` clears `BUSY` but does not set `DONE`; after an error or abort, wait for `BUSY = 0` and for writes to complete before reusing C. `BUS_ERR` lets the run continue, so C must be treated as invalid.
+- **Adapters.** AXI4-Lite and AXI4 are the validated paths. CV-X-IF is a reference adapter that has not been run against a real CVA6/CV32E40X. APB and RoCC are not included.

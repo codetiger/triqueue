@@ -4,6 +4,13 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 
 # OS / editors
 .DS_Store
@@ -20,6 +27,8 @@ obj_dir/
 sim_build/
 *.vcd
 *.fst
+*.saif
+*.log
 results.xml
 flow/**/runs/
 
@@ -42,3 +51,7 @@ verif/formal/tq_cg_*/
 
 # Private planning notes (roadmap, decision records, metrics, history): local only
 private/
+
+# C driver build outputs
+sw/*.o
+sw/*.a

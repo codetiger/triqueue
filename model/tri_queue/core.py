@@ -379,7 +379,7 @@ class TriQueueCore:
                 ah = a[kk * r + h * rb: kk * r + h * rb + h]       # quadrant's T/2 A bytes
                 bh = b[kk * c + h * cb: kk * c + h * cb + h]       # quadrant's T/2 B bytes
                 prod = np.outer(ah, bh)
-                assert np.all(np.abs(prod) < (1 << 17)), "product exceeds 18-bit signed"
+                assert np.all(np.abs(prod) < (1 << 17)), "product exceeds 17-bit signed"
                 dest[(rb, cb)].append((prod & 0xFFFFFFFF).astype(np.uint32))
         bank = self.active
         for (rb, cb), prods in dest.items():
