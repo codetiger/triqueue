@@ -76,6 +76,7 @@ pip install -r requirements.txt
 make model-test sw-test   # Python model + C driver tests (~5 s, no EDA tools needed)
 make                      # full check: model, driver, SPDX, lock, RTL lint, RTL regression, formal, synth check
 make -C sw                # build the C driver as a static library
+make dist                 # release tarball, golden-vector set and SHA256SUMS
 make ui-serve             # open the interactive visualizer at http://localhost:8080
 ```
 

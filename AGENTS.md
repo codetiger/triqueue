@@ -53,7 +53,7 @@ make fpga             # ECP5 out-of-context synth + nextpnr (flow/fpga/; needs n
 make clean            # removes build/ and SymbiYosys work dirs
 ```
 
-RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_axi_burst`, `t8_xif`, `t8_write_ack`, `t8_write_ack_shared`, `t8_edge_cases`, `t8_edge_shared`, `t8_panel`, `t8_panel_shared`, `t16_panel`, `t4_panel`, `t8_mac1`, `t8_mac1_csa_shared`, `t32`, `t16`, `t4` (25 configurations, 1,709 cases). CI (`.github/workflows/ci.yml`) runs four jobs on every push: model tests on Python 3.10/3.12, SPDX headers, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
+RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_axi_burst`, `t8_xif`, `t8_write_ack`, `t8_write_ack_shared`, `t8_edge_cases`, `t8_edge_shared`, `t8_panel`, `t8_panel_shared`, `t16_panel`, `t4_panel`, `t8_mac1`, `t8_mac1_csa_shared`, `t32`, `t16`, `t4` (25 configurations, 1,709 cases). CI (`.github/workflows/ci.yml`) runs four jobs on every push: model tests on Python 3.10/3.12, SPDX headers, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/release.yml` publishes the source/vector tarballs on a `v*` tag; `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
 
 Run model commands from `model/` (`pytest.ini` sets `pythonpath = .`, so imports are `from tri_queue...`):
 
