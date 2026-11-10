@@ -191,7 +191,7 @@ CONFIGS = {
         + [dict(case(20, 24, 27), wr_lat=2, bus_err=3), dict(case(9, 9, 9), wr_lat=1)],
     ),
     "t8_axi_burst": (
-        dict(T=8, BURST_BEATS=4),
+        dict(T=8, BURST_BEATS=4, ID_W=4),
         dict(tile=8, wr_ack=True, wr_out_max=16),
         [dict(c, wr_lat=2) for c in edge_cases(8, (9,))[::4]]
         + [dict(case(64, 64, 64, lat=8), wr_lat=2),

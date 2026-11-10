@@ -42,7 +42,7 @@ Each configuration in `test_rtl.py` builds the DUT once (in `build/rtl/<name>/`)
 | `t8_write_ack` | `WR_ACK = 1`, `WR_OUT_MAX = 2` with variable write-response latency | 30 |
 | `t8_write_ack_shared` | `WR_ACK = 1`, `WR_OUT_MAX = 1`, `SHARED_PORT = 1` | 9 |
 | `t8_axi` | `tq_top_axi`: AXI4-Lite registers + AXI4 memory master, ready stalls, `SLVERR` → `STATUS.BUS_ERR` | 28 |
-| `t8_axi_burst` | `tq_top_axi` with `BURST_BEATS = 4`: read line buffer, aligned bursts, same transactions/results | 12 |
+| `t8_axi_burst` | `tq_top_axi` with `BURST_BEATS = 4` and `ID_W = 4`: read line buffer, aligned bursts, same transactions/results | 12 |
 | `t32` | `T = 32` (1024 MACs/cycle, 512-bit ports) | 81 |
 | `t16` | `T = 16` (256 MACs/cycle, 256-bit ports) | 118 |
 | `t4` | `T = 4` (16 MACs/cycle, 64-bit ports) | 150 |
