@@ -610,6 +610,9 @@ html, body {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
   transition: all 0.14s;
 }
+.layer-toggle-pill:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
 .layer-toggle-pill:hover {
   border-color: var(--cyan-qa);
   color: var(--text-main);

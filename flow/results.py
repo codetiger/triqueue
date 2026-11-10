@@ -225,22 +225,29 @@ def platform_section(platform, recs):
     first = recs[0]
     out = [f"## {platform}", ""]
     clocks = sorted({r["clock_period_ps"] for r in recs})
+    utils = sorted({r["core_utilization_pct"] for r in recs})
     clk = (f"Target clock {num(1e6 / clocks[0])} MHz ({clocks[0]:g} ps)" if len(clocks) == 1 else
            "Target clock per config (column *Clock*; a config that cannot close the platform's clock is "
            "run at one it closes)")
+    util_hdr = (f"core utilization {utils[0]}%" if len(utils) == 1 else
+                "core utilization per config (column *Util*)")
     out.append(f"{clk}, "
-               f"core utilization {first['core_utilization_pct']}%, typical corner of the platform. "
+               f"{util_hdr}, typical corner of the platform. "
                f"Gate equivalent: `{first['nand2_cell']}` ({first['nand2_um2']:.4g} µm²).")
     mixed = len(clocks) > 1
+    mixed_u = len(utils) > 1
+    extra_cols = ("Clock | " if mixed else "") + ("Util | " if mixed_u else "")
+    extra_seps = (" --- |" if mixed else "") + (" --- |" if mixed_u else "")
     out += ["", "### Area and timing", "",
-            "| Config | Parameters | " + ("Clock | " if mixed else "") + "Cell area | kGE | Flops | Flops per MAC "
+            "| Config | Parameters | " + extra_cols + "Cell area | kGE | Flops | Flops per MAC "
             "| MACs/cycle per kGE | Fmax (post-route) | Worst setup slack | Peak TOPS/mm² at Fmax | DRC |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |" + (" --- |" if mixed else "")]
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |" + extra_seps]
     for r in recs:
         d = derived(r)
         params = ", ".join(f"{k}={v}" for k, v in r["params"].items())
         clock = f"{num(1e6 / r['clock_period_ps'])} MHz | " if mixed else ""
-        out.append(f"| {r['config']} | {params} | {clock}{area_str(r['cell_area_um2'])} | {num(d['kge'], 1)} "
+        util_col = f"{r['core_utilization_pct']}% | " if mixed_u else ""
+        out.append(f"| {r['config']} | {params} | {clock}{util_col}{area_str(r['cell_area_um2'])} | {num(d['kge'], 1)} "
                    f"| {num(r['flops'])} | {num(r['flops'] / d['macs'])} | {d['macs_per_kge']:.3f} "
                    f"| {num(r['fmax_hz'] / 1e6, 1)} MHz | {num(r['setup_ws_ps'])} ps "
                    f"| {d['tops_mm2']:.3f} | {r['drc_errors']} |")

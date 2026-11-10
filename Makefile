@@ -13,9 +13,9 @@ RTL       := $(shell cat rtl/files.f)
 LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GPANEL_BYTES=1024" "-GMAC_PIPE=1" "-GPERF=0" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
 ACC_FORMS := cpa:1 csa:0
 
-.PHONY: all model-test sw-test model-results flow-results rtl-lint rtl-test formal formal-nightly synth-check fpga ui-data ui-serve clean
+.PHONY: all model-test sw-test model-results flow-results lock-check rtl-lint rtl-test formal formal-nightly synth-check fpga ui-data ui-serve clean
 
-all: model-test sw-test rtl-lint rtl-test formal synth-check
+all: model-test sw-test lock-check rtl-lint rtl-test formal synth-check
 
 model-test:
 	cd model && $(PYTHON) -m pytest -q
@@ -31,6 +31,10 @@ model-results:
 # design flow itself is manual: flow/ppa.py, flow/power.py, then flow/results.py collect.
 flow-results:
 	$(PYTHON) flow/results.py > /dev/null
+
+# Verifies that floorplan utilization, flow/records/, and 3D UI layouts match flow/LAYOUT_LOCK.json
+lock-check:
+	$(PYTHON) flow/check_lock.py
 
 rtl-lint:
 	@for p in $(LINT_CFGS); do \

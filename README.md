@@ -7,8 +7,8 @@ Like AMX and SME, it computes outer products into an in-place output tile. Like 
 **Status:** RTL v0. The SystemVerilog core matches the Python reference model cycle for cycle and is bit-exact against numpy across 1,606 test cases in 24 configurations. Formal proofs (SymbiYosys) cover the FIFOs, clock-gating cells, bus adapters and the `T = 4` core. It attaches through AXI4-Lite, AXI4 or CV-X-IF adapters, has a bare-metal C driver, and runs a GEMM on a Chipyard Rocket SoC.
 
 At `T = 8` (64 int8 MACs/cycle), the core has been placed and routed with OpenROAD on sky130hd and ASAP7, with power from simulated workload activity:
-- **sky130hd (100 MHz):** 0.83 mm² (220 kGE), 8,904 flip-flops, 19.4–31.5 pJ per MAC (engine only), or 27.6 pJ geometric mean including an OpenRAM operand macro.
-- **ASAP7 (1 GHz target, 976 MHz post-route):** 12,702 µm² (218 kGE), 0.83–1.45 pJ per MAC (1.98 TOPS/W geometric mean, engine only).
+- **sky130hd (100 MHz target, 99.9 MHz post-route, 55% core util):** 0.69 mm² cell area / 1.11 mm² core (185 kGE), 8,562 flip-flops, 16.4–25.3 pJ per MAC (19.1 pJ geometric mean, engine only), or 23.7 pJ geometric mean including an OpenRAM operand macro.
+- **ASAP7 (1 GHz target, 992.5 MHz post-route, 70% core util):** 10,281 µm² cell area / 13,820 µm² core (176 kGE), 0.67–1.08 pJ per MAC (0.79 pJ / 2.53 TOPS/W geometric mean, engine only).
 
 See [`docs/benchmarks.md`](docs/benchmarks.md) for the full results.
 

@@ -116,14 +116,7 @@ def parse_total_power(rpt: str):
     raise ValueError("no Total row in the power report")
 
 
-def main():
-    args = sys.argv[1:]
-    native = "--docker" not in args
-    args = [a for a in args if a != "--docker"]
-    if len(args) != 3 or args[0] not in PLATFORMS or args[1] not in CONFIGS or args[2] not in WORKLOADS:
-        print(__doc__)
-        return 2
-    platform, config, workload = args
+def run_one(platform, config, workload, native):
     rel = work_dir(platform, config, native)
     WORK = base(native)
     saif = ROOT / "build" / "activity" / config / f"{workload}.saif"
@@ -164,7 +157,22 @@ def main():
     (ROOT / rel / "power" / f"{workload}.json").write_text(json.dumps(out, indent=2) + "\n")
     print(f"[power] {platform} {config} {workload}: {p['total'] * 1e3:.2f} mW at "
           f"{1e6 / period_ps:.0f} MHz, {cycles} cycles, {out['pj_per_mac']:.3f} pJ/MAC, "
-          f"{out['tops_per_w']:.2f} TOPS/W (engine only)")
+          f"{out['tops_per_w']:.2f} TOPS/W (engine only)", flush=True)
+    return 0
+
+
+def main():
+    args = sys.argv[1:]
+    native = "--docker" not in args
+    args = [a for a in args if a != "--docker"]
+    if len(args) < 3 or args[0] not in PLATFORMS or args[1] not in CONFIGS or any(w not in WORKLOADS for w in args[2:]):
+        print(__doc__)
+        return 2
+    platform, config = args[0], args[1]
+    for workload in args[2:]:
+        rc = run_one(platform, config, workload, native)
+        if rc:
+            return rc
     return 0
 
 

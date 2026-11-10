@@ -74,18 +74,19 @@ The second bank removes the per-tile drain stall that a production outer-product
 
 Source: `flow/results.md` (`flow/results.py`, from runs of `flow/ppa.py` and `flow/power.py`). OpenROAD-flow-scripts `d0e5b3c13`, typical corner, post-route STA and extracted parasitics. Power comes from simulating each workload in Verilator (checked against the model) with uniform random int8 operands, which switch more than real data. Reference configuration: plain-adder accumulator, clock gating on, operand FIFOs of depth 4 and a 3-entry MAC command queue (enough for an SRAM with up to 3 cycles of read latency, with no cycle lost). Engine only unless stated.
 
-| | sky130hd, T = 8 (100 MHz) | ASAP7, T = 8 (1 GHz) | ASAP7, T = 16 (1 GHz) |
+| | sky130hd, T = 8 (100 MHz, 55% util) | ASAP7, T = 8 (1 GHz, 70% util) | ASAP7, T = 16 (1 GHz, 45% util) |
 | --- | --- | --- | --- |
-| Cell area | 0.826 mm² (219.9 kGE) | 12,702 µm² (217.8 kGE) | 41,361 µm² (709.2 kGE) |
-| Flip-flops | 8,904 (139 per MAC) | 8,904 (139 per MAC) | 26,313 (103 per MAC) |
-| Fmax (post-route) | 100.5 MHz (closes) | 975.9 MHz | 858.4 MHz |
-| Peak MACs/cycle per kGE | 0.291 | 0.294 | 0.361 |
-| Energy per MAC, 64×64×64 (98.7% / 93.4% util) | 20.0 pJ | 0.86 pJ (2.33 TOPS/W) | 0.82 pJ (2.43 TOPS/W) |
-| Energy per MAC, ResNet-8 conv 256×32×288 (99.8% / 99.2%) | 19.4 pJ | 0.83 pJ (2.40 TOPS/W) | 0.78 pJ (2.57 TOPS/W) |
-| Energy per MAC, MobileNetV1 pointwise 2304×16×8 (46.8% / 24.0%) | 31.5 pJ | 1.45 pJ (1.38 TOPS/W) | 1.84 pJ (1.09 TOPS/W) |
-| Geometric mean of the three | 23.0 pJ | 1.01 pJ (1.98 TOPS/W) | 1.06 pJ (1.89 TOPS/W) |
-| ResNet-8 conv with ReLU-like operands (synthetic, half-zero activations) | 16.5 pJ | 0.72 pJ (2.76 TOPS/W) | 0.66 pJ (3.02 TOPS/W) |
-| Engine + operand SRAM, geometric mean (OpenRAM macro, sky130 only) | 27.6 pJ | – | – |
+| Cell area / core area | 0.693 mm² / 1.110 mm² (184.6 kGE) | 10,281 µm² / 13,820 µm² (176.3 kGE) | 41,361 µm² / 91,914 µm² (709.2 kGE) |
+| Post-route stdcell density | 62.4% (100.0% row fill) | 74.4% (100.0% row fill) | 49.9% |
+| Flip-flops | 8,562 (134 per MAC) | 8,562 (134 per MAC) | 26,313 (103 per MAC) |
+| Fmax (post-route) | 99.9 MHz (-14 ps slack) | 992.5 MHz (-8 ps slack) | 858.4 MHz |
+| Peak MACs/cycle per kGE | 0.347 | 0.363 | 0.361 |
+| Energy per MAC, 64×64×64 (98.6% / 93.4% util) | 16.9 pJ (0.119 TOPS/W) | 0.69 pJ (2.91 TOPS/W) | 0.82 pJ (2.43 TOPS/W) |
+| Energy per MAC, ResNet-8 conv 256×32×288 (99.8% / 99.2%) | 16.4 pJ (0.122 TOPS/W) | 0.67 pJ (3.00 TOPS/W) | 0.78 pJ (2.57 TOPS/W) |
+| Energy per MAC, MobileNetV1 pointwise 2304×16×8 (46.8% / 24.0%) | 25.3 pJ (0.079 TOPS/W) | 1.08 pJ (1.85 TOPS/W) | 1.84 pJ (1.09 TOPS/W) |
+| Geometric mean of the three | 19.1 pJ (0.105 TOPS/W) | 0.79 pJ (2.53 TOPS/W) | 1.06 pJ (1.89 TOPS/W) |
+| ResNet-8 conv with ReLU-like operands (synthetic, half-zero activations) | 13.9 pJ (0.144 TOPS/W) | 0.58 pJ (3.47 TOPS/W) | 0.66 pJ (3.02 TOPS/W) |
+| Engine + operand SRAM, geometric mean (OpenRAM macro, sky130 only) | 23.7 pJ (0.084 TOPS/W) | – | – |
 
 - **Clock gating** (102 gates, 93 with these queues; `CLK_GATE = 0` for comparison) cuts power by 18–22% at full utilization and by 29–36% at 47%, and cell area by 5–7%; energy per MAC falls 22–27% (geometric mean). At 47% utilization the engine now draws 75–80% of its full-utilization power, against 91–94% without gating. What remains is mostly the multiplier array's switching, which follows the operand data.
 - **Accumulator form:** against the carry-save form, the plain adder uses 22–24% less cell area, 31% fewer flip-flops and 15–20% less energy per MAC, at the same clock within 1% (spec §10.2).

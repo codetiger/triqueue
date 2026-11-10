@@ -34,10 +34,20 @@ jobs:
         run: |
           python bench.py > /dev/null
           python dse.py > /dev/null
-      - name: Regenerate physical design results
-        run: python flow/results.py > /dev/null
-      - name: Check committed results match
-        run: git diff --exit-code -- model/results.md model/dse.md flow/results.md
+      - name: Regenerate physical design results and UI scenario bundles
+        run: |
+          python flow/results.py > /dev/null
+          python ui/pipeline/build_ui_data.py > /dev/null
+      - name: Check committed results and UI bundles match
+        run: git diff --exit-code -- model/results.md model/dse.md flow/results.md ui/data/
+      - name: Verify cryptographic silicon layout and utilization lock
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            python flow/check_lock.py --check-git-base "origin/${{ github.base_ref }}"
+          else
+            python flow/check_lock.py
+          fi
 
   rtl:
     # Lint (Verilator + Yosys), RTL-vs-model regression (cocotb + Verilator), formal (SymbiYosys),

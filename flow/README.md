@@ -28,10 +28,12 @@ cmake --build tools/yosys/build --target install -j
 
 | File | Purpose |
 | --- | --- |
-| `ppa.py` | Configurations (`CONFIGS`), platforms with their target clocks (`PLATFORMS`), and the ORFS driver. Runs work in `build/orfs_native/<platform>/<config>/` (`build/orfs_docker/` with `--docker`). |
+| `ppa.py` | Configurations (`CONFIGS`), platforms with their target clocks, deterministic thread counts, and locked floorplan utilization (`PLATFORMS`), plus the ORFS driver (`run`, `sweep`, `sweep-util`). |
 | `constraint.sdc` | Clock on `clk_i` (period from `ppa.py`), 20% of the period as I/O delay, `rst_ni` untimed (asynchronous, synchronized in the SoC). |
+| `io_constraints.tcl` | Deterministic 4-edge perimeter pin assignment (`rd_*` West, `wr_*` East, host write/ctrl North, host readback South). |
 | `activity.py` | Runs one workload in Verilator through the cocotb testbench (checked against the cycle model) and dumps SAIF. |
 | `results.py` | `collect` condenses a finished native run and its power results into `records/<platform>/<config>.json` (committed); without arguments it writes `results.md` from the records. CI checks that `results.md` matches them. |
+| `LAYOUT_LOCK.json`, `check_lock.py`, `release_layout.py` | Versioned SHA-256 lock over platform utilization, `records/`, `results.md`, and 1:1 3D UI layouts (`ui/data/chip_*.js`). Only an explicit `release_layout.py --version vX.Y.Z` bump can change locked silicon artifacts. |
 | `fpga/` | ECP5 out-of-context build (Yosys + nextpnr-ecp5), an Fmax and resource sanity check, never mixed with these records (`fpga/README.md`). |
 | `power.py`, `power.tcl` | Flattens the SAIF to the routed netlist's names, scales it to the flow clock, writes a register activity table, and reads both into OpenSTA with the routed parasitics. Reports power and energy per MAC. |
 
@@ -39,11 +41,14 @@ cmake --build tools/yosys/build --target install -j
 
 ```
 python3 flow/ppa.py list
-python3 flow/ppa.py run sky130hd t8_csa              # full flow
+python3 flow/ppa.py run sky130hd t8_cpa              # full flow at locked utilization & threads
 python3 flow/ppa.py run asap7 t8_cpa --to synth      # stop after a stage
 python3 flow/ppa.py sweep asap7 t8_cpa 950 900 850   # clock sweep: one run per period, closure table
-python3 flow/power.py sky130hd t8_csa gemm64         # after the flow: activity-based power
-python3 flow/results.py collect sky130hd t8_csa      # record the run, rewrite results.md
+python3 flow/ppa.py sweep-util asap7 t8_cpa 60 66 72 # utilization sweep in isolated <config>_u<util> dirs
+python3 flow/power.py sky130hd t8_cpa gemm64         # after the flow: activity-based power
+python3 flow/results.py collect sky130hd t8_cpa      # record the run, rewrite results.md
+python3 flow/release_layout.py --version v0.2.0      # extract 100% 1:1 3D layouts & update LAYOUT_LOCK.json
+python3 flow/check_lock.py                           # verify SHA-256 lock (run by `make` and CI)
 ```
 
 `collect` refuses a run whose synthesis is older than `rtl/`, or when `rtl/` has uncommitted changes, so a record always names the RTL commit it was built from. A run made before an RTL change that cannot affect its netlist (a comment, or the default of a parameter the configuration sets) can be recorded with `--force`; say so in the commit.

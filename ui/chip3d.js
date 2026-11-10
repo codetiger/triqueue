@@ -124,9 +124,9 @@
       // Visibility flags
       this.vis = {
         substrate: true,
-        regions: true,
+        regions: false,
         cells: true,
-        filler: false,
+        filler: true,
         vias: true,
         pdn: true,
         pins: true,
@@ -411,23 +411,35 @@
       const dieH = d.die.height_um;
       const scaleX = 100.0 / dieW;
       const scaleY = 100.0 / dieH;
+      const isDbu = d.cell_units === "dbu" && d.dbu > 0;
+      const cellScaleX = isDbu ? 100.0 / (dieW * d.dbu) : scaleX;
+      const cellScaleY = isDbu ? 100.0 / (dieH * d.dbu) : scaleY;
 
       const list = []; // flat float array (13 floats per box)
       function pushBox(cx, cy, baseZ, sx, sy, sz, r, g, b, a, layerIdx, modId, pulse) {
         list.push(cx, cy, baseZ, sx, sy, sz, r, g, b, a, layerIdx, modId, pulse);
       }
 
-      // 1. Silicon Substrate Base + Die Seal Ring + North Notch Marker (Z = -1.5 .. 0)
+      // 1. Silicon Substrate Base + Exact Core Frame + Die Seal Ring (Z = -1.5 .. 0)
       if (this.vis.substrate) {
         pushBox(0, 0, -1.5, 104, 104, 1.4, 0.04, 0.07, 0.12, 1.0, 0.0, -1, 0);
-        // Active Core Boundary Frame
+        // Die Seal Ring
         pushBox(0, -50.6, -0.08, 101.6, 0.45, 0.25, 0.18, 0.34, 0.52, 1.0, 0.0, -1, 0);
         pushBox(0,  50.6, -0.08, 101.6, 0.45, 0.25, 0.22, 0.52, 0.72, 1.0, 0.0, -1, 0); // North edge brighter
         pushBox(-50.6, 0, -0.08, 0.45, 101.6, 0.25, 0.18, 0.34, 0.52, 1.0, 0.0, -1, 0);
         pushBox( 50.6, 0, -0.08, 0.45, 101.6, 0.25, 0.18, 0.34, 0.52, 1.0, 0.0, -1, 0);
-        // Subtle East-West Standard-Cell Row Guide Striations on Substrate
-        for (let ry = -46; ry <= 46; ry += 4) {
-          pushBox(0, ry, -0.07, 98.5, 0.08, 0.04, 0.09, 0.15, 0.24, 0.65, 0.0, -1, 0);
+        // Exact Core Area Boundary Frame (from 6_final.def ROW bounds)
+        if (typeof d.die.core_x0_um === "number") {
+          const cx0 = d.die.core_x0_um * scaleX - 50.0;
+          const cx1 = d.die.core_x1_um * scaleX - 50.0;
+          const cy0 = d.die.core_y0_um * scaleY - 50.0;
+          const cy1 = d.die.core_y1_um * scaleY - 50.0;
+          const cw = cx1 - cx0, ch = cy1 - cy0;
+          const cmx = (cx0 + cx1) * 0.5, cmy = (cy0 + cy1) * 0.5;
+          pushBox(cmx, cy0, -0.05, cw, 0.18, 0.12, 0.25, 0.48, 0.68, 0.75, 0.0, -1, 0);
+          pushBox(cmx, cy1, -0.05, cw, 0.18, 0.12, 0.25, 0.48, 0.68, 0.75, 0.0, -1, 0);
+          pushBox(cx0, cmy, -0.05, 0.18, ch, 0.12, 0.25, 0.48, 0.68, 0.75, 0.0, -1, 0);
+          pushBox(cx1, cmy, -0.05, 0.18, ch, 0.12, 0.25, 0.48, 0.68, 0.75, 0.0, -1, 0);
         }
       }
 
@@ -438,62 +450,70 @@
           const bm = bms[k];
           const m = MODULE_META[bm.id];
           if (!m) continue;
-          const x0 = bm.x0 * scaleX - 50.0;
-          const x1 = bm.x1 * scaleX - 50.0;
-          const y0 = bm.y0 * scaleY - 50.0;
-          const y1 = bm.y1 * scaleY - 50.0;
+          const inset = k === "mac_bank1" ? 0.42 : 0.0;
+          const x0 = bm.x0 * scaleX - 50.0 + inset;
+          const x1 = bm.x1 * scaleX - 50.0 - inset;
+          const y0 = bm.y0 * scaleY - 50.0 + inset;
+          const y1 = bm.y1 * scaleY - 50.0 - inset;
           const cx = (x0 + x1) * 0.5;
           const cy = (y0 + y1) * 0.5;
           const bw = Math.max(3.0, x1 - x0);
           const bh = Math.max(3.0, y1 - y0);
           const [r, g, b] = m.rgb;
           const isPulsing = this.activeCycleMods.has(bm.id) ? 1.0 : 0.0;
-          // Translucent floorplan zone pad
-          pushBox(cx, cy, -0.04, bw, bh, 0.06, r * 0.55, g * 0.55, b * 0.55, 0.28, 0.04, bm.id, isPulsing);
-          // Crisp bounding-box perimeter rails
-          const rail = 0.22;
-          pushBox(cx, y0, -0.02, bw, rail, 0.10, r, g, b, 0.72, 0.05, bm.id, isPulsing);
-          pushBox(cx, y1, -0.02, bw, rail, 0.10, r, g, b, 0.72, 0.05, bm.id, isPulsing);
-          pushBox(x0, cy, -0.02, rail, bh, 0.10, r, g, b, 0.72, 0.05, bm.id, isPulsing);
-          pushBox(x1, cy, -0.02, rail, bh, 0.10, r, g, b, 0.72, 0.05, bm.id, isPulsing);
+          if (k !== "mac_bank1") {
+            pushBox(cx, cy, -0.04, bw, bh, 0.06, r * 0.55, g * 0.55, b * 0.55, 0.22, 0.04, bm.id, isPulsing);
+          }
+          const rail = 0.20;
+          pushBox(cx, y0, -0.02, bw, rail, 0.10, r, g, b, 0.75, 0.05, bm.id, isPulsing);
+          pushBox(cx, y1, -0.02, bw, rail, 0.10, r, g, b, 0.75, 0.05, bm.id, isPulsing);
+          pushBox(x0, cy, -0.02, rail, bh, 0.10, r, g, b, 0.75, 0.05, bm.id, isPulsing);
+          pushBox(x1, cy, -0.02, rail, bh, 0.10, r, g, b, 0.75, 0.05, bm.id, isPulsing);
         }
       }
 
-      // 2. FEOL Placed Standard Cells (Z = 0.0, layerIdx = 0.18)
-      // Standard-cell rows run Horizontally (West -X to East +X), stacked South (-Y) to North (+Y).
-      // Cell heights in Z are kept flat (0.12..0.32) so cells look like horizontal silicon strips, not vertical needles!
+      // 2. FEOL Placed Standard Cells & Lossless Row Fill (100% 1:1 from 6_final.def + PDK LEF)
       if (this.vis.cells) {
         for (let i = 0; i < d.cells.length; i++) {
-          const [x, y, w, h, mod, cclass, quad, act] = d.cells[i];
+          const [x, y, w, h, mod, cclass, quad, rawAct] = d.cells[i];
           if (cclass === 4 && !this.vis.filler) continue;
 
-          const cx = (x + w * 0.5) * scaleX - 50.0;
-          const cy = (y + h * 0.5) * scaleY - 50.0;
-          const sx = Math.max(0.18, w * scaleX * 0.95);
-          const sy = Math.max(0.14, h * scaleY * 0.84);
-          let sz = cclass === 1 ? 0.34 : cclass === 0 ? 0.23 : cclass === 4 ? 0.08 : 0.14;
+          const act = isDbu ? rawAct * 0.01 : rawAct;
+          const cx = (x + w * 0.5) * cellScaleX - 50.0;
+          const cy = (y + h * 0.5) * cellScaleY - 50.0;
+          const sx = Math.max(0.03, w * cellScaleX * 0.992);
+          const sy = Math.max(0.05, h * cellScaleY * 0.955);
+          let sz = cclass === 1 ? 0.34 : cclass === 0 ? 0.23 : cclass === 4 ? 0.07 : 0.15;
 
-          let r = 0.3, g = 0.5, b = 0.8, a = 0.96;
-          const isPulsing = this.activeCycleMods.has(mod) ? 1.0 : 0.0;
+          let r = 0.3, g = 0.5, b = 0.8, a = 0.97;
+          const isPulsing = cclass !== 4 && this.activeCycleMods.has(mod) ? 1.0 : 0.0;
 
           if (this.colorMode === "module") {
-            const m = MODULE_META[mod] || MODULE_META[11];
-            r = m.rgb[0]; g = m.rgb[1]; b = m.rgb[2];
-            if (cclass === 3) { r *= 0.68; g *= 0.68; b *= 0.68; }
-            if (cclass === 1) { r = Math.min(1, r + 0.28); g = Math.min(1, g + 0.28); b = Math.min(1, b + 0.28); }
+            if (cclass === 4) {
+              r = 0.14; g = 0.18; b = 0.25; a = 0.94;
+            } else {
+              const m = MODULE_META[mod] || MODULE_META[11];
+              r = m.rgb[0]; g = m.rgb[1]; b = m.rgb[2];
+              if (cclass === 3) { r *= 0.72; g *= 0.72; b *= 0.72; }
+              if (cclass === 1) { r = Math.min(1, r + 0.28); g = Math.min(1, g + 0.28); b = Math.min(1, b + 0.28); }
+            }
           } else if (this.colorMode === "cell_class") {
             const cm = CLASS_META[cclass] || CLASS_META[3];
             r = cm.rgb[0]; g = cm.rgb[1]; b = cm.rgb[2];
           } else if (this.colorMode === "material") {
             if (cclass === 1) { r = 0.78; g = 0.92; b = 0.28; }
             else if (cclass === 0) { r = 0.16; g = 0.58; b = 0.72; }
-            else if (cclass === 4) { r = 0.11; g = 0.16; b = 0.24; }
+            else if (cclass === 4) { r = 0.12; g = 0.17; b = 0.25; }
             else { r = 0.22; g = 0.38; b = 0.54; }
           } else if (this.colorMode === "activity") {
-            const boost = isPulsing > 0.5 ? Math.min(1.0, act + 0.42) : act * 0.75;
-            const hc = heatColor(boost);
-            r = hc[0]; g = hc[1]; b = hc[2];
-            sz *= (0.85 + boost * 0.75);
+            if (cclass === 4) {
+              r = 0.08; g = 0.12; b = 0.19; a = 0.88;
+            } else {
+              const boost = isPulsing > 0.5 ? Math.min(1.0, act + 0.42) : act * 0.75;
+              const hc = heatColor(boost);
+              r = hc[0]; g = hc[1]; b = hc[2];
+              sz *= (0.85 + boost * 0.75);
+            }
           } else if (this.colorMode === "clock_xray") {
             if (cclass === 1) {
               r = 0.55; g = 1.0; b = 0.18; sz = 0.48;
@@ -502,11 +522,11 @@
             } else if (mod === 5 || mod === 2) {
               r = 1.0; g = 0.32; b = 0.52; sz = 0.24;
             } else {
-              r = 0.10; g = 0.14; b = 0.22; a = 0.32; sz = 0.10;
+              r = 0.10; g = 0.14; b = 0.22; a = 0.32; sz = 0.08;
             }
           }
 
-          pushBox(cx, cy, 0.0, sx, sy, sz, r, g, b, a, 0.18, mod, isPulsing);
+          pushBox(cx, cy, 0.0, sx, sy, sz, r, g, b, a, 0.18, cclass === 4 ? -1 : mod, isPulsing);
         }
       }
 

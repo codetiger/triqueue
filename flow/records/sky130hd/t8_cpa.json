@@ -4,7 +4,7 @@
   "openroad": "f131605",
   "yosys": "0.68+ a5af9d690",
   "host": "macOS 27.0.1 arm64",
-  "rtl_commit": "8e7425a",
+  "rtl_commit": "9acf7c2",
   "platform": "sky130hd",
   "config": "t8_cpa",
   "params": {
@@ -14,25 +14,25 @@
     "MACQ_DEPTH": 3
   },
   "clock_period_ps": 10000.0,
-  "core_utilization_pct": 40,
-  "cell_area_um2": 825539,
+  "core_utilization_pct": 55,
+  "cell_area_um2": 692829,
   "area_split_um2": {
-    "sequential": 206564,
-    "logic": 486709.24,
-    "clock tree": 53283.56,
-    "timing buffers": 46731.1,
-    "other": 30621.85
+    "sequential": 179321,
+    "logic": 421940.84,
+    "clock tree": 44946.83,
+    "timing buffers": 21874.7,
+    "other": 22959.48
   },
-  "core_area_um2": 1750060.0,
-  "placement_density": 0.47172,
-  "cells": 98601,
-  "flops": 8904,
+  "core_area_um2": 1109820.0,
+  "placement_density": 0.624272,
+  "cells": 85134,
+  "flops": 8562,
   "nand2_cell": "sky130_fd_sc_hd__nand2_1",
   "nand2_um2": 3.7536,
-  "setup_ws_ps": 47.275999999999996,
-  "setup_tns_ps": 0,
-  "hold_ws_ps": 128.556,
-  "fmax_hz": 100475000.0,
+  "setup_ws_ps": -13.6913,
+  "setup_tns_ps": -15.252699999999999,
+  "hold_ws_ps": 271.031,
+  "fmax_hz": 99863300.0,
   "drc_errors": 0,
   "power": {
     "gemm64": {
@@ -41,29 +41,29 @@
         64,
         64
       ],
-      "cycles": 4152,
+      "cycles": 4156,
       "useful_macs": 262144,
-      "utilization": 0.9865125240847784,
+      "utilization": 0.9855630413859481,
       "power_w": {
-        "internal": 0.0646964,
-        "switching": 0.06139078,
-        "leakage": 3.708836e-07,
-        "total": 0.1260876
+        "internal": 0.05266618,
+        "switching": 0.05370743,
+        "leakage": 3.107994e-07,
+        "total": 0.1063739
       },
       "power_groups_w": {
-        "sequential": 0.02616727,
-        "combinational": 0.06631314,
-        "clock": 0.03360863,
+        "sequential": 0.02393062,
+        "combinational": 0.05569929,
+        "clock": 0.02674533,
         "macro": 0.0,
         "pad": 0.0
       },
-      "energy_j": 5.235157152e-06,
-      "pj_per_mac": 19.97053967285156,
-      "tops_per_w": 0.10014751893354433,
+      "energy_j": 4.420899284e-06,
+      "pj_per_mac": 16.86439241027832,
+      "tops_per_w": 0.11859306587179877,
       "sram": {
         "reads": 4096,
         "writes": 1024,
-        "energy_j": 9.186345942399999e-07
+        "energy_j": 9.186361899199999e-07
       }
     },
     "resnet8_conv32": {
@@ -72,29 +72,29 @@
         32,
         288
       ],
-      "cycles": 36920,
+      "cycles": 36924,
       "useful_macs": 2359296,
-      "utilization": 0.9984832069339111,
+      "utilization": 0.9983750406239844,
       "power_w": {
-        "internal": 0.06401913,
-        "switching": 0.05981768,
-        "leakage": 3.722806e-07,
-        "total": 0.1238372
+        "internal": 0.05205998,
+        "switching": 0.05254834,
+        "leakage": 3.108058e-07,
+        "total": 0.1046086
       },
       "power_groups_w": {
-        "sequential": 0.02601952,
-        "combinational": 0.0643243,
-        "clock": 0.0334931,
+        "sequential": 0.02376313,
+        "combinational": 0.05412629,
+        "clock": 0.02671944,
         "macro": 0.0,
         "pad": 0.0
       },
-      "energy_j": 4.572069424e-05,
-      "pj_per_mac": 19.378956366644964,
-      "tops_per_w": 0.10320473208982489,
+      "energy_j": 3.8625679464e-05,
+      "pj_per_mac": 16.371697092692056,
+      "tops_per_w": 0.1221620451854532,
       "sram": {
         "reads": 36864,
         "writes": 2048,
-        "energy_j": 6.9837630422399995e-06
+        "energy_j": 6.983764637919999e-06
       }
     },
     "mbv1_pw8_16": {
@@ -103,29 +103,29 @@
         16,
         8
       ],
-      "cycles": 9840,
+      "cycles": 9842,
       "useful_macs": 294912,
-      "utilization": 0.4682926829268293,
+      "utilization": 0.46819752082909977,
       "power_w": {
-        "internal": 0.04614943,
-        "switching": 0.04815888,
-        "leakage": 3.637746e-07,
-        "total": 0.09430867
+        "internal": 0.03637156,
+        "switching": 0.03934643,
+        "leakage": 3.092817e-07,
+        "total": 0.0757183
       },
       "power_groups_w": {
-        "sequential": 0.01631475,
-        "combinational": 0.05685822,
-        "clock": 0.0211365,
+        "sequential": 0.01482239,
+        "combinational": 0.0439509,
+        "clock": 0.01694523,
         "macro": 0.0,
         "pad": 0.0
       },
-      "energy_j": 9.279973128e-06,
-      "pj_per_mac": 31.466922770182286,
-      "tops_per_w": 0.06355880473622855,
+      "energy_j": 7.452195086e-06,
+      "pj_per_mac": 25.26921619330512,
+      "tops_per_w": 0.07914768644584569,
       "sram": {
         "reads": 4608,
         "writes": 9216,
-        "energy_j": 2.47976672448e-06
+        "energy_j": 2.47976752232e-06
       }
     },
     "resnet8_conv32_relu": {
@@ -134,29 +134,29 @@
         32,
         288
       ],
-      "cycles": 36920,
+      "cycles": 36924,
       "useful_macs": 2359296,
-      "utilization": 0.9984832069339111,
+      "utilization": 0.9983750406239844,
       "power_w": {
-        "internal": 0.05691129,
-        "switching": 0.0485782,
-        "leakage": 3.835297e-07,
-        "total": 0.1054899
+        "internal": 0.04639583,
+        "switching": 0.04241213,
+        "leakage": 3.161123e-07,
+        "total": 0.08880827
       },
       "power_groups_w": {
-        "sequential": 0.0237477,
-        "combinational": 0.04824922,
-        "clock": 0.03349312,
+        "sequential": 0.02155126,
+        "combinational": 0.04053781,
+        "clock": 0.02671952,
         "macro": 0.0,
         "pad": 0.0
       },
-      "energy_j": 3.894687108e-05,
-      "pj_per_mac": 16.507835845947262,
-      "tops_per_w": 0.12115458492949623,
+      "energy_j": 3.27915656148e-05,
+      "pj_per_mac": 13.898877298482258,
+      "tops_per_w": 0.14389651459246985,
       "sram": {
         "reads": 36864,
         "writes": 2048,
-        "energy_j": 6.9837630422399995e-06
+        "energy_j": 6.983764637919999e-06
       }
     }
   },

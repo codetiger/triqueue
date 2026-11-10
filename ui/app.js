@@ -1075,13 +1075,15 @@ end`,
 
     const rec = chipData.record || {};
     const fmaxMhz = rec.fmax_hz ? (rec.fmax_hz / 1e6).toFixed(0) : "976";
+    const densPct = rec.placement_density ? `${(rec.placement_density * 100).toFixed(1)}% Dens` : "";
+    const relTag = chipData.release_version ? ` · <span style="color:var(--lime-cg);">${chipData.release_version}</span>` : "";
     const areaStr =
       pdk === "asap7"
         ? `${Math.round(rec.cell_area_um2 || 12702).toLocaleString()} µm²`
         : `${((rec.cell_area_um2 || 825600) / 1e6).toFixed(2)} mm²`;
 
     document.getElementById("chip3d-hud-info").innerHTML = `
-      <strong>${pdk.toUpperCase()}</strong> · ${chipData.die.width_um}×${chipData.die.height_um} µm · ${areaStr} · <strong style="color:var(--cyan-qa);">${fmaxMhz} MHz</strong> · 0 DRC
+      <strong>${pdk.toUpperCase()}</strong> · ${chipData.die.width_um}×${chipData.die.height_um} µm · ${areaStr}${densPct ? " · " + densPct : ""} · <strong style="color:var(--cyan-qa);">${fmaxMhz} MHz</strong> · 0 DRC${relTag}
     `;
 
     renderLayerStackToggles();
@@ -1094,10 +1096,11 @@ end`,
     const metalsOn = vis.layers.some(Boolean);
 
     const groups = [
-      { id: "regions", label: "Regions", swatch: "#81c995", active: vis.regions },
       { id: "cells",   label: "Cells",   swatch: "#8ab4f8", active: vis.cells },
+      { id: "filler",  label: "Fill",    swatch: "#38404f", active: vis.filler },
       { id: "metals",  label: "Metals",  swatch: "#c58af9", active: metalsOn },
       { id: "pdn",     label: "Power/IO",swatch: "#fdd663", active: vis.pdn },
+      { id: "regions", label: "Regions", swatch: "#81c995", active: vis.regions },
     ];
 
     container.innerHTML = groups
@@ -1119,6 +1122,8 @@ end`,
           vis.regions = !vis.regions;
         } else if (id === "cells") {
           vis.cells = !vis.cells;
+        } else if (id === "filler") {
+          vis.filler = !vis.filler;
         } else if (id === "metals") {
           const next = !vis.layers.some(Boolean);
           vis.layers = vis.layers.map(() => next);

@@ -36,8 +36,8 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Regenerate cycle-exact UI traces and PPA records
-        run: python ui/pipeline/build_ui_data.py
+      - name: Verify locked UI traces, PPA records, and 3D silicon layouts
+        run: python flow/check_lock.py
 
       - name: Verify UI JavaScript syntax and data bundles
         run: |
