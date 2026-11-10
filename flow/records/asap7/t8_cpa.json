@@ -4,7 +4,7 @@
   "openroad": "f131605",
   "yosys": "0.68+ a5af9d690",
   "host": "macOS 27.0.1 arm64",
-  "rtl_commit": "9acf7c2",
+  "rtl_commit": "cfd68f4",
   "platform": "asap7",
   "config": "t8_cpa",
   "params": {

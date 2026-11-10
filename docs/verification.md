@@ -59,11 +59,10 @@ The AXI proof covers the shipped adapter, not a user wrapper.
 
 `flow/results.md` is generated from committed records in `flow/records/`. Each record names the RTL
 commit, ORFS commit, platform, utilization, clock, and that it was collected from a post-route run
-with activity-based power. `flow/check_lock.py` verifies the records and the locked 3D layouts.
-
-**Known provenance gap:** the comparison records (`t8_cpa_nocg`, `t8_csa`, `t8_shared`, `t16_cpa`)
-currently name older RTL commits than the reference `t8_cpa` record. The v1 release re-records them
-at one commit. Until then, treat the gating and accumulator deltas as directional.
+with activity-based power. `flow/check_lock.py` verifies the records and the locked 3D layouts. For
+v1, all nine records name the same RTL commit (`cfd68f4`) and the bundle is locked as `v1.0.0`; the
+gating and accumulator deltas are therefore same-RTL comparisons. T = 16 is recorded at 741 MHz
+(762 MHz post-route); T = 32 has no PPA record.
 
 ## 5. What is not covered yet
 

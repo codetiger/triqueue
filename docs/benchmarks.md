@@ -20,7 +20,7 @@ Source: `model/results.md` (`model/bench.py`). Memory latency 2, FIFO depth 8, s
 
 Further tables in the source file: shared read/write port (79.8% at 64³), drain hiding versus K, MAC command queue depth, and FIFO depth versus SRAM latency.
 
-**Int8 output** (`MODE[2]`, shift-only). The drain writes one tile row per write instead of one port word of int32, so an int8 tile takes 8 writes instead of 16 at T = 8. On a separate port this does not change 64³ (99.2%); on a shared port it lifts 64³ from 79.8% to 88.7%, 64×64×8 from 46.0% to 85.2%, and 64×64×16 from 91.3% to 97.5% (`model/dse.md` §8). This is shift-only requantization, not a per-tensor scale.
+**Int8 output** (`MODE[2]`, shift-only). The drain writes one tile row per write instead of one port word of int32, so an int8 tile takes 8 writes instead of 16 at T = 8. On a separate port it does not change 64³ (99.2%) but lifts 64×64×8 from 46.0% to 85.2% and 64×64×16 from 91.3% to 97.5%; on a shared port it lifts 64³ from 79.8% to 88.7%, 64×64×8 from 33.1% to 49.5% and 64×64×16 from 49.7% to 66.2% (`model/dse.md` §8). This is shift-only requantization, not a per-tensor scale.
 
 ## 2. RTL, T = 8
 
@@ -76,23 +76,22 @@ The second bank removes the per-tile drain stall that a production outer-product
 
 Source: `flow/results.md` (`flow/results.py`, from runs of `flow/ppa.py` and `flow/power.py`). OpenROAD-flow-scripts `d0e5b3c13`, typical corner, post-route STA and extracted parasitics. Power comes from simulating each workload in Verilator (checked against the model) with uniform random int8 operands, which switch more than real data. Reference configuration: plain-adder accumulator, clock gating on, operand FIFOs of depth 4 and a 3-entry MAC command queue (enough for an SRAM with up to 3 cycles of read latency, with no cycle lost). Engine only unless stated.
 
-| | sky130hd, T = 8 (100 MHz, 55% util) | ASAP7, T = 8 (1 GHz, 70% util) | ASAP7, T = 16 (1 GHz target, 45% util) |
+| | sky130hd, T = 8 (100 MHz, 55% util) | ASAP7, T = 8 (1 GHz, 70% util) | ASAP7, T = 16 (741 MHz, 70% util) |
 | --- | --- | --- | --- |
-| Cell area / core area | 0.693 mm² / 1.110 mm² (184.6 kGE) | 10,281 µm² / 13,820 µm² (176.3 kGE) | 41,361 µm² / 82,297 µm² (709.2 kGE) |
-| Post-route stdcell density | 62.4% (100.0% row fill) | 74.4% (100.0% row fill) | 50.3% |
-| Flip-flops | 8,562 (134 per MAC) | 8,562 (134 per MAC) | 26,313 (103 per MAC) |
-| Fmax (post-route) | 99.9 MHz (-14 ps slack) | 992.5 MHz (-8 ps slack) | 858.4 MHz (misses 1 GHz) |
-| Peak MACs/cycle per kGE | 0.347 | 0.363 | 0.361 |
-| Energy per MAC, 64×64×64 (98.6% / 93.4% util) | 16.9 pJ (0.119 TOPS/W) | 0.69 pJ (2.91 TOPS/W) | 0.82 pJ (2.43 TOPS/W) |
-| Energy per MAC, ResNet-8 conv 256×32×288 (99.8% / 99.2%) | 16.4 pJ (0.122 TOPS/W) | 0.67 pJ (3.00 TOPS/W) | 0.78 pJ (2.57 TOPS/W) |
-| Energy per MAC, MobileNetV1 pointwise 2304×16×8 (46.8% / 24.0%) | 25.3 pJ (0.079 TOPS/W) | 1.08 pJ (1.85 TOPS/W) | 1.84 pJ (1.09 TOPS/W) |
-| Geometric mean of the three | 19.1 pJ (0.105 TOPS/W) | 0.79 pJ (2.53 TOPS/W) | 1.06 pJ (1.89 TOPS/W) |
-| ResNet-8 conv with ReLU-like operands (synthetic, half-zero activations) | 13.9 pJ (0.144 TOPS/W) | 0.58 pJ (3.47 TOPS/W) | 0.66 pJ (3.02 TOPS/W) |
+| Cell area / core area | 0.693 mm² / 1.110 mm² (184.6 kGE) | 10,281 µm² / 13,820 µm² (176.3 kGE) | 33,340 µm² / 45,785 µm² (571.7 kGE) |
+| Post-route stdcell density | 62.4% (100.0% row fill) | 74.4% (100.0% row fill) | 72.8% |
+| Flip-flops | 8,562 (134 per MAC) | 8,562 (134 per MAC) | 25,544 (100 per MAC) |
+| Fmax (post-route) | 99.9 MHz (-14 ps slack) | 992.5 MHz (-8 ps slack) | 762.2 MHz (closes 741 MHz) |
+| Peak MACs/cycle per kGE | 0.347 | 0.363 | 0.448 |
+| Energy per MAC, 64×64×64 (98.6% / 93.1% util) | 16.9 pJ (0.119 TOPS/W) | 0.69 pJ (2.91 TOPS/W) | 0.67 pJ (2.98 TOPS/W) |
+| Energy per MAC, ResNet-8 conv 256×32×288 (99.8% / 99.2%) | 16.4 pJ (0.122 TOPS/W) | 0.67 pJ (3.00 TOPS/W) | 0.64 pJ (3.14 TOPS/W) |
+| Energy per MAC, MobileNetV1 pointwise 2304×16×8 (46.8% / 24.0%) | 25.3 pJ (0.079 TOPS/W) | 1.08 pJ (1.85 TOPS/W) | 1.28 pJ (1.57 TOPS/W) |
+| Geometric mean of the three | 19.1 pJ (0.105 TOPS/W) | 0.79 pJ (2.53 TOPS/W) | 0.82 pJ (2.45 TOPS/W) |
+| ResNet-8 conv with ReLU-like operands (synthetic, half-zero activations) | 13.9 pJ (0.144 TOPS/W) | 0.58 pJ (3.47 TOPS/W) | 0.54 pJ (3.70 TOPS/W) |
 | Engine + operand SRAM, geometric mean (OpenRAM macro, sky130 only) | 23.7 pJ (0.084 TOPS/W) | – | – |
 
-- **Clock gating** (`CLK_GATE = 0` for comparison) cuts power, cell area and energy per MAC substantially; the relative power saving is larger at lower utilization because the gated clock trees and registers stop switching. `flow/results.md` has the per-record numbers and names the RTL commit each record was built from. What remains is mostly the multiplier array's switching, which follows the operand data; operand isolation on idle and unused quadrants is the next power lever (spec §11).
-- **Accumulator form:** against the carry-save form, the plain adder is substantially smaller, has about one third fewer flip-flops and uses about one third less energy per MAC, at the same clock within a few percent (spec §10.2; exact per-record deltas in `flow/results.md`).
-- **Comparison provenance:** the comparison rows in `flow/results.md` currently name different RTL commits (the reference `t8_cpa` record is newer than the `nocg`/`csa`/`shared`/`t16` records). Treat the deltas as directional until the v1 re-record puts every comparison configuration on one commit.
+- **Clock gating** (`CLK_GATE = 0` for comparison) cuts power by 24–40%, cell area by 8.5% and energy per MAC by 29.9% (sky130hd; ASAP7: 21–34%, 6.7% and 25.7%), at essentially the same clock. The relative power saving is larger at lower utilization because the gated clock trees and registers stop switching. What remains is mostly the multiplier array's switching, which follows the operand data; operand isolation on idle and unused quadrants is the next power lever (spec §11).
+- **Accumulator form:** against carry-save, the plain adder uses 23.4% less cell area, has 31.7% fewer flip-flops and uses 21.6% less energy per MAC on sky130hd (ASAP7: 18.4%, 31.7%, 18.0%), at a slightly higher clock (spec §10.2).
 - **SRAM line:** each workload's reads and writes times the access energy of ORFS's OpenRAM macro `sky130_sram_1rw1r_128x256_8` (179 pJ per access from its liberty, which charges every clock edge the same), plus leakage; it adds 3.0–8.4 pJ per MAC. ASAP7 has only placeholder SRAM models, so it has no SRAM line.
 
 ## 6. SoC integration (Chipyard Rocket)

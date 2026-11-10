@@ -11,29 +11,29 @@ Post-route results of `tq_top` from OpenROAD-flow-scripts (`flow/ppa.py`), with 
 
 | Flow | ORFS | OpenROAD | Yosys | Host | Runs (RTL commit) |
 | --- | --- | --- | --- | --- | --- |
-| native | d0e5b3c13 | f131605 | 0.68+ a5af9d690 | macOS 27.0.1 arm64 | sky130hd t8_cpa (9acf7c2), sky130hd t8_cpa_nocg (8e7425a), sky130hd t8_csa (8e7425a), sky130hd t8_shared (8e7425a), asap7 t8_cpa (9acf7c2), asap7 t8_cpa_nocg (8e7425a), asap7 t8_csa (8e7425a), asap7 t8_shared (8e7425a), asap7 t16_cpa (8e7425a) |
+| native | d0e5b3c13 | f131605 | 0.68+ a5af9d690 | macOS 27.0.1 arm64 | sky130hd t8_cpa (cfd68f4), sky130hd t8_cpa_nocg (cfd68f4), sky130hd t8_csa (cfd68f4), sky130hd t8_shared (cfd68f4), asap7 t8_cpa (cfd68f4), asap7 t8_cpa_nocg (cfd68f4), asap7 t8_csa (cfd68f4), asap7 t8_shared (cfd68f4), asap7 t16_cpa (cfd68f4) |
 
 ## sky130hd
 
-Target clock 100 MHz (10000 ps), core utilization per config (column *Util*), typical corner of the platform. Gate equivalent: `sky130_fd_sc_hd__nand2_1` (3.754 µm²).
+Target clock 100 MHz (10000 ps), core utilization 55%, typical corner of the platform. Gate equivalent: `sky130_fd_sc_hd__nand2_1` (3.754 µm²).
 
 ### Area and timing
 
-| Config | Parameters | Util | Cell area | kGE | Flops | Flops per MAC | MACs/cycle per kGE | Fmax (post-route) | Worst setup slack | Peak TOPS/mm² at Fmax | DRC |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| t8_cpa | T=8, ACC_FORM=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 55% | 0.693 mm² | 184.6 | 8,562 | 134 | 0.347 | 99.9 MHz | -14 ps | 0.018 | 0 |
-| t8_cpa_nocg | T=8, ACC_FORM=1, CLK_GATE=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 40% | 0.885 mm² | 235.7 | 8,904 | 139 | 0.272 | 99.8 MHz | -24 ps | 0.014 | 0 |
-| t8_csa | T=8, ACC_FORM=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 40% | 1.084 mm² | 288.7 | 12,872 | 201 | 0.222 | 99.7 MHz | -28 ps | 0.012 | 0 |
-| t8_shared | T=8, ACC_FORM=1, SHARED_PORT=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 40% | 0.825 mm² | 219.8 | 8,905 | 139 | 0.291 | 100.7 MHz | 68 ps | 0.016 | 0 |
+| Config | Parameters | Cell area | kGE | Flops | Flops per MAC | MACs/cycle per kGE | Fmax (post-route) | Worst setup slack | Peak TOPS/mm² at Fmax | DRC |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| t8_cpa | T=8, ACC_FORM=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 0.693 mm² | 184.6 | 8,562 | 134 | 0.347 | 99.9 MHz | -14 ps | 0.018 | 0 |
+| t8_cpa_nocg | T=8, ACC_FORM=1, CLK_GATE=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 0.757 mm² | 201.7 | 8,562 | 134 | 0.317 | 99.6 MHz | -40 ps | 0.017 | 0 |
+| t8_csa | T=8, ACC_FORM=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 0.905 mm² | 241.1 | 12,530 | 196 | 0.265 | 97.9 MHz | -216 ps | 0.014 | 0 |
+| t8_shared | T=8, ACC_FORM=1, SHARED_PORT=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 0.686 mm² | 182.7 | 8,563 | 134 | 0.350 | 98.2 MHz | -178 ps | 0.018 | 0 |
 
 ### Cell area by class
 
 | Config | sequential | logic | clock tree | timing buffers | other |
 | --- | --- | --- | --- | --- | --- |
 | t8_cpa | 25.9% | 60.9% | 6.5% | 3.2% | 3.3% |
-| t8_cpa_nocg | 27.0% | 57.8% | 4.2% | 7.1% | 3.8% |
-| t8_csa | 28.2% | 54.5% | 7.5% | 5.9% | 3.7% |
-| t8_shared | 25.0% | 59.3% | 6.6% | 5.0% | 3.9% |
+| t8_cpa_nocg | 33.0% | 56.1% | 4.1% | 3.7% | 3.0% |
+| t8_csa | 28.6% | 54.1% | 7.7% | 6.5% | 2.9% |
+| t8_shared | 26.2% | 60.0% | 6.8% | 3.6% | 3.1% |
 
 ### Energy, engine only, at 100 MHz
 
@@ -44,21 +44,21 @@ Target clock 100 MHz (10000 ps), core utilization per config (column *Util*), ty
 | t8_cpa | mbv1_pw8_16 | 2304×16×8 | 46.8% | 75.72 mW | 22.4% | 19.6% | 58.0% | 25.269 | 0.079 |
 | t8_cpa | resnet8_conv32_relu | 256×32×288 | 99.8% | 88.81 mW | 30.1% | 24.3% | 45.6% | 13.899 | 0.144 |
 | t8_cpa | geometric mean | | | | | | | 19.108 | 0.105 |
-| t8_cpa_nocg | gemm64 | 64×64×64 | 98.7% | 160.81 mW | 26.7% | 29.1% | 44.2% | 25.470 | 0.079 |
-| t8_cpa_nocg | resnet8_conv32 | 256×32×288 | 99.8% | 158.44 mW | 27.1% | 29.4% | 43.5% | 24.793 | 0.081 |
-| t8_cpa_nocg | mbv1_pw8_16 | 2304×16×8 | 46.8% | 146.77 mW | 29.2% | 29.2% | 41.5% | 48.971 | 0.041 |
-| t8_cpa_nocg | resnet8_conv32_relu | 256×32×288 | 99.8% | 138.71 mW | 30.9% | 31.7% | 37.4% | 21.706 | 0.092 |
-| t8_cpa_nocg | geometric mean | | | | | | | 31.388 | 0.064 |
-| t8_csa | gemm64 | 64×64×64 | 98.7% | 159.17 mW | 32.2% | 22.2% | 45.6% | 25.210 | 0.079 |
-| t8_csa | resnet8_conv32 | 256×32×288 | 99.8% | 156.47 mW | 32.7% | 22.5% | 44.7% | 24.486 | 0.082 |
-| t8_csa | mbv1_pw8_16 | 2304×16×8 | 46.8% | 115.44 mW | 26.5% | 18.1% | 55.4% | 38.519 | 0.052 |
-| t8_csa | resnet8_conv32_relu | 256×32×288 | 99.8% | 136.18 mW | 37.6% | 24.1% | 38.3% | 21.311 | 0.094 |
-| t8_csa | geometric mean | | | | | | | 28.756 | 0.070 |
-| t8_shared | gemm64 | 64×64×64 | 79.5% | 113.03 mW | 25.8% | 19.2% | 55.0% | 22.223 | 0.090 |
-| t8_shared | resnet8_conv32 | 256×32×288 | 94.7% | 123.12 mW | 26.8% | 20.0% | 53.2% | 20.324 | 0.098 |
-| t8_shared | mbv1_pw8_16 | 2304×16×8 | 33.3% | 77.36 mW | 22.1% | 16.5% | 61.4% | 36.353 | 0.055 |
-| t8_shared | resnet8_conv32_relu | 256×32×288 | 94.7% | 105.96 mW | 31.2% | 21.3% | 47.5% | 17.492 | 0.114 |
-| t8_shared | geometric mean | | | | | | | 25.416 | 0.079 |
+| t8_cpa_nocg | gemm64 | 64×64×64 | 98.6% | 140.24 mW | 25.5% | 33.7% | 40.8% | 22.234 | 0.090 |
+| t8_cpa_nocg | resnet8_conv32 | 256×32×288 | 99.8% | 138.45 mW | 25.9% | 34.0% | 40.1% | 21.669 | 0.092 |
+| t8_cpa_nocg | mbv1_pw8_16 | 2304×16×8 | 46.8% | 125.93 mW | 28.4% | 34.9% | 36.7% | 42.027 | 0.048 |
+| t8_cpa_nocg | resnet8_conv32_relu | 256×32×288 | 99.8% | 121.94 mW | 29.4% | 36.5% | 34.1% | 19.084 | 0.105 |
+| t8_cpa_nocg | geometric mean | | | | | | | 27.256 | 0.073 |
+| t8_csa | gemm64 | 64×64×64 | 98.6% | 135.24 mW | 31.1% | 25.5% | 43.4% | 21.441 | 0.093 |
+| t8_csa | resnet8_conv32 | 256×32×288 | 99.8% | 132.71 mW | 31.7% | 26.0% | 42.3% | 20.769 | 0.096 |
+| t8_csa | mbv1_pw8_16 | 2304×16×8 | 46.8% | 97.33 mW | 25.9% | 20.7% | 53.4% | 32.480 | 0.062 |
+| t8_csa | resnet8_conv32_relu | 256×32×288 | 99.8% | 115.26 mW | 36.5% | 27.3% | 36.2% | 18.038 | 0.111 |
+| t8_csa | geometric mean | | | | | | | 24.365 | 0.082 |
+| t8_shared | gemm64 | 64×64×64 | 79.4% | 91.94 mW | 25.4% | 21.9% | 52.8% | 18.084 | 0.111 |
+| t8_shared | resnet8_conv32 | 256×32×288 | 94.6% | 101.24 mW | 26.1% | 22.6% | 51.3% | 16.713 | 0.120 |
+| t8_shared | mbv1_pw8_16 | 2304×16×8 | 33.2% | 60.21 mW | 23.1% | 19.1% | 57.7% | 28.299 | 0.071 |
+| t8_shared | resnet8_conv32_relu | 256×32×288 | 94.6% | 86.39 mW | 30.6% | 24.0% | 45.4% | 14.262 | 0.140 |
+| t8_shared | geometric mean | | | | | | | 20.451 | 0.098 |
 
 ### Energy, engine + operand SRAM, at 100 MHz
 
@@ -71,59 +71,59 @@ SRAM: `sky130_sram_1rw1r_128x256_8` (128-bit word, 4 KB, one read-write and one 
 | t8_cpa | mbv1_pw8_16 | 4,608 | 9,216 | 8.408 | 25.269 | 33.678 | 0.059 |
 | t8_cpa | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 13.899 | 16.859 | 0.119 |
 | t8_cpa | geometric mean | | | | | 23.670 | 0.084 |
-| t8_cpa_nocg | gemm64 | 4,096 | 1,024 | 3.504 | 25.470 | 28.974 | 0.069 |
-| t8_cpa_nocg | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 24.793 | 27.753 | 0.072 |
-| t8_cpa_nocg | mbv1_pw8_16 | 4,608 | 9,216 | 8.408 | 48.971 | 57.379 | 0.035 |
-| t8_cpa_nocg | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 21.706 | 24.666 | 0.081 |
-| t8_cpa_nocg | geometric mean | | | | | 35.867 | 0.056 |
-| t8_csa | gemm64 | 4,096 | 1,024 | 3.504 | 25.210 | 28.715 | 0.070 |
-| t8_csa | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 24.486 | 27.446 | 0.073 |
-| t8_csa | mbv1_pw8_16 | 4,608 | 9,216 | 8.408 | 38.519 | 46.927 | 0.043 |
-| t8_csa | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 21.311 | 24.271 | 0.082 |
-| t8_csa | geometric mean | | | | | 33.317 | 0.060 |
-| t8_shared | gemm64 | 4,096 | 1,024 | 3.506 | 22.223 | 25.729 | 0.078 |
-| t8_shared | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 20.324 | 23.284 | 0.086 |
-| t8_shared | mbv1_pw8_16 | 4,608 | 9,216 | 8.414 | 36.353 | 44.767 | 0.045 |
-| t8_shared | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 17.492 | 20.452 | 0.098 |
-| t8_shared | geometric mean | | | | | 29.933 | 0.067 |
+| t8_cpa_nocg | gemm64 | 4,096 | 1,024 | 3.504 | 22.234 | 25.738 | 0.078 |
+| t8_cpa_nocg | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 21.669 | 24.629 | 0.081 |
+| t8_cpa_nocg | mbv1_pw8_16 | 4,608 | 9,216 | 8.408 | 42.027 | 50.436 | 0.040 |
+| t8_cpa_nocg | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 19.084 | 22.044 | 0.091 |
+| t8_cpa_nocg | geometric mean | | | | | 31.739 | 0.063 |
+| t8_csa | gemm64 | 4,096 | 1,024 | 3.504 | 21.441 | 24.945 | 0.080 |
+| t8_csa | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 20.769 | 23.729 | 0.084 |
+| t8_csa | mbv1_pw8_16 | 4,608 | 9,216 | 8.408 | 32.480 | 40.889 | 0.049 |
+| t8_csa | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 18.038 | 20.998 | 0.095 |
+| t8_csa | geometric mean | | | | | 28.926 | 0.069 |
+| t8_shared | gemm64 | 4,096 | 1,024 | 3.506 | 18.084 | 21.590 | 0.093 |
+| t8_shared | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 16.713 | 19.673 | 0.102 |
+| t8_shared | mbv1_pw8_16 | 4,608 | 9,216 | 8.414 | 28.299 | 36.713 | 0.054 |
+| t8_shared | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 14.262 | 17.222 | 0.116 |
+| t8_shared | geometric mean | | | | | 24.983 | 0.080 |
 
 ### Clock gating: gated against ungated (CLK_GATE = 0)
 
 | Config | Cell area | Flops | Fmax | Power, gemm64 | Power, resnet8_conv32 | Power, mbv1_pw8_16 | Power, resnet8_conv32_relu | Energy per MAC (geometric mean) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| t8_cpa | -21.7% | -3.8% | +0.1% | -33.9% | -34.0% | -48.4% | -36.0% | -39.1% |
+| t8_cpa | -8.5% | +0.0% | +0.3% | -24.2% | -24.4% | -39.9% | -27.2% | -29.9% |
 
 ### Accumulator form: plain adder (cpa) against carry-save (csa)
 
 | T | Cell area | Flops | Fmax | Energy per MAC (geometric mean) |
 | --- | --- | --- | --- | --- |
-| 8 | -36.1% | -33.5% | +0.1% | -33.6% |
+| 8 | -23.4% | -31.7% | +2.0% | -21.6% |
 
 ## asap7
 
-Target clock 1,000 MHz (1000 ps), core utilization per config (column *Util*), typical corner of the platform. Gate equivalent: `NAND2xp33_ASAP7_75t_R` (0.05832 µm²).
+Target clock per config (column *Clock*; a config that cannot close the platform's clock is run at one it closes), core utilization 70%, typical corner of the platform. Gate equivalent: `NAND2xp33_ASAP7_75t_R` (0.05832 µm²).
 
 ### Area and timing
 
-| Config | Parameters | Util | Cell area | kGE | Flops | Flops per MAC | MACs/cycle per kGE | Fmax (post-route) | Worst setup slack | Peak TOPS/mm² at Fmax | DRC |
+| Config | Parameters | Clock | Cell area | kGE | Flops | Flops per MAC | MACs/cycle per kGE | Fmax (post-route) | Worst setup slack | Peak TOPS/mm² at Fmax | DRC |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| t8_cpa | T=8, ACC_FORM=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 70% | 10,281 µm² | 176.3 | 8,562 | 134 | 0.363 | 992.5 MHz | -8 ps | 12.356 | 0 |
-| t8_cpa_nocg | T=8, ACC_FORM=1, CLK_GATE=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 45% | 13,392 µm² | 229.6 | 8,904 | 139 | 0.279 | 939.3 MHz | -65 ps | 8.977 | 0 |
-| t8_csa | T=8, ACC_FORM=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 45% | 16,219 µm² | 278.1 | 12,872 | 201 | 0.230 | 977.0 MHz | -24 ps | 7.710 | 0 |
-| t8_shared | T=8, ACC_FORM=1, SHARED_PORT=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 45% | 12,689 µm² | 217.6 | 8,905 | 139 | 0.294 | 955.6 MHz | -46 ps | 9.640 | 0 |
-| t16_cpa | T=16, ACC_FORM=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 45% | 41,361 µm² | 709.2 | 26,313 | 103 | 0.361 | 858.4 MHz | -203 ps | 10.626 | 0 |
+| t8_cpa | T=8, ACC_FORM=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1,000 MHz | 10,281 µm² | 176.3 | 8,562 | 134 | 0.363 | 992.5 MHz | -8 ps | 12.356 | 0 |
+| t8_cpa_nocg | T=8, ACC_FORM=1, CLK_GATE=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1,000 MHz | 11,015 µm² | 188.9 | 8,562 | 134 | 0.339 | 974.7 MHz | -26 ps | 11.327 | 0 |
+| t8_csa | T=8, ACC_FORM=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1,000 MHz | 12,602 µm² | 216.1 | 12,530 | 196 | 0.296 | 983.1 MHz | -17 ps | 9.985 | 0 |
+| t8_shared | T=8, ACC_FORM=1, SHARED_PORT=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1,000 MHz | 10,259 µm² | 175.9 | 8,563 | 134 | 0.364 | 988.0 MHz | -12 ps | 12.328 | 0 |
+| t16_cpa | T=16, ACC_FORM=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 741 MHz | 33,340 µm² | 571.7 | 25,544 | 100 | 0.448 | 762.2 MHz | 38 ps | 11.704 | 0 |
 
 ### Cell area by class
 
 | Config | sequential | logic | clock tree | timing buffers | other |
 | --- | --- | --- | --- | --- | --- |
 | t8_cpa | 25.5% | 65.6% | 5.1% | 2.4% | 1.1% |
-| t8_cpa_nocg | 23.1% | 66.5% | 2.3% | 5.6% | 2.5% |
-| t8_csa | 28.3% | 58.3% | 4.9% | 5.1% | 3.3% |
-| t8_shared | 24.4% | 62.7% | 4.3% | 5.7% | 2.7% |
-| t16_cpa | 22.3% | 64.6% | 3.8% | 6.8% | 2.5% |
+| t8_cpa_nocg | 23.8% | 70.1% | 2.5% | 2.6% | 1.1% |
+| t8_csa | 30.0% | 60.1% | 5.7% | 2.9% | 1.0% |
+| t8_shared | 25.6% | 65.6% | 5.2% | 2.3% | 1.2% |
+| t16_cpa | 22.7% | 70.3% | 4.2% | 2.1% | 0.6% |
 
-### Energy, engine only, at 1,000 MHz
+### Energy, engine only, at each config's target clock
 
 | Config | Workload | M×N×K | Utilization (simulated window) | Power | Clock tree | Registers | Logic | pJ/MAC | TOPS/W |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -132,35 +132,35 @@ Target clock 1,000 MHz (1000 ps), core utilization per config (column *Util*), t
 | t8_cpa | mbv1_pw8_16 | 2304×16×8 | 46.8% | 32.47 mW | 18.8% | 19.2% | 62.0% | 1.084 | 1.845 |
 | t8_cpa | resnet8_conv32_relu | 256×32×288 | 99.8% | 36.85 mW | 24.3% | 22.4% | 53.3% | 0.577 | 3.468 |
 | t8_cpa | geometric mean | | | | | | | 0.792 | 2.525 |
-| t8_cpa_nocg | gemm64 | 64×64×64 | 98.7% | 65.81 mW | 21.3% | 26.1% | 52.6% | 1.042 | 1.919 |
-| t8_cpa_nocg | resnet8_conv32 | 256×32×288 | 99.8% | 64.86 mW | 21.6% | 26.3% | 52.1% | 1.015 | 1.970 |
-| t8_cpa_nocg | mbv1_pw8_16 | 2304×16×8 | 46.8% | 60.90 mW | 23.0% | 25.8% | 51.2% | 2.032 | 0.984 |
-| t8_cpa_nocg | resnet8_conv32_relu | 256×32×288 | 99.8% | 58.06 mW | 24.1% | 27.2% | 48.6% | 0.909 | 2.201 |
-| t8_cpa_nocg | geometric mean | | | | | | | 1.291 | 1.550 |
-| t8_csa | gemm64 | 64×64×64 | 98.7% | 64.80 mW | 24.2% | 24.3% | 51.6% | 1.026 | 1.949 |
-| t8_csa | resnet8_conv32 | 256×32×288 | 99.8% | 63.81 mW | 24.4% | 24.6% | 50.9% | 0.998 | 2.003 |
-| t8_csa | mbv1_pw8_16 | 2304×16×8 | 46.8% | 49.57 mW | 19.7% | 19.4% | 60.9% | 1.654 | 1.209 |
-| t8_csa | resnet8_conv32_relu | 256×32×288 | 99.8% | 56.07 mW | 27.8% | 25.3% | 46.9% | 0.877 | 2.279 |
-| t8_csa | geometric mean | | | | | | | 1.192 | 1.677 |
-| t8_shared | gemm64 | 64×64×64 | 79.5% | 48.75 mW | 18.4% | 20.3% | 61.4% | 0.958 | 2.087 |
-| t8_shared | resnet8_conv32 | 256×32×288 | 94.7% | 52.00 mW | 19.2% | 21.2% | 59.6% | 0.858 | 2.330 |
-| t8_shared | mbv1_pw8_16 | 2304×16×8 | 33.3% | 36.47 mW | 15.7% | 16.5% | 67.8% | 1.714 | 1.167 |
-| t8_shared | resnet8_conv32_relu | 256×32×288 | 94.7% | 45.29 mW | 22.1% | 21.8% | 56.2% | 0.748 | 2.675 |
-| t8_shared | geometric mean | | | | | | | 1.121 | 1.784 |
-| t16_cpa | gemm64 | 64×64×64 | 93.4% | 196.74 mW | 18.9% | 19.5% | 61.6% | 0.823 | 2.431 |
-| t16_cpa | resnet8_conv32 | 256×32×288 | 99.2% | 198.03 mW | 19.6% | 20.0% | 60.4% | 0.780 | 2.565 |
-| t16_cpa | mbv1_pw8_16 | 2304×16×8 | 24.0% | 113.28 mW | 11.5% | 12.6% | 75.9% | 1.844 | 1.085 |
-| t16_cpa | resnet8_conv32_relu | 256×32×288 | 99.2% | 168.18 mW | 23.0% | 20.4% | 56.6% | 0.662 | 3.021 |
-| t16_cpa | geometric mean | | | | | | | 1.057 | 1.891 |
+| t8_cpa_nocg | gemm64 | 64×64×64 | 98.6% | 55.07 mW | 22.7% | 27.2% | 50.1% | 0.873 | 2.291 |
+| t8_cpa_nocg | resnet8_conv32 | 256×32×288 | 99.8% | 54.22 mW | 23.1% | 27.4% | 49.5% | 0.849 | 2.357 |
+| t8_cpa_nocg | mbv1_pw8_16 | 2304×16×8 | 46.8% | 49.03 mW | 25.5% | 28.5% | 45.9% | 1.636 | 1.222 |
+| t8_cpa_nocg | resnet8_conv32_relu | 256×32×288 | 99.8% | 48.46 mW | 25.8% | 28.7% | 45.5% | 0.758 | 2.637 |
+| t8_cpa_nocg | geometric mean | | | | | | | 1.066 | 1.876 |
+| t8_csa | gemm64 | 64×64×64 | 98.6% | 53.23 mW | 25.2% | 25.9% | 48.9% | 0.844 | 2.370 |
+| t8_csa | resnet8_conv32 | 256×32×288 | 99.8% | 52.63 mW | 25.4% | 26.2% | 48.4% | 0.824 | 2.428 |
+| t8_csa | mbv1_pw8_16 | 2304×16×8 | 46.8% | 38.79 mW | 21.9% | 21.9% | 56.2% | 1.294 | 1.545 |
+| t8_csa | resnet8_conv32_relu | 256×32×288 | 99.8% | 46.66 mW | 28.6% | 26.8% | 44.6% | 0.730 | 2.739 |
+| t8_csa | geometric mean | | | | | | | 0.965 | 2.072 |
+| t8_shared | gemm64 | 64×64×64 | 79.4% | 38.07 mW | 20.7% | 21.1% | 58.2% | 0.749 | 2.671 |
+| t8_shared | resnet8_conv32 | 256×32×288 | 94.6% | 41.31 mW | 21.2% | 21.6% | 57.1% | 0.682 | 2.933 |
+| t8_shared | mbv1_pw8_16 | 2304×16×8 | 33.2% | 26.21 mW | 19.6% | 18.8% | 61.6% | 1.232 | 1.624 |
+| t8_shared | resnet8_conv32_relu | 256×32×288 | 94.6% | 36.00 mW | 24.4% | 22.3% | 53.3% | 0.594 | 3.366 |
+| t8_shared | geometric mean | | | | | | | 0.857 | 2.334 |
+| t16_cpa | gemm64 | 64×64×64 | 93.1% | 118.51 mW | 19.2% | 19.5% | 61.3% | 0.671 | 2.979 |
+| t16_cpa | resnet8_conv32 | 256×32×288 | 99.2% | 119.76 mW | 19.8% | 19.9% | 60.3% | 0.637 | 3.141 |
+| t16_cpa | mbv1_pw8_16 | 2304×16×8 | 24.0% | 58.05 mW | 14.3% | 15.1% | 70.6% | 1.276 | 1.567 |
+| t16_cpa | resnet8_conv32_relu | 256×32×288 | 99.2% | 101.61 mW | 23.3% | 20.5% | 56.1% | 0.540 | 3.702 |
+| t16_cpa | geometric mean | | | | | | | 0.817 | 2.448 |
 
 ### Clock gating: gated against ungated (CLK_GATE = 0)
 
 | Config | Cell area | Flops | Fmax | Power, gemm64 | Power, resnet8_conv32 | Power, mbv1_pw8_16 | Power, resnet8_conv32_relu | Energy per MAC (geometric mean) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| t8_cpa | -23.2% | -3.8% | +5.7% | -34.1% | -34.4% | -46.7% | -36.5% | -38.6% |
+| t8_cpa | -6.7% | +0.0% | +1.8% | -21.2% | -21.5% | -33.8% | -23.9% | -25.7% |
 
 ### Accumulator form: plain adder (cpa) against carry-save (csa)
 
 | T | Cell area | Flops | Fmax | Energy per MAC (geometric mean) |
 | --- | --- | --- | --- | --- |
-| 8 | -36.6% | -33.5% | +1.6% | -33.6% |
+| 8 | -18.4% | -31.7% | +1.0% | -18.0% |

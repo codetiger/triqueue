@@ -7,7 +7,7 @@ All notable changes to the Tri-Queue project. This format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [v1.0.0] — release candidate
+## [v1.0.0] — 2026-11-10
 
 The first release of the int8 matrix coprocessor: a cycle-exact model, synthesizable RTL, formal
 proofs, a physical-design flow, a bare-metal driver and the SoC integration contract.
@@ -60,13 +60,14 @@ proofs, a physical-design flow, a bare-metal driver and the SoC integration cont
 - A, B and C must not overlap; the core is not coherent with host caches; no host writes during a run.
 - The AXI4 master drives constant `AxID`/`AxPROT`/`AxCACHE`/`AxQOS`/`AxREGION` and accepts `RID`/`BID`; `AxUSER` is not exposed.
 - The panel buffer uses flip-flops and has no PPA record; treat it as experimental.
-- T=16 closes at 858 MHz on ASAP7, not 1 GHz; T=32 has no PPA record.
+- T=16 closes at 762 MHz on ASAP7 (run at 741 MHz), not 1 GHz; T=32 has no PPA record.
 - Cached-DRAM integration is correctness-only (10.6% on Chipyard Rocket).
 - CV-X-IF is a reference adapter and has not run on real silicon; APB and RoCC are not included.
 - Comparative Gemmini/RVV results are not part of v1.
 
 ### Release notes
 
-The v1 PPA tables will be re-recorded at a single RTL commit before the tag. Until then,
-`flow/results.md` names the commit for every record; the gating and accumulator deltas are
-directional, not final.
+All PPA comparison records were re-recorded at RTL commit `cfd68f4` and the layout/PPA bundle is
+locked as `v1.0.0`. T = 16 is recorded at 741 MHz (762 MHz post-route); T = 32 has no PPA record.
+`make dist` and `.github/workflows/release.yml` produce and publish the source tarball, a
+representative golden-vector set and `SHA256SUMS`.
