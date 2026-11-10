@@ -22,6 +22,10 @@ module tq_axi_mem #(
     parameter int W           = 16,                // port width in bytes (2T)
     parameter int MAX_OUT     = 16,                // transactions in flight per direction
     parameter int BURST_BEATS = 1,                 // read burst beats (power of two, >= 1)
+    parameter int ID_W        = 1,                 // AXI ID width (one ID, constant 0)
+    parameter logic [2:0] AXPROT  = 3'b000,
+    parameter logic [3:0] AXCACHE = 4'b0000,
+    parameter logic [3:0] AXQOS   = 4'b0000,
     localparam int VB  = W * 8,
     localparam int TW  = $clog2(MAX_OUT + 1)
 ) (
@@ -42,21 +46,32 @@ module tq_axi_mem #(
     output logic          wr_done_o,
     output logic          bus_err_o,     // an error response to one of the core's transactions
     // AXI4 master
+    output logic [ID_W-1:0] m_arid_o,
     output logic [31:0]   m_araddr_o,
     output logic [7:0]    m_arlen_o,
     output logic [2:0]    m_arsize_o,
     output logic [1:0]    m_arburst_o,
+    output logic [2:0]    m_arprot_o,
+    output logic [3:0]    m_arcache_o,
+    output logic [3:0]    m_arqos_o,
+    output logic [3:0]    m_arregion_o,
     output logic          m_arvalid_o,
     input  logic          m_arready_i,
+    input  logic [ID_W-1:0] m_rid_i,
     input  logic [VB-1:0] m_rdata_i,
     input  logic [1:0]    m_rresp_i,
     input  logic          m_rlast_i,
     input  logic          m_rvalid_i,
     output logic          m_rready_o,
+    output logic [ID_W-1:0] m_awid_o,
     output logic [31:0]   m_awaddr_o,
     output logic [7:0]    m_awlen_o,
     output logic [2:0]    m_awsize_o,
     output logic [1:0]    m_awburst_o,
+    output logic [2:0]    m_awprot_o,
+    output logic [3:0]    m_awcache_o,
+    output logic [3:0]    m_awqos_o,
+    output logic [3:0]    m_awregion_o,
     output logic          m_awvalid_o,
     input  logic          m_awready_i,
     output logic [VB-1:0] m_wdata_o,
@@ -64,11 +79,45 @@ module tq_axi_mem #(
     output logic          m_wlast_o,
     output logic          m_wvalid_o,
     input  logic          m_wready_i,
+    input  logic [ID_W-1:0] m_bid_i,
     input  logic [1:0]    m_bresp_i,
     input  logic          m_bvalid_i,
     output logic          m_bready_o
 );
   localparam logic [2:0] SIZE = 3'($clog2(W));
+
+  generate
+    if (ID_W < 1) begin : g_bad_id_w
+      $error("tq_axi_mem: ID_W must be at least 1");
+    end
+    if (BURST_BEATS < 1 || (BURST_BEATS & (BURST_BEATS - 1)) != 0) begin : g_bad_burst
+      $error("tq_axi_mem: BURST_BEATS must be a power of two, at least 1");
+    end
+    if (BURST_BEATS * W > 4096) begin : g_bad_burst_4k
+      $error("tq_axi_mem: BURST_BEATS * W must not exceed the 4 KiB AXI boundary");
+    end
+    if (MAX_OUT < 1) begin : g_bad_max_out
+      $error("tq_axi_mem: MAX_OUT must be at least 1");
+    end
+  endgenerate
+
+  // One constant ID; the core never relies on response interleaving and the adapter keeps
+  // per-direction ordering. Protection/cache/QoS/region are constants so a full AXI4 master port
+  // can be connected without a wrapper.
+  assign m_arid_o      = '0;
+  assign m_awid_o      = '0;
+  assign m_arprot_o    = AXPROT;
+  assign m_awprot_o    = AXPROT;
+  assign m_arcache_o   = AXCACHE;
+  assign m_awcache_o   = AXCACHE;
+  assign m_arqos_o     = AXQOS;
+  assign m_awqos_o     = AXQOS;
+  assign m_arregion_o  = '0;
+  assign m_awregion_o  = '0;
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_axi_id;
+  assign unused_axi_id = ^{m_rid_i, m_bid_i};
+  /* verilator lint_on UNUSEDSIGNAL */
 
   assign m_arsize_o = SIZE;  assign m_arburst_o = 2'b01;
   assign m_awlen_o = 8'd0;   assign m_awsize_o = SIZE;  assign m_awburst_o = 2'b01;

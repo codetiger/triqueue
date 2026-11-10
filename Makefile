@@ -13,9 +13,11 @@ RTL       := $(shell cat rtl/files.f)
 LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GPANEL_BYTES=1024" "-GMAC_PIPE=1" "-GPERF=0" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
 ACC_FORMS := cpa:1 csa:0
 
-.PHONY: all model-test sw-test model-results flow-results lock-check spdx-check rtl-lint rtl-test formal formal-nightly synth-check fpga ui-data ui-serve clean
+.PHONY: all model-test sw-test model-results flow-results lock-check spdx-check rtl-lint rtl-test formal formal-nightly synth-check fpga ui-data ui-serve dist clean
 
 all: model-test sw-test spdx-check lock-check rtl-lint rtl-test formal synth-check
+
+VERSION ?= $(shell sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)
 
 model-test:
 	cd model && $(PYTHON) -m pytest -q
@@ -97,5 +99,16 @@ ui-data:
 ui-serve:
 	$(PYTHON) -m http.server 8080 --directory ui
 
+# Release artifacts: source tarball, a representative golden-vector set, and checksums.
+dist:
+	rm -rf dist
+	mkdir -p dist
+	git archive --format=tar.gz --prefix=triqueue-$(VERSION)/ -o dist/triqueue-$(VERSION).tar.gz HEAD
+	cd model && $(PYTHON) -m tri_queue.vectors --m 16 --n 16 --k 16 -o ../dist/vectors/16x16x16
+	cd model && $(PYTHON) -m tri_queue.vectors --m 20 --n 9 --k 33 -o ../dist/vectors/20x9x33
+	cd model && $(PYTHON) -m tri_queue.vectors --m 64 --n 64 --k 64 -o ../dist/vectors/64x64x64
+	tar -czf dist/triqueue-$(VERSION)-vectors.tar.gz -C dist vectors
+	cd dist && $(PYTHON) -c "import hashlib,glob,os; files=sorted(f for f in glob.glob('*') if os.path.isfile(f)); open('SHA256SUMS','w').write(''.join(hashlib.sha256(open(f,'rb').read()).hexdigest()+'  '+f+'\n' for f in files))"
+
 clean:
-	rm -rf build verif/formal/tq_fifo verif/formal/tq_fifo_* verif/formal/tq_core verif/formal/tq_core_*/ verif/formal/tq_axil_regs verif/formal/tq_axil_regs_*/ verif/formal/tq_xif_regs verif/formal/tq_xif_regs_*/ verif/formal/tq_axi_mem verif/formal/tq_axi_mem_*/ verif/formal/tq_cg verif/formal/tq_cg_*/
+	rm -rf build dist verif/formal/tq_fifo verif/formal/tq_fifo_* verif/formal/tq_core verif/formal/tq_core_*/ verif/formal/tq_axil_regs verif/formal/tq_axil_regs_*/ verif/formal/tq_xif_regs verif/formal/tq_xif_regs_*/ verif/formal/tq_axi_mem verif/formal/tq_axi_mem_*/ verif/formal/tq_cg verif/formal/tq_cg_*/

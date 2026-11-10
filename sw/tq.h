@@ -133,8 +133,12 @@ int tq_gemm_prepare(tq_gemm_plan *plan, uint8_t *ws, uint32_t ws_addr, const tq_
 void tq_gemm_finish(const tq_gemm_plan *plan, const uint8_t *ws, int32_t *c, size_t ldc,
                     uint32_t m, uint32_t n);
 // tq_gemm_run: prepare + tq_run + finish. Returns TQ_OK or a tq_err code.
+// tq_gemm_run_timeout: the same, with tq_run's max_polls (0 = poll forever).
 int tq_gemm_run(volatile uint32_t *base, const tq_info *info, uint8_t *ws, uint32_t ws_addr,
             const uint8_t *a, size_t lda, const uint8_t *b, size_t ldb, int32_t *c, size_t ldc,
             uint32_t m, uint32_t n, uint32_t k, int a_signed, int b_signed);
+int tq_gemm_run_timeout(volatile uint32_t *base, const tq_info *info, uint8_t *ws, uint32_t ws_addr,
+            const uint8_t *a, size_t lda, const uint8_t *b, size_t ldb, int32_t *c, size_t ldc,
+            uint32_t m, uint32_t n, uint32_t k, int a_signed, int b_signed, uint32_t max_polls);
 
 #endif

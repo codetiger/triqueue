@@ -34,6 +34,7 @@ flow/**/runs/
 
 # Generated golden vectors
 build/
+dist/
 
 # Formal run directories
 verif/formal/tq_fifo/

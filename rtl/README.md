@@ -28,6 +28,8 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specifica
 | --- | --- | --- |
 | `MAX_OUT` | 16 | AXI transactions in flight per direction; also the core's write limit |
 | `BURST_BEATS` | 1 | Read burst beats. 1: single-beat INCR per port word. >1: aligned `BURST_BEATS`-beat read bursts through a line buffer. Power of two; `BURST_BEATS × W` must not cross a 4 KiB boundary |
+| `ID_W` | 1 | AXI ID width. The master drives a constant ID 0 and receives `RID`/`BID` (ignored) |
+| `AXPROT` / `AXCACHE` / `AXQOS` | 0 | Constant `AxPROT`, `AxCACHE`, `AxQOS` values; `AxREGION` is tied to 0 |
 | `ADDR_W` | 12 | AXI4-Lite register address width |
 
 ## Interfaces
@@ -66,7 +68,7 @@ Requests never depend combinationally on `gnt`, and an ungranted request stays a
 | `core/tq_top.sv` | Registers + core |
 | `adapters/tq_axil_regs.sv` | AXI4-Lite slave to the register port: one transaction at a time, reads and writes alternate when both wait, B / R after the register port's response. Formally proved (`verif/formal/tq_axil_regs.sby`). |
 | `adapters/tq_axi_mem.sv` | AXI4 master for the memory ports: single-beat INCR per port word (`BURST_BEATS = 1`, default) or a 2-stream read line buffer issuing aligned `BURST_BEATS`-beat INCR bursts (`BURST_BEATS > 1`), RREADY / BREADY always 1, `wr_done` from B. Finishes and discards a request the core drops at START / ABORT. An error response to a core transaction pulses `bus_err_o` (`STATUS.BUS_ERR`). Formally proved (`verif/formal/tq_axi_mem.sby`). |
-| `adapters/tq_top_axi.sv` | `tq_top` for an AXI SoC: AXI4-Lite registers + AXI4 memory master, `WR_ACK = 1`. Regression configurations `t8_axi` and, with `BURST_BEATS = 4`, `t8_axi_burst`. The master exposes a subset of AXI4: no `AxID`, `AxPROT`, `AxCACHE`, `AxQOS`, `AxREGION` or `AxUSER`; tie those off at the SoC boundary. |
+| `adapters/tq_top_axi.sv` | `tq_top` for an AXI SoC: AXI4-Lite registers + AXI4 memory master, `WR_ACK = 1`. The master exposes `AxID`/`AxPROT`/`AxCACHE`/`AxQOS`/`AxREGION` with constant values and accepts `RID`/`BID`; configure them with `ID_W`/`AXPROT`/`AXCACHE`/`AXQOS`. Regression configurations `t8_axi` and, with `BURST_BEATS = 4`, `t8_axi_burst`. |
 | `adapters/tq_top_axil.sv` | `tq_top` with the AXI4-Lite register port; memory ports native (for tightly coupled SRAM). Regression configuration `t8_axil`. |
 | `adapters/tq_xif_regs.sv` | CV-X-IF coprocessor adapter to the register port: `tq.wr rs1, rs2` (register[rs1] = rs2) and `tq.rd rd, rs1` (rd = register[rs1]), R-type, custom-0, funct7 0, funct3 0 / 1 (`OPCODE`, `FUNCT7` parameters). One instruction at a time; the register access happens only after commit, so killed instructions have no effect; one result per committed instruction, after the register port's response. Issue / register / commit / result fields flattened (connect the core's x-interface structs). Formally proved (`verif/formal/tq_xif_regs.sby`). |
 | `adapters/tq_top_xif.sv` | `tq_top` with the CV-X-IF register access; memory ports native. Regression configuration `t8_xif` (operand and commit transactions in random order and delay, a killed speculative copy and a foreign instruction before every write). |

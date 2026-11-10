@@ -17,6 +17,10 @@ module tq_top_axi #(
     parameter int MAX_OUT     = 16,      // AXI transactions in flight per direction (also the core's write limit)
     parameter int PANEL_BYTES = 0,
     parameter int BURST_BEATS = 1,       // read burst beats (power of two, >= 1)
+    parameter int ID_W        = 1,       // AXI ID width (constant 0)
+    parameter logic [2:0] AXPROT  = 3'b000,
+    parameter logic [3:0] AXCACHE = 4'b0000,
+    parameter logic [3:0] AXQOS   = 4'b0000,
     parameter int ADDR_W      = 12,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
@@ -45,21 +49,32 @@ module tq_top_axi #(
     input  logic              s_rready_i,
     output logic              irq_o,
     // AXI4 master (memory)
+    output logic [ID_W-1:0]   m_arid_o,
     output logic [31:0]       m_araddr_o,
     output logic [7:0]        m_arlen_o,
     output logic [2:0]        m_arsize_o,
     output logic [1:0]        m_arburst_o,
+    output logic [2:0]        m_arprot_o,
+    output logic [3:0]        m_arcache_o,
+    output logic [3:0]        m_arqos_o,
+    output logic [3:0]        m_arregion_o,
     output logic              m_arvalid_o,
     input  logic              m_arready_i,
+    input  logic [ID_W-1:0]   m_rid_i,
     input  logic [VB-1:0]     m_rdata_i,
     input  logic [1:0]        m_rresp_i,
     input  logic              m_rlast_i,
     input  logic              m_rvalid_i,
     output logic              m_rready_o,
+    output logic [ID_W-1:0]   m_awid_o,
     output logic [31:0]       m_awaddr_o,
     output logic [7:0]        m_awlen_o,
     output logic [2:0]        m_awsize_o,
     output logic [1:0]        m_awburst_o,
+    output logic [2:0]        m_awprot_o,
+    output logic [3:0]        m_awcache_o,
+    output logic [3:0]        m_awqos_o,
+    output logic [3:0]        m_awregion_o,
     output logic              m_awvalid_o,
     input  logic              m_awready_i,
     output logic [VB-1:0]     m_wdata_o,
@@ -67,6 +82,7 @@ module tq_top_axi #(
     output logic              m_wlast_o,
     output logic              m_wvalid_o,
     input  logic              m_wready_i,
+    input  logic [ID_W-1:0]   m_bid_i,
     input  logic [1:0]        m_bresp_i,
     input  logic              m_bvalid_i,
     output logic              m_bready_o
@@ -91,15 +107,20 @@ module tq_top_axi #(
       .wr_req_o(wr_req), .wr_addr_o(wr_addr), .wr_be_o(wr_be), .wr_wdata_o(wr_wdata), .wr_gnt_i(wr_gnt),
       .wr_done_i(wr_done), .bus_err_i(bus_err));
 
-  tq_axi_mem #(.W(W), .MAX_OUT(MAX_OUT), .BURST_BEATS(BURST_BEATS)) u_axi (
+  tq_axi_mem #(.W(W), .MAX_OUT(MAX_OUT), .BURST_BEATS(BURST_BEATS), .ID_W(ID_W),
+                .AXPROT(AXPROT), .AXCACHE(AXCACHE), .AXQOS(AXQOS)) u_axi (
       .clk_i, .rst_ni,
       .rd_req_i(rd_req), .rd_addr_i(rd_addr), .rd_gnt_o(rd_gnt), .rd_rvalid_o(rd_rvalid), .rd_rdata_o(rd_rdata),
       .wr_req_i(wr_req), .wr_addr_i(wr_addr), .wr_be_i(wr_be), .wr_wdata_i(wr_wdata), .wr_gnt_o(wr_gnt),
       .wr_done_o(wr_done), .bus_err_o(bus_err),
-      .m_araddr_o, .m_arlen_o, .m_arsize_o, .m_arburst_o, .m_arvalid_o, .m_arready_i,
+      .m_arid_o, .m_araddr_o, .m_arlen_o, .m_arsize_o, .m_arburst_o,
+      .m_arprot_o, .m_arcache_o, .m_arqos_o, .m_arregion_o,
+      .m_arvalid_o, .m_arready_i, .m_rid_i,
       .m_rdata_i, .m_rresp_i, .m_rlast_i, .m_rvalid_i, .m_rready_o,
-      .m_awaddr_o, .m_awlen_o, .m_awsize_o, .m_awburst_o, .m_awvalid_o, .m_awready_i,
+      .m_awid_o, .m_awaddr_o, .m_awlen_o, .m_awsize_o, .m_awburst_o,
+      .m_awprot_o, .m_awcache_o, .m_awqos_o, .m_awregion_o,
+      .m_awvalid_o, .m_awready_i,
       .m_wdata_o, .m_wstrb_o, .m_wlast_o, .m_wvalid_o, .m_wready_i,
-      .m_bresp_i, .m_bvalid_i, .m_bready_o);
+      .m_bid_i, .m_bresp_i, .m_bvalid_i, .m_bready_o);
 
 endmodule

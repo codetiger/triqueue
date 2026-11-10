@@ -7,14 +7,14 @@
 
 | Function | Does |
 | --- | --- |
-| `tq_probe` | Checks `ID` and decodes `HW_CONFIG` (T, W, FIFO and MAC queue depth, shared port, program buffer size). |
+| `tq_probe` | Checks `ID` and decodes `HW_CONFIG` (T, W, FIFO and MAC queue depth, shared port, program buffer size); returns `TQ_ERR_ARG` for an invalid configuration. |
 | `tq_pack_a`, `tq_pack_b`, `tq_packed_*_bytes` | Host packing (spec §5.3): A into column panels, B into row panels, k-major, K padded to a multiple of 8. int8 and uint8 pack the same way. |
 | `tq_c_ld` | int32 C row stride: 4n bytes rounded up to whole port words. |
 | `tq_c_ld_int8` | int8 C row stride: n bytes rounded up to whole port words. |
 | `tq_gemm_program` | The 50-byte GEMM program: 8 `CFG` + the 10-byte kernel (spec §6.2). |
 | `tq_run` | Loads a program into `PROG`, writes `START`, polls `STATUS` until `DONE`; returns the core's error code, else `TQ_ERR_BUS` if a memory access got an error response (`STATUS.BUS_ERR`). Aborts after `max_polls` (`0` polls forever). |
 | `tq_read_perf` | The performance counters of the last run. |
-| `tq_gemm_workspace_bytes`, `tq_gemm_prepare`, `tq_gemm_finish`, `tq_gemm_run` | The int32 GEMM API: C[m][n] = A[m][k] × B[k][n] in one call. The caller gives a workspace in core-visible memory (its CPU pointer and its address on the core's memory port); prepare packs A and B into it and builds the program, finish copies C out with the caller's row stride, `tq_gemm_run` does prepare, run and finish. `tq_gemm_run` currently polls forever; use `tq_run` directly if you need a timeout. |
+| `tq_gemm_workspace_bytes`, `tq_gemm_prepare`, `tq_gemm_finish`, `tq_gemm_run`, `tq_gemm_run_timeout` | The int32 GEMM API: C[m][n] = A[m][k] × B[k][n] in one call. The caller gives a workspace in core-visible memory (its CPU pointer and its address on the core's memory port); prepare packs A and B into it and builds the program, finish copies C out with the caller's row stride, `tq_gemm_run` does prepare, run and finish. `tq_gemm_run_timeout` takes `max_polls` (0 = forever); use it when a run must be bounded. |
 
 Int8 output (`MODE[2]`, shift-only) is available through the low-level path: set `TQ_MODE_OUT_INT8 | TQ_MODE_OUT_SHIFT(s)` in `tq_gemm.mode`, use `tq_c_ld_int8`, and read C as bytes. The one-call GEMM API writes int32 only.
 

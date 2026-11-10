@@ -75,14 +75,34 @@ module tq_top #(
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i,
       .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i, .wr_done_i);
 
-`ifndef SYNTHESIS
-  initial begin
-    assert (ACC_FORM == tq_pkg::ACC_CSA || ACC_FORM == tq_pkg::ACC_CPA)
-      else $fatal(1, "tq_top: ACC_FORM must be tq_pkg::ACC_CSA or tq_pkg::ACC_CPA");
-    assert (T >= 4 && (T & (T - 1)) == 0) else $fatal(1, "tq_top: T must be a power of two, at least 4");
-    assert (PANEL_BYTES % (2 * T) == 0) else $fatal(1, "tq_top: PANEL_BYTES must be a multiple of 2T");
-    assert (MAC_PIPE == 1 || MAC_PIPE == 2) else $fatal(1, "tq_top: MAC_PIPE must be 1 or 2");
-  end
-`endif
+  generate
+    if (T < 4 || (T & (T - 1)) != 0) begin : g_bad_t
+      $error("tq_top: T must be a power of two, at least 4");
+    end
+    if (FIFO_DEPTH < 2) begin : g_bad_fifo
+      $error("tq_top: FIFO_DEPTH must be at least 2");
+    end
+    if (MACQ_DEPTH < 1) begin : g_bad_macq
+      $error("tq_top: MACQ_DEPTH must be at least 1");
+    end
+    if (SCMD_DEPTH < 1) begin : g_bad_scmd
+      $error("tq_top: SCMD_DEPTH must be at least 1");
+    end
+    if (PROG_BYTES < 50 || (PROG_BYTES % 4) != 0) begin : g_bad_prog
+      $error("tq_top: PROG_BYTES must be at least 50 and a multiple of 4");
+    end
+    if (PANEL_BYTES < 0 || (PANEL_BYTES % (2 * T)) != 0) begin : g_bad_panel
+      $error("tq_top: PANEL_BYTES must be a non-negative multiple of 2T");
+    end
+    if (WR_OUT_MAX < 1) begin : g_bad_wrout
+      $error("tq_top: WR_OUT_MAX must be at least 1");
+    end
+    if (MAC_PIPE != 1 && MAC_PIPE != 2) begin : g_bad_macpipe
+      $error("tq_top: MAC_PIPE must be 1 or 2");
+    end
+    if (ACC_FORM != tq_pkg::ACC_CSA && ACC_FORM != tq_pkg::ACC_CPA) begin : g_bad_acc
+      $error("tq_top: ACC_FORM must be tq_pkg::ACC_CSA or tq_pkg::ACC_CPA");
+    end
+  endgenerate
 
 endmodule

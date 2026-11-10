@@ -44,13 +44,21 @@ proofs, a physical-design flow, a bare-metal driver and the SoC integration cont
 - The public spec now matches the RTL: int8 output, int8 C addressing/strobes, 17-bit products,
   AXI read bursts, and 8,562 reference flip-flops.
 - The README and benchmark summary no longer describe int8 output as deferred.
-- `tq_gemm_run` still polls forever; use `tq_run` with `max_polls` if you need a timeout.
+- The AXI4 master now exposes `AxID`/`AxPROT`/`AxCACHE`/`AxQOS`/`AxREGION` and accepts `RID`/`BID`
+  (constant values, configured by `ID_W`/`AXPROT`/`AXCACHE`/`AXQOS`); `AxUSER` is not exposed.
+- Parameter errors in `tq_top` and `tq_axi_mem` now fail at elaboration instead of producing broken
+  hardware (T, queue depths, program size, panel size, burst size and the 4 KiB AXI boundary).
+- `tq_gemm_run_timeout` adds a bounded-poll variant of the one-call GEMM API; `tq_gemm_run` keeps
+  its signature and polls forever.
+- `tq_probe` now rejects an invalid `HW_CONFIG`.
+- `make dist` builds the source tarball, a representative golden-vector set and `SHA256SUMS`;
+  `.github/workflows/release.yml` publishes them on a `v*` tag.
 
 ### Known limitations
 
 - Int8 output is shift-only: no per-tensor/per-channel scale, bias or activation.
 - A, B and C must not overlap; the core is not coherent with host caches; no host writes during a run.
-- The AXI4 master is a subset: no `AxID`, `AxPROT`, `AxCACHE`, `AxQOS`, `AxREGION` or `AxUSER`.
+- The AXI4 master drives constant `AxID`/`AxPROT`/`AxCACHE`/`AxQOS`/`AxREGION` and accepts `RID`/`BID`; `AxUSER` is not exposed.
 - The panel buffer uses flip-flops and has no PPA record; treat it as experimental.
 - T=16 closes at 858 MHz on ASAP7, not 1 GHz; T=32 has no PPA record.
 - Cached-DRAM integration is correctness-only (10.6% on Chipyard Rocket).

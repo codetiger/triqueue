@@ -21,8 +21,9 @@ import testchipip.soc.{SubsystemInjector, SubsystemInjectorKey}
 case class TriQueueParams(address: BigInt = 0x10040000L, tile: Int = 8, root: String = "/tq")
 case object TriQueueKey extends Field[Option[TriQueueParams]](None)
 
-class TriQueueBlackBox(t: Int, idBits: Int, root: String)
-    extends BlackBox(Map("T" -> IntParam(t), "ID_W" -> IntParam(idBits))) with HasBlackBoxInline {
+class TriQueueBlackBox(t: Int, idBits: Int, midBits: Int, root: String)
+    extends BlackBox(Map("T" -> IntParam(t), "ID_W" -> IntParam(idBits), "MID_W" -> IntParam(midBits)))
+    with HasBlackBoxInline {
   override def desiredName = "tq_chipyard"
   val vb = 16 * t
   val io = IO(new Bundle {
@@ -39,15 +40,20 @@ class TriQueueBlackBox(t: Int, idBits: Int, root: String)
     val s_arvalid = Input(Bool()); val s_arready = Output(Bool())
     val s_rid = Output(UInt(idBits.W)); val s_rdata = Output(UInt(32.W)); val s_rresp = Output(UInt(2.W))
     val s_rlast = Output(Bool()); val s_rvalid = Output(Bool()); val s_rready = Input(Bool())
-    val m_araddr = Output(UInt(32.W)); val m_arlen = Output(UInt(8.W)); val m_arsize = Output(UInt(3.W))
-    val m_arburst = Output(UInt(2.W)); val m_arvalid = Output(Bool()); val m_arready = Input(Bool())
-    val m_rdata = Input(UInt(vb.W)); val m_rresp = Input(UInt(2.W)); val m_rlast = Input(Bool())
-    val m_rvalid = Input(Bool()); val m_rready = Output(Bool())
-    val m_awaddr = Output(UInt(32.W)); val m_awlen = Output(UInt(8.W)); val m_awsize = Output(UInt(3.W))
-    val m_awburst = Output(UInt(2.W)); val m_awvalid = Output(Bool()); val m_awready = Input(Bool())
+    val m_arid = Output(UInt(midBits.W)); val m_araddr = Output(UInt(32.W)); val m_arlen = Output(UInt(8.W))
+    val m_arsize = Output(UInt(3.W)); val m_arburst = Output(UInt(2.W)); val m_arprot = Output(UInt(3.W))
+    val m_arcache = Output(UInt(4.W)); val m_arqos = Output(UInt(4.W)); val m_arregion = Output(UInt(4.W))
+    val m_arvalid = Output(Bool()); val m_arready = Input(Bool())
+    val m_rid = Input(UInt(midBits.W)); val m_rdata = Input(UInt(vb.W)); val m_rresp = Input(UInt(2.W))
+    val m_rlast = Input(Bool()); val m_rvalid = Input(Bool()); val m_rready = Output(Bool())
+    val m_awid = Output(UInt(midBits.W)); val m_awaddr = Output(UInt(32.W)); val m_awlen = Output(UInt(8.W))
+    val m_awsize = Output(UInt(3.W)); val m_awburst = Output(UInt(2.W)); val m_awprot = Output(UInt(3.W))
+    val m_awcache = Output(UInt(4.W)); val m_awqos = Output(UInt(4.W)); val m_awregion = Output(UInt(4.W))
+    val m_awvalid = Output(Bool()); val m_awready = Input(Bool())
     val m_wdata = Output(UInt(vb.W)); val m_wstrb = Output(UInt((vb / 8).W)); val m_wlast = Output(Bool())
     val m_wvalid = Output(Bool()); val m_wready = Input(Bool())
-    val m_bresp = Input(UInt(2.W)); val m_bvalid = Input(Bool()); val m_bready = Output(Bool())
+    val m_bid = Input(UInt(midBits.W)); val m_bresp = Input(UInt(2.W)); val m_bvalid = Input(Bool())
+    val m_bready = Output(Bool())
   })
   // One file, in rtl/files.f order (tq_pkg first), then the shim: Chipyard compiles black-box
   // sources in its own order, and the package must come before its users.
@@ -77,7 +83,7 @@ class TriQueueAXI(params: TriQueueParams)(implicit p: Parameters) extends LazyMo
   lazy val module = new LazyModuleImp(this) {
     val (s, se) = regNode.in(0)
     val (m, _) = memNode.out(0)
-    val bb = Module(new TriQueueBlackBox(params.tile, se.bundle.idBits, params.root))
+    val bb = Module(new TriQueueBlackBox(params.tile, se.bundle.idBits, m.bundle.idBits, params.root))
     bb.io.clock := clock
     bb.io.reset := reset.asBool
     // registers (slave)
@@ -93,16 +99,26 @@ class TriQueueAXI(params: TriQueueParams)(implicit p: Parameters) extends LazyMo
     s.r.bits.last := bb.io.s_rlast; s.r.valid := bb.io.s_rvalid; bb.io.s_rready := s.r.ready
     // memory (master)
     m.ar.bits := 0.U.asTypeOf(m.ar.bits)
+    m.ar.bits.id := bb.io.m_arid
     m.ar.bits.addr := bb.io.m_araddr; m.ar.bits.len := bb.io.m_arlen; m.ar.bits.size := bb.io.m_arsize
-    m.ar.bits.burst := bb.io.m_arburst; m.ar.valid := bb.io.m_arvalid; bb.io.m_arready := m.ar.ready
+    m.ar.bits.burst := bb.io.m_arburst; m.ar.bits.prot := bb.io.m_arprot
+    m.ar.bits.cache := bb.io.m_arcache; m.ar.bits.qos := bb.io.m_arqos
+    m.ar.bits.region := bb.io.m_arregion
+    m.ar.valid := bb.io.m_arvalid; bb.io.m_arready := m.ar.ready
+    bb.io.m_rid := m.r.bits.id
     bb.io.m_rdata := m.r.bits.data; bb.io.m_rresp := m.r.bits.resp; bb.io.m_rlast := m.r.bits.last
     bb.io.m_rvalid := m.r.valid; m.r.ready := bb.io.m_rready
     m.aw.bits := 0.U.asTypeOf(m.aw.bits)
+    m.aw.bits.id := bb.io.m_awid
     m.aw.bits.addr := bb.io.m_awaddr; m.aw.bits.len := bb.io.m_awlen; m.aw.bits.size := bb.io.m_awsize
-    m.aw.bits.burst := bb.io.m_awburst; m.aw.valid := bb.io.m_awvalid; bb.io.m_awready := m.aw.ready
+    m.aw.bits.burst := bb.io.m_awburst; m.aw.bits.prot := bb.io.m_awprot
+    m.aw.bits.cache := bb.io.m_awcache; m.aw.bits.qos := bb.io.m_awqos
+    m.aw.bits.region := bb.io.m_awregion
+    m.aw.valid := bb.io.m_awvalid; bb.io.m_awready := m.aw.ready
     m.w.bits := 0.U.asTypeOf(m.w.bits)
     m.w.bits.data := bb.io.m_wdata; m.w.bits.strb := bb.io.m_wstrb; m.w.bits.last := bb.io.m_wlast
     m.w.valid := bb.io.m_wvalid; bb.io.m_wready := m.w.ready
+    bb.io.m_bid := m.b.bits.id
     bb.io.m_bresp := m.b.bits.resp; bb.io.m_bvalid := m.b.valid; m.b.ready := bb.io.m_bready
   }
 }

@@ -35,6 +35,11 @@ int tq_probe(volatile uint32_t *base, tq_info *info) {
     info->macq_depth = (hw >> 16) & 0xFu;
     info->shared_port = (hw >> 20) & 0x1u;
     info->prog_bytes = 4u * ((hw >> 24) & 0xFFu);
+    if (info->tile < 4u || (info->tile & (info->tile - 1u)) != 0u)
+        return TQ_ERR_ARG;
+    if (info->port_bytes != 2u * info->tile || info->fifo_depth == 0u
+            || info->macq_depth == 0u || info->prog_bytes < TQ_GEMM_PROGRAM_BYTES)
+        return TQ_ERR_ARG;
     return TQ_OK;
 }
 
@@ -189,15 +194,22 @@ void tq_gemm_finish(const tq_gemm_plan *plan, const uint8_t *ws, int32_t *c, siz
     }
 }
 
-int tq_gemm_run(volatile uint32_t *base, const tq_info *info, uint8_t *ws, uint32_t ws_addr,
+int tq_gemm_run_timeout(volatile uint32_t *base, const tq_info *info, uint8_t *ws, uint32_t ws_addr,
             const uint8_t *a, size_t lda, const uint8_t *b, size_t ldb, int32_t *c, size_t ldc,
-            uint32_t m, uint32_t n, uint32_t k, int a_signed, int b_signed) {
+            uint32_t m, uint32_t n, uint32_t k, int a_signed, int b_signed, uint32_t max_polls) {
     tq_gemm_plan plan;
     int rc = tq_gemm_prepare(&plan, ws, ws_addr, info, a, lda, b, ldb, m, n, k, a_signed, b_signed);
     if (rc != TQ_OK)
         return rc;
-    rc = tq_run(base, info, plan.prog, plan.prog_len, 0);
+    rc = tq_run(base, info, plan.prog, plan.prog_len, max_polls);
     if (rc == TQ_OK)
         tq_gemm_finish(&plan, ws, c, ldc, m, n);
     return rc;
+}
+
+int tq_gemm_run(volatile uint32_t *base, const tq_info *info, uint8_t *ws, uint32_t ws_addr,
+            const uint8_t *a, size_t lda, const uint8_t *b, size_t ldb, int32_t *c, size_t ldc,
+            uint32_t m, uint32_t n, uint32_t k, int a_signed, int b_signed) {
+    return tq_gemm_run_timeout(base, info, ws, ws_addr, a, lda, b, ldb, c, ldc,
+                               m, n, k, a_signed, b_signed, 0);
 }

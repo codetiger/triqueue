@@ -123,16 +123,10 @@ The adapter is an AXI4 master with a W-byte data bus:
 - `RREADY` and `BREADY` are always 1; the core never back-pressures a response.
 - `ARREADY`, `AWREADY`/`WREADY` act as the core's `gnt`.
 
-**Signal subset.** The adapter does not expose `AxID`, `AxPROT`, `AxCACHE`, `AxQOS`, `AxREGION` or
-`AxUSER`, and ignores `RID`/`BID`. At the SoC boundary:
-
-- tie `AxID`/`AWID` to 0 and ignore `RID`/`BID` if your interconnect requires them;
-- choose `AxPROT`/`AxCACHE` for the address map (for a non-coherent accelerator, typically a
-  bufferable, non-cacheable data access);
-- tie `AxQOS`/`AxREGION`/`AxUSER` to 0 unless your fabric uses them.
-
-If your interconnect cannot accept a master without these signals, add them as constants in a wrapper;
-that is a small, local change and does not affect the core.
+**Signals.** The adapter drives `ARID`/`AWID` = 0, `ARPROT`/`AWPROT`, `ARCACHE`/`AWCACHE`, `ARQOS`/`AWQOS`
+and `ARREGION`/`AWREGION` (region = 0), and accepts `RID`/`BID` (ignored). `AxUSER` is not exposed; tie
+it off in a wrapper if your fabric requires it. Set `ID_W`, `AXPROT`, `AXCACHE` and `AXQOS` for your
+address map.
 
 **Errors and ordering.** An `RRESP`/`BRESP` error on a core transaction sets `STATUS.BUS_ERR` and the
 run continues. C must then be treated as invalid. The read line buffer is invalidated when the core
@@ -168,7 +162,7 @@ profile's energy or area from a different configuration.
 
 - int8 output is shift-only: no per-tensor/per-channel scale, bias or activation.
 - The panel buffer is experimental and uses flip-flops.
-- The AXI master is a subset of AXI4 (see §5).
+- `AxUSER` is not exposed; tie it off in a wrapper if required.
 - Cached-DRAM performance is not a v1 use case; the Chipyard result is 10.6%.
 - T=16 closes at 858 MHz on ASAP7; T=32 has no PPA record.
 - CV-X-IF has not been validated on a real CVA6/CV32E40X.
