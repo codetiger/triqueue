@@ -120,6 +120,12 @@ def test_probe_and_run(lib):
     assert lib.tq_probe(regs, ctypes.byref(info)) == 0
     assert (info.tile, info.port_bytes, info.fifo_depth, info.macq_depth, info.shared_port, info.prog_bytes) \
         == (8, 16, 4, 3, 1, 64)
+    regs[1] = (16 << 24) | (1 << 20) | (3 << 16) | (4 << 8) | 3                # T = 3: not a power of two
+    assert lib.tq_probe(regs, ctypes.byref(info)) == 19
+    regs[1] = (12 << 24) | (1 << 20) | (3 << 16) | (4 << 8) | 8                # PROG = 48 < 50
+    assert lib.tq_probe(regs, ctypes.byref(info)) == 19
+    regs[1] = (16 << 24) | (1 << 20) | (3 << 16) | (4 << 8) | 8
+    assert lib.tq_probe(regs, ctypes.byref(info)) == 0
     _, prog, _ = build_gemm(np.zeros((9, 9), np.int8), np.zeros((9, 9), np.int8))
     p = np.frombuffer(prog, np.uint8).copy()
     regs[3] = 0x2                                                              # STATUS: DONE
