@@ -85,7 +85,7 @@ at one commit. Until then, treat the gating and accumulator deltas as directiona
 pip install -r requirements.txt
 make model-test sw-test          # no EDA tools
 make rtl-lint rtl-test           # Verilator + cocotb
-make formal                      # SymbiYosys, ~3 min
+make formal                      # SymbiYosys, ~3–11 min (PDR variance)
 make synth-check                 # generic Yosys
 make lock-check                  # PPA records and locked UI layouts
 python3 flow/results.py >/dev/null   # regenerate flow/results.md from records

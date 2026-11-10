@@ -45,7 +45,7 @@ make model-results    # regenerate model/results.md and model/dse.md (bench.py +
 make rtl-lint         # verilator -Wall in 12 configurations + adapter tops + burst AXI + Yosys elaboration (both must be warning-free)
 make rtl-test         # cocotb regression, 1,709 cases in 25 configurations (~165 s); builds go to build/rtl/<config>/
 python3 -m pytest verif -q -k t8_default    # one RTL configuration
-make formal           # SymbiYosys: clock-gating template (check_cg_pattern.py + tq_cg.sby), FIFO (tq_fifo.sby), AXI4-Lite and CV-X-IF adapters (tq_axil_regs.sby, tq_xif_regs.sby), AXI master burst cover, unbounded core proof, split port (tq_core.sby split, ~3 min)
+make formal           # SymbiYosys: clock-gating template (check_cg_pattern.py + tq_cg.sby), FIFO (tq_fifo.sby), AXI4-Lite and CV-X-IF adapters (tq_axil_regs.sby, tq_xif_regs.sby), AXI master burst cover, unbounded core proof, split port (tq_core.sby split, ~3–11 min, PDR variance)
 make formal-nightly   # core proofs, shared port, WR_ACK and panel buffer (tq_core.sby shared/ack/panel), AXI4 master proof (tq_axi_mem.sby prove, ~10 min)
 make flow-results     # rewrite flow/results.md from flow/records/ (no flow run)
 make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets (stats in build/synth/)
