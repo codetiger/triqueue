@@ -16,6 +16,11 @@ All notable changes to the Tri-Queue project. This format follows
 
 ### Changed
 
+- Dependencies updated to their latest majors: `actions/checkout` v7, `actions/setup-python` v7,
+  `actions/configure-pages` v6, `actions/upload-pages-artifact` v5, `actions/deploy-pages` v5,
+  `softprops/action-gh-release` v3 and `YosysHQ/setup-oss-cad-suite` v4; `numpy` 2.5, `pytest` 9.2 and
+  `cocotb` 2.1. Python 3.12 is now the minimum (numpy 2.5 requires it, and 3.10 left security support
+  in October 2026), and CI runs 3.12 and 3.13.
 - Dropped the unused `ihp-sg13g2` platform from `flow/ppa.py` and `flow/results.py`: it had no run
   record and no documentation. A third PDK can return with a record.
 - `flow/fpga/README.md` states that the ECP5 figures are synthesis-only; `nextpnr-ecp5` place and
