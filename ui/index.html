@@ -13,7 +13,7 @@
   <!-- =====================================================================
        TOP APP BAR (MATERIAL 3): TITLE + KPIs + SCENARIOS + TRANSPORT
        ===================================================================== -->
-  <header class="cockpit-bar">
+  <header class="cockpit-bar" id="cockpit-bar">
     <div class="cockpit-inner">
       <div class="cockpit-row-top">
         <!-- Typographic Title + Inline Hardware Specs -->
@@ -64,6 +64,12 @@
           </select>
         </div>
       </div>
+
+      <!-- Timeline scrubber: lives in the sticky bar so it stays reachable while
+           the schematic and the 3D die are on screen. -->
+      <div class="timeline-row">
+        <canvas id="waterfall-canvas" title="Drag to scrub cycles (← / → step, Space play)"></canvas>
+      </div>
     </div>
   </header>
 
@@ -109,6 +115,11 @@
       <div class="chip3d-layout">
         <!-- Compact Control Strip -->
         <div class="chip3d-sidebar">
+          <button class="layer-toggle-pill live-toggle active" id="btn-live" title="Light up the blocks that are busy in the current cycle; idle blocks fade">
+            <span class="toggle-check">✓</span>
+            <span>Live cycle activity</span>
+          </button>
+
           <div class="lens-grid" id="color-lens-buttons">
             <button class="pill-btn active" data-lens="module">
               <svg class="ui-icon" viewBox="0 0 16 16"><path d="M2 2h5v5H2V2zm7 0h5v5H9V2zM2 9h5v5H2V9zm7 0h5v5H9V9z"/></svg>
@@ -132,12 +143,12 @@
             </button>
           </div>
 
-          <div class="explode-box">
+          <div class="explode-box" title="Space between the metal layers, to see each one. 0 = the real stack. Cell and wire thickness, and x/y, stay true to scale.">
             <div class="explode-row">
-              <span>Z-Scale</span>
-              <span id="explode-val-label" style="color: var(--cyan-qa);">2.8×</span>
+              <span>Layer gap</span>
+              <span id="explode-val-label" style="color: var(--cyan-qa);">1.0</span>
             </div>
-            <input type="range" id="explode-slider" min="0.4" max="9.5" step="0.2" value="2.8" />
+            <input type="range" id="explode-slider" min="0" max="8" step="0.1" value="1" />
           </div>
 
           <div class="layer-pill-grid" id="layer-stack-toggles"></div>
@@ -249,28 +260,6 @@
             </div>
           </div>
 
-        </div>
-
-        <!-- BOTTOM: Draggable 3-Way Overlap Timeline -->
-        <div class="waterfall-box">
-          <div class="waterfall-hdr">
-            <div class="wf-title">
-              <svg class="ui-icon" viewBox="0 0 16 16"><path d="M2 4h5v2H2V4zm4 3.5h6v2H6v-2zM4 11h8v2H4v-2z"/></svg>
-              <span>Timeline</span>
-            </div>
-            <div class="wf-legend">
-              <span><i style="background: var(--yellow-fe);"></i>Decode</span>
-              <span><i style="background: var(--cyan-qa);"></i>Read A</span>
-              <span><i style="background: var(--amber-qb);"></i>Read B</span>
-              <span><i style="background: var(--lime-cg);"></i>Panel</span>
-              <span><i style="background: var(--emerald-bx);"></i>Bank X</span>
-              <span><i style="background: var(--coral-by);"></i>Bank Y</span>
-              <span><i style="background: #f6aea9;"></i>Drain</span>
-            </div>
-          </div>
-          <div class="waterfall-canvas-wrap">
-            <canvas id="waterfall-canvas" width="1400" height="142"></canvas>
-          </div>
         </div>
       </div>
     </section>

@@ -4,7 +4,7 @@
  * Visual Controller for the Tri-Queue GEMM RTL-to-Silicon Showcase.
  * Streamlined low-text, high-visual density across:
  *   1. Full-Width Interactive Logical RTL Schematic + On-Demand Popover
- *   2. Visual Tri-Queue Slots, 8x8 Outer-Product Matrix & Draggable Timeline
+ *   2. Visual Tri-Queue Slots, 8x8 Outer-Product Matrix; the cycle timeline sits in the sticky top bar
  *   3. WebGL 2.0 3D Silicon Die (`6_final.def`) with Verified Orientation & Compass
  */
 (function () {
@@ -182,12 +182,51 @@ end`,
     return sc.cycles[idx];
   }
 
+  /**
+   * The blocks that do work in this cycle, keyed like the 3D layout's modules
+   * (chip3d.js MODULE_META). The one place that decides "busy": the schematic
+   * nodes, the 3D die and the module list all read it.
+   */
+  function busyBlocks(cyc) {
+    if (!cyc) return [];
+    const evs = cyc.events || [];
+    const has = (p) => evs.some((e) => e.startsWith(p));
+    const cg = cyc.cg || {};
+    const beat = cyc.mac_beat !== null;
+    const macCtl = has("mac start") || has("mac swap") || has("mac zero");
+    const busy = {
+      regs_prog:  !!cg.prog,                                          // CFG writes a config register
+      frontend:   has("fe issue"),                                    // decoder issued an instruction
+      stream_eng: has("port rd") || has("pb rd") || cyc.arrived_a > 0 || cyc.arrived_b > 0,
+      qa_fifo:    !!cg.qa || beat,                                    // push from memory or pop by a beat
+      qb_fifo:    !!cg.qb || beat,
+      mac_cmd_q:  !!cg.macq || macCtl,                                // push from decoder or pop by MAC
+      core_ctrl:  !!cg.b1_latch || macCtl,                            // beat sequencing, swap / zero
+      mac_prod:   beat || !!cg.prod_reg,                              // 64 multipliers fire
+      mac_bank0:  !!cg.bank0,                                         // accumulate into / clear bank X
+      mac_bank1:  !!cg.bank1,
+      drain_unit: cyc.drain !== null || has("port wr"),               // idle bank written back
+    };
+    return Object.keys(busy).filter((k) => busy[k]);
+  }
+
   function init() {
+    trackHeaderHeight();
     renderScenarioTabs();
     bindTransportControls();
     bindWaterfallTimeline();
     initChip3DSection();
     selectScenario(0);
+  }
+
+  // The sticky bar holds the timeline, so its height varies with wrapping. Expose it
+  // as --hdr-h so scrollIntoView targets land below it.
+  function trackHeaderHeight() {
+    const hdr = document.getElementById("cockpit-bar");
+    const apply = () => document.documentElement.style.setProperty("--hdr-h", `${hdr.offsetHeight}px`);
+    apply();
+    if (window.ResizeObserver) new ResizeObserver(apply).observe(hdr);
+    window.addEventListener("resize", () => renderWaterfall(currentScenario(), currentCycleData()));
   }
 
   function renderScenarioTabs() {
@@ -311,20 +350,25 @@ end`,
 
     document.getElementById("cycle-readout").textContent = `CYC ${cyc.cycle} / ${sc.cycles.length - 1}`;
 
-    renderLogicalSchematic(sc, cyc);
+    const busy = busyBlocks(cyc);
+    renderLogicalSchematic(sc, cyc, busy);
     renderRtlInspector();
     renderHowItWorks(sc, cyc);
     renderWaterfall(sc, cyc);
+    showBusyOnDie(busy);
+  }
 
-    if (state.chip3d) {
-      state.chip3d.setActiveCycleState(cyc);
-    }
+  function showBusyOnDie(busy) {
+    if (state.chip3d) state.chip3d.setActiveModules(busy);
+    document.querySelectorAll("#module-flyto-list .mod-legend-btn").forEach((btn) => {
+      btn.classList.toggle("busy", busy.includes(btn.getAttribute("data-modkey")));
+    });
   }
 
   // =========================================================================
   // COMPONENT 1: VISUAL LOGICAL ARCHITECTURE DIAGRAM & POPOVER
   // =========================================================================
-  function renderLogicalSchematic(sc, cyc) {
+  function renderLogicalSchematic(sc, cyc, busy = busyBlocks(cyc)) {
     const container = document.getElementById("logical-svg-container");
     const evs = cyc.events || [];
     const hasFeIssue = evs.some((e) => e.startsWith("fe issue"));
@@ -339,7 +383,10 @@ end`,
     const isDraining = cyc.drain !== null;
 
     const sel = state.selectedRtlBlock;
-    const nodeClass = (id) => `rtl-node ${sel === id ? "selected" : ""}`;
+    // A schematic block glows (in its module colour) when it is busy, the same
+    // cycle its cells light up on the 3D die.
+    const isBusy = (id) => (id === "mac_banks" ? ["mac_bank0", "mac_bank1"] : [id]).some((k) => busy.includes(k));
+    const nodeClass = (id) => `rtl-node${sel === id ? " selected" : ""}${isBusy(id) ? " is-busy" : ""}`;
 
     const drawSlots = (count, max, x0, y0, w, h, color) => {
       let out = "";
@@ -851,10 +898,57 @@ end`,
   }
 
   // =========================================================================
-  // SMOOTH DRAGGABLE 3-WAY OVERLAP TIMELINE (`#waterfall-canvas`)
+  // TIMELINE SCRUBBER (`#waterfall-canvas`, in the sticky top bar)
+  // One column per cycle; each lane shows when a unit was busy. The 3-way
+  // overlap (read, MAC into one bank, drain of the other) shows as stacked bars.
   // =========================================================================
-  const WF_PAD_L = 96;
-  const WF_PAD_R = 16;
+  const WF_PAD_L = 74;
+  const WF_PAD_R = 10;
+  const WF_H = 86;        // CSS px, matches #waterfall-canvas height
+  const WF_TOP = 17;      // first lane y (cursor pill row above)
+  const WF_LANE = 11;     // lane height
+  const WF_GAP = 3;
+
+  const COL = {
+    fe: "#fde293", a: "#8ab4f8", b: "#fdd663", panel: "#a8dab5",
+    x: "#81c995", y: "#f28b82", drain: "#f6aea9", dim: "#a9abb4",
+  };
+
+  // Each lane: a label (coloured segments) and, per cycle, [colour, description] or null.
+  const WF_LANES = [
+    {
+      label: [["Decode", COL.fe]],
+      at: (c, ev) => {
+        const e = ev("fe issue");
+        return e ? [COL.fe, `issue ${(e.match(/op=(\w+)/) || [])[1] || ""}`] : null;
+      },
+    },
+    {
+      label: [["Read ", COL.dim], ["A", COL.a], ["/", COL.dim], ["B", COL.b]],
+      at: (c, ev) =>
+        ev("port rd s=A") ? [COL.a, "read A"]
+        : ev("port rd s=B") ? [COL.b, "read B"]
+        : ev("pb rd") ? [COL.panel, "A from panel buffer"]
+        : null,
+    },
+    { label: [["MAC → X", COL.x]], at: (c) => (c.mac_beat && c.mac_beat.bank === 0 ? [COL.x, `MAC ${c.mac_beat.shape} → X`] : null) },
+    { label: [["MAC → Y", COL.y]], at: (c) => (c.mac_beat && c.mac_beat.bank === 1 ? [COL.y, `MAC ${c.mac_beat.shape} → Y`] : null) },
+    {
+      label: [["Drain", COL.drain]],
+      at: (c, ev) => (ev("port wr") ? [COL.drain, `write C${c.drain ? ` (bank ${c.drain.bank === 0 ? "X" : "Y"})` : ""}`] : null),
+    },
+  ];
+
+  function wfLaneHits(c) {
+    const evs = c.events || [];
+    const ev = (p) => evs.find((e) => e.startsWith(p));
+    return WF_LANES.map((ln) => ln.at(c, ev));
+  }
+
+  function wfCycleAtX(x, width, total) {
+    const plotW = Math.max(1, width - WF_PAD_L - WF_PAD_R);
+    return Math.max(0, Math.min(total - 1, Math.floor(((x - WF_PAD_L) / plotW) * total)));
+  }
 
   function bindWaterfallTimeline() {
     const canvas = document.getElementById("waterfall-canvas");
@@ -864,12 +958,9 @@ end`,
 
     function scrubFromEvent(e) {
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const plotW = Math.max(1, rect.width - WF_PAD_L - WF_PAD_R);
       const scNow = currentScenario();
       if (!scNow || !scNow.cycles.length) return;
-      const ratio = Math.max(0, Math.min(1, (x - WF_PAD_L) / plotW));
-      const targetCycle = Math.round(ratio * (scNow.cycles.length - 1));
+      const targetCycle = wfCycleAtX(e.clientX - rect.left, rect.width, scNow.cycles.length);
       if (targetCycle !== state.cycleIdx) {
         setCycle(targetCycle);
       }
@@ -916,8 +1007,8 @@ end`,
     const ctx = canvas.getContext("2d");
     const total = sc.cycles.length;
     const dpr = window.devicePixelRatio || 1;
-    const cssW = canvas.parentElement.clientWidth || 1200;
-    const cssH = 142;
+    const cssW = canvas.clientWidth || canvas.parentElement.clientWidth || 1200;
+    const cssH = WF_H;
     if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
       canvas.width = Math.floor(cssW * dpr);
       canvas.height = Math.floor(cssH * dpr);
@@ -927,85 +1018,89 @@ end`,
     ctx.clearRect(0, 0, cssW, cssH);
 
     const plotW = Math.max(10, cssW - WF_PAD_L - WF_PAD_R);
-    const colW = Math.max(2, plotW / Math.max(1, total));
+    const colW = plotW / Math.max(1, total);
+    const laneY = (i) => WF_TOP + i * (WF_LANE + WF_GAP);
+    const colX = (i) => WF_PAD_L + i * colW;
+    const bottom = laneY(WF_LANES.length) - WF_GAP;
+    const mono = "'Roboto Mono', 'JetBrains Mono', monospace";
 
-    const lanes = [
-      { label: "Decode PC",  y: 22, h: 17 },
-      { label: "Read A / B", y: 44, h: 17 },
-      { label: "MAC Bank X", y: 66, h: 17 },
-      { label: "MAC Bank Y", y: 88, h: 17 },
-      { label: "Drain WR",   y: 110, h: 17 },
-    ];
-
-    ctx.font = "500 10px 'Roboto Mono', 'JetBrains Mono', monospace";
-    lanes.forEach((ln) => {
+    // Lane backgrounds and coloured labels (the labels double as the legend)
+    ctx.font = `600 10px ${mono}`;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    WF_LANES.forEach((ln, li) => {
+      const y = laneY(li);
       ctx.fillStyle = "rgba(32, 36, 44, 0.9)";
-      ctx.fillRect(WF_PAD_L, ln.y, plotW, ln.h);
-      ctx.fillStyle = "#a9abb4";
-      ctx.fillText(ln.label, 8, ln.y + 12);
+      ctx.fillRect(WF_PAD_L, y, plotW, WF_LANE);
+      let lx = 4;
+      for (const [txt, color] of ln.label) {
+        ctx.fillStyle = color;
+        ctx.fillText(txt, lx, y + WF_LANE / 2 + 0.5);
+        lx += ctx.measureText(txt).width;
+      }
     });
 
+    // Activity bars
+    const barW = Math.max(1.5, colW - (colW > 4 ? 0.6 : 0));
     for (let i = 0; i < total; i++) {
-      const c = sc.cycles[i];
-      const x = WF_PAD_L + (i / Math.max(1, total - 1)) * plotW;
-      const w = Math.max(2.2, colW - 0.4);
-      const evs = c.events || [];
-
-      if (evs.some((e) => e.startsWith("fe issue"))) {
-        ctx.fillStyle = "#fde293";
-        ctx.fillRect(x, lanes[0].y + 2, w, lanes[0].h - 4);
-      }
-
-      if (evs.some((e) => e.startsWith("port rd s=A"))) {
-        ctx.fillStyle = "#8ab4f8";
-        ctx.fillRect(x, lanes[1].y + 2, w, lanes[1].h - 4);
-      } else if (evs.some((e) => e.startsWith("port rd s=B"))) {
-        ctx.fillStyle = "#fdd663";
-        ctx.fillRect(x, lanes[1].y + 2, w, lanes[1].h - 4);
-      } else if (evs.some((e) => e.startsWith("pb rd"))) {
-        ctx.fillStyle = "#a8dab5";
-        ctx.fillRect(x, lanes[1].y + 2, w, lanes[1].h - 4);
-      }
-
-      if (c.mac_beat) {
-        const laneIdx = c.mac_beat.bank === 0 ? 2 : 3;
-        ctx.fillStyle = c.mac_beat.bank === 0 ? "#81c995" : "#f28b82";
-        ctx.fillRect(x, lanes[laneIdx].y + 2, w, lanes[laneIdx].h - 4);
-      }
-
-      if (evs.some((e) => e.startsWith("port wr"))) {
-        ctx.fillStyle = "#f6aea9";
-        ctx.fillRect(x, lanes[4].y + 2, w, lanes[4].h - 4);
-      }
+      const hits = wfLaneHits(sc.cycles[i]);
+      hits.forEach((h, li) => {
+        if (!h) return;
+        ctx.fillStyle = h[0];
+        ctx.fillRect(colX(i), laneY(li) + 1.5, barW, WF_LANE - 3);
+      });
     }
 
-    if (state.wfHoverX !== null && state.wfHoverX >= WF_PAD_L && state.wfHoverX <= WF_PAD_L + plotW) {
-      ctx.strokeStyle = "rgba(138, 180, 248, 0.35)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(state.wfHoverX, 18);
-      ctx.lineTo(state.wfHoverX, cssH - 8);
-      ctx.stroke();
-    }
-
-    const curX = WF_PAD_L + (cyc.cycle / Math.max(1, total - 1)) * plotW;
+    // Current cycle: column highlight + cursor line + pill
+    const curIdx = Math.max(0, Math.min(total - 1, state.cycleIdx));
+    const curX = colX(curIdx) + colW / 2;
+    ctx.fillStyle = "rgba(138, 180, 248, 0.16)";
+    ctx.fillRect(colX(curIdx), WF_TOP - 2, Math.max(2, colW), bottom - WF_TOP + 4);
     ctx.strokeStyle = "#8ab4f8";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(curX, 16);
-    ctx.lineTo(curX, cssH - 8);
+    ctx.moveTo(curX, 14);
+    ctx.lineTo(curX, bottom + 2);
     ctx.stroke();
 
-    const pillW = 54;
-    const pillX = Math.max(WF_PAD_L, Math.min(WF_PAD_L + plotW - pillW, curX - pillW * 0.5));
+    ctx.font = `700 9.5px ${mono}`;
+    ctx.textAlign = "center";
+    const pillW = 50;
+    const pillX = Math.max(WF_PAD_L, Math.min(WF_PAD_L + plotW - pillW, curX - pillW / 2));
     ctx.fillStyle = "#8ab4f8";
     ctx.beginPath();
-    ctx.roundRect(pillX, 2, pillW, 14, 7);
+    ctx.roundRect(pillX, 1, pillW, 13, 6.5);
     ctx.fill();
     ctx.fillStyle = "#0b1426";
-    ctx.font = "600 9.5px 'Roboto Mono', 'JetBrains Mono', monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(`C${cyc.cycle}`, pillX + pillW * 0.5, 12);
+    ctx.fillText(`C${cyc.cycle}`, pillX + pillW / 2, 8);
+
+    // Hover: ghost line + what happened in that cycle, so bars explain themselves
+    const hx = state.wfHoverX;
+    if (hx !== null && hx >= WF_PAD_L && hx <= WF_PAD_L + plotW) {
+      const hi = wfCycleAtX(hx, cssW, total);
+      const gx = colX(hi) + colW / 2;
+      ctx.strokeStyle = "rgba(227, 226, 230, 0.45)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(gx, 14);
+      ctx.lineTo(gx, bottom + 2);
+      ctx.stroke();
+
+      const what = wfLaneHits(sc.cycles[hi]).filter(Boolean).map((h) => h[1]);
+      const tip = `C${sc.cycles[hi].cycle}: ${what.length ? what.join(" · ") : "idle"}`;
+      ctx.font = `600 9.5px ${mono}`;
+      const tw = ctx.measureText(tip).width + 12;
+      const tx = Math.max(WF_PAD_L, Math.min(WF_PAD_L + plotW - tw, gx + 8 + tw > WF_PAD_L + plotW ? gx - 8 - tw : gx + 8));
+      ctx.fillStyle = "rgba(17, 19, 24, 0.94)";
+      ctx.strokeStyle = "rgba(196, 198, 208, 0.3)";
+      ctx.beginPath();
+      ctx.roundRect(tx, 1, tw, 13, 4);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#e3e2e6";
+      ctx.textAlign = "left";
+      ctx.fillText(tip, tx + 6, 8);
+    }
 
     ctx.restore();
   }
@@ -1024,6 +1119,14 @@ end`,
     });
 
     loadPdkChip("asap7");
+
+    const btnLive = document.getElementById("btn-live");
+    btnLive.addEventListener("click", () => {
+      const on = !state.chip3d.live;
+      state.chip3d.setLive(on);
+      btnLive.classList.toggle("active", on);
+      btnLive.querySelector(".toggle-check").textContent = on ? "✓" : "○";
+    });
 
     const btnAsap7 = document.getElementById("pdk-asap7");
     const btnSky130 = document.getElementById("pdk-sky130");
@@ -1050,8 +1153,8 @@ end`,
     const expLabel = document.getElementById("explode-val-label");
     expSlider.addEventListener("input", (e) => {
       const v = parseFloat(e.target.value);
-      expLabel.textContent = `${v.toFixed(1)}×`;
-      state.chip3d.setExplode(v);
+      expLabel.textContent = v === 0 ? "real" : v.toFixed(1);
+      state.chip3d.setLayerGap(v);
     });
 
     document.querySelectorAll("[data-cam]").forEach((btn) => {
@@ -1071,7 +1174,6 @@ end`,
     if (!chipData || !state.chip3d) return;
 
     state.chip3d.setChipData(chipData);
-    state.chip3d.setActiveCycleState(currentCycleData());
 
     const rec = chipData.record || {};
     const fmaxMhz = rec.fmax_hz ? (rec.fmax_hz / 1e6).toFixed(0) : "976";
@@ -1088,6 +1190,7 @@ end`,
 
     renderLayerStackToggles();
     renderModuleFlyToList(chipData);
+    showBusyOnDie(busyBlocks(currentCycleData()));
   }
 
   function renderLayerStackToggles() {
@@ -1147,7 +1250,7 @@ end`,
       .map((m) => {
         const bm = bms[m.key];
         return `
-          <button class="mod-legend-btn" data-modkey="${m.key}" data-modid="${m.id}" title="${m.name} (${bm.cx}, ${bm.cy} µm)">
+          <button class="mod-legend-btn" data-modkey="${m.key}" data-modid="${m.id}" style="--c:${m.hex};" title="${m.name} (${bm.cx}, ${bm.cy} µm)">
             <span><span class="layer-swatch" style="background:${m.hex};"></span>${m.short}</span>
             <span class="compass-tag">${bm.compass || ""} ›</span>
           </button>

@@ -43,7 +43,9 @@ html, body {
   font-size: 13px;
   line-height: 1.45;
   scroll-behavior: smooth;
-  overflow-x: hidden;
+  /* clip, not hidden: hidden makes <body> a scroll container, which stops the
+     sticky top bar (and its timeline) from sticking. */
+  overflow-x: clip;
 }
 
 ::-webkit-scrollbar {
@@ -1114,58 +1116,56 @@ html, body {
 }
 
 /* =========================================================================
-   DRAGGABLE 3-WAY OVERLAP WATERFALL TIMELINE
+   TIMELINE SCRUBBER (second row of the sticky top bar)
    ========================================================================= */
-.waterfall-box {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  padding: 10px 14px;
-}
-.waterfall-hdr {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.wf-title {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-main);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.wf-legend {
-  display: flex;
-  gap: 12px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--text-muted);
-  flex-wrap: wrap;
-}
-.wf-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.wf-legend i {
-  width: 9px;
-  height: 9px;
-  border-radius: 3px;
-  display: inline-block;
-}
-.waterfall-canvas-wrap {
-  width: 100%;
+.timeline-row {
   margin-top: 6px;
 }
 #waterfall-canvas {
   width: 100%;
-  height: 142px;
+  height: 86px;
   display: block;
   cursor: ew-resize;
   touch-action: none;
   user-select: none;
+}
+
+/* =========================================================================
+   LIVE CYCLE ACTIVITY: a busy block glows in its module colour in the
+   schematic, rises on the 3D die, and lights its dot in the module list.
+   ========================================================================= */
+.rtl-node[data-block="regs_prog"]  { --glow: #a8dab5; }
+.rtl-node[data-block="frontend"]   { --glow: #fde293; }
+.rtl-node[data-block="stream_eng"] { --glow: #78d9ec; }
+.rtl-node[data-block="qa_fifo"]    { --glow: #8ab4f8; }
+.rtl-node[data-block="qb_fifo"]    { --glow: #fdd663; }
+.rtl-node[data-block="mac_cmd_q"]  { --glow: #d7aefb; }
+.rtl-node[data-block="mac_prod"]   { --glow: #c58af9; }
+.rtl-node[data-block="mac_banks"]  { --glow: #81c995; }
+.rtl-node[data-block="drain_unit"] { --glow: #f6aea9; }
+
+.rtl-node.is-busy rect.node-box {
+  stroke-opacity: 1;
+  stroke-width: 2.4px;
+  filter: drop-shadow(0 0 5px var(--glow));
+}
+
+.live-toggle {
+  justify-content: flex-start;
+  font-size: 10px;
+}
+
+.mod-legend-btn .layer-swatch {
+  transition: box-shadow 0.12s, transform 0.12s;
+}
+.mod-legend-btn.busy {
+  border-color: var(--c);
+}
+.mod-legend-btn.busy .layer-swatch {
+  box-shadow: 0 0 0 1.5px var(--c), 0 0 7px var(--c);
+  transform: scale(1.15);
+}
+
+.showcase-section {
+  scroll-margin-top: calc(var(--hdr-h, 150px) + 12px);
 }

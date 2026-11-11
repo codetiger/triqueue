@@ -43,6 +43,42 @@
     { name: "M7",        dir: "Vert (N-S)",  rgb: [0.95, 0.55, 0.51], hex: "#f28b82", mat: "Top Cu (Y)" },
   ];
 
+  // Physical layer stack per platform, in µm above the bottom of the device layer:
+  // layers[i] = [bottom, thickness, LEF min width] for the data's layer index i.
+  // The DEF and LEFs give x/y and widths but no heights, so heights come from:
+  //   sky130hd: Magic sky130A.tech cifoutput `render` lines (li1 0.9361/0.10,
+  //             met1 1.3761/0.36 ... met5 5.3711/1.26), rebased to diff (0.2062).
+  //   asap7:    the tech LEF has no thickness. Conductor and inter-metal dielectric
+  //             thicknesses from the ASAP7 StarRC ITF (asap7_snps asap07.itf.x1),
+  //             stacked from the bottom of ACTIVE; an approximation.
+  // cellTop: the device layer plus the in-cell metal (ASAP7 M1, sky130 li1); neither
+  // carries routed segments in these DEFs, so cells are drawn as one slab up to it.
+  const LAYER_STACK = {
+    asap7: {
+      cellTop: 0.3056,
+      layers: [
+        [0.2696, 0.036, 0.018], // M1
+        [0.3452, 0.036, 0.018], // M2
+        [0.4208, 0.036, 0.018], // M3
+        [0.4964, 0.048, 0.024], // M4
+        [0.5972, 0.048, 0.024], // M5
+        [0.6980, 0.064, 0.032], // M6
+        [0.8324, 0.064, 0.032], // M7
+      ],
+    },
+    sky130hd: {
+      cellTop: 0.8299,
+      layers: [
+        [0.7299, 0.100, 0.17], // li1
+        [1.1699, 0.360, 0.14], // met1
+        [1.7999, 0.360, 0.14], // met2
+        [2.5799, 0.845, 0.30], // met3
+        [3.8149, 0.845, 0.30], // met4
+        [5.1649, 1.260, 1.60], // met5
+      ],
+    },
+  };
+
   // Minimal 4x4 matrix math helpers
   function mat4Identity() {
     return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
@@ -116,10 +152,18 @@
 
       this.chipData = null;
       this.colorMode = "module"; // "material" | "module" | "cell_class" | "activity" | "clock_xray"
-      this.explode = 2.8;        // Z-axis layer separation multiplier
+      this.layerGap = 1.0;       // world units inserted between metal layers (0 = real stack)
+      this.k = 1;                // world units per µm (set from the die size)
       this.highlightMod = -1;    // -1 = all, 0..11 = isolated module
-      this.activeCycleMods = new Set();
       this.pulsePhase = 0;
+
+      // Live cycle activity: which modules are busy in the current cycle. The target
+      // is set per cycle; the level eases toward it every frame (fast rise, slow fade)
+      // and goes to the shader as a uniform, so stepping cycles never rebuilds geometry.
+      this.live = true;
+      this.actTarget = new Float32Array(MODULE_META.length);
+      this.actLevel = new Float32Array(MODULE_META.length);
+      this._lastNow = 0;
 
       // Visibility flags
       this.vis = {
@@ -137,11 +181,11 @@
       this.cam = {
         theta: -0.62,
         phi: 0.82,
-        radius: 118,
+        radius: 150,
         target: [0, 0, 1.5],
         goalTheta: -0.62,
         goalPhi: 0.82,
-        goalRadius: 118,
+        goalRadius: 150,
         goalTarget: [0, 0, 1.5],
       };
 
@@ -163,15 +207,18 @@
         layout(location = 0) in vec3 aPos;
         layout(location = 1) in vec3 aNormal;
         // Per-instance attributes
-        layout(location = 2) in vec3 iCenter;   // x, y, base_z (normalized)
-        layout(location = 3) in vec3 iScale;    // w, d, h
+        layout(location = 2) in vec3 iCenter;   // x, y (world), z0 (µm; world for decoration)
+        layout(location = 3) in vec3 iScale;    // w, d (world), h (µm; world for decoration)
         layout(location = 4) in vec4 iColor;    // r, g, b, alpha
-        layout(location = 5) in vec3 iMeta;     // layerIdx, modId, pulseWeight
+        layout(location = 5) in vec2 iMeta;     // slot (-1 decoration, 0 cells + in-cell metal, n = metal n), modId (-1 none, -2 via)
 
         uniform mat4 uViewProj;
-        uniform float uExplode;
+        uniform float uZScale;    // world units per µm: the same scale as x/y, so heights are true
+        uniform float uGap;       // extra world-unit gap inserted below each metal slot (0 = real stack)
         uniform float uHighlightMod;
         uniform float uPulseTime;
+        uniform float uLive;      // 1 = colour the die by this cycle's block activity
+        uniform float uAct[12];   // per-module activity level 0..1, eased in JS
 
         out vec3 vNormal;
         out vec3 vLocalPos;
@@ -179,32 +226,40 @@
         out float vDimmed;
 
         void main() {
-          float layerZ = iMeta.x * uExplode;
+          float slot = iMeta.x;
           float modId = iMeta.y;
-          float pulse = iMeta.z;
+          bool isVia = modId < -1.5;
+          bool isModule = modId > -0.5;
+          float act = isModule ? uAct[min(int(modId + 0.5), 11)] : 0.0;
+          bool live = uLive > 0.5 && isModule;
 
-          float pulseBoost = pulse > 0.5 ? (0.35 + 0.25 * sin(uPulseTime * 6.0)) : 0.0;
-          vec3 scale = iScale;
-          // Via pillars (modId < -1.5) stretch vertically with uExplode to bridge adjacent metal layers
-          if (modId < -1.5) {
-            scale.z = max(0.18, uExplode * 0.92);
-          } else if (pulse > 0.5 && iMeta.x < 1.0) {
-            scale.z *= (1.0 + 0.45 * pulseBoost);
+          // Thickness and height are true scale (µm x the x/y scale). The layer gap only
+          // lifts each metal slot; a via stretches across the gap to the slot above.
+          float t = aPos.z + 0.5;
+          float z;
+          if (slot < -0.5) {
+            z = iCenter.z + t * iScale.z;
+          } else {
+            z = (iCenter.z + t * iScale.z) * uZScale + (slot + (isVia ? t : 0.0)) * uGap;
           }
-
-          vec3 worldPos = vec3(
-            iCenter.x + aPos.x * scale.x,
-            iCenter.y + aPos.y * scale.y,
-            iCenter.z + layerZ + (aPos.z + 0.5) * scale.z
-          );
+          vec3 worldPos = vec3(iCenter.x + aPos.x * iScale.x, iCenter.y + aPos.y * iScale.y, z);
 
           gl_Position = uViewProj * vec4(worldPos, 1.0);
           vNormal = aNormal;
           vLocalPos = aPos;
 
           vec4 col = iColor;
-          if (pulse > 0.5) {
-            col.rgb = mix(col.rgb, vec3(0.95, 1.0, 0.98), pulseBoost * 0.55);
+          if (live) {
+            // Idle: dim and greyed. Busy: full module colour, brightened, with a soft throb.
+            float grey = dot(col.rgb, vec3(0.30, 0.59, 0.11));
+            vec3 idle = mix(vec3(grey), col.rgb, 0.45) * 0.30;
+            float throb = 0.85 + 0.15 * sin(uPulseTime * 7.0);
+            vec3 busy = min(col.rgb * (1.05 + 0.30 * throb), vec3(1.0));
+            col.rgb = mix(idle, busy, act);
+          } else if (uLive > 0.5 && (slot > 0.5 || isVia)) {
+            // Routing, vias, power and pins fade back so the busy cells read through them
+            col.rgb *= 0.55;
+            col.a *= 0.30;
           }
 
           float dimmed = 0.0;
@@ -255,9 +310,12 @@
       this.program = prog;
 
       this.uViewProj = gl.getUniformLocation(prog, "uViewProj");
-      this.uExplode = gl.getUniformLocation(prog, "uExplode");
+      this.uZScale = gl.getUniformLocation(prog, "uZScale");
+      this.uGap = gl.getUniformLocation(prog, "uGap");
       this.uHighlightMod = gl.getUniformLocation(prog, "uHighlightMod");
       this.uPulseTime = gl.getUniformLocation(prog, "uPulseTime");
+      this.uLive = gl.getUniformLocation(prog, "uLive");
+      this.uAct = gl.getUniformLocation(prog, "uAct");
 
       // Unit cube geometry [-0.5 .. +0.5]
       const verts = new Float32Array([
@@ -295,7 +353,7 @@
 
       this.instanceBuffer = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
-      const stride = 13 * 4; // 13 floats per instance
+      const stride = 12 * 4; // 12 floats per instance
       // iCenter (loc 2)
       gl.enableVertexAttribArray(2);
       gl.vertexAttribPointer(2, 3, gl.FLOAT, false, stride, 0);
@@ -310,7 +368,7 @@
       gl.vertexAttribDivisor(4, 1);
       // iMeta (loc 5)
       gl.enableVertexAttribArray(5);
-      gl.vertexAttribPointer(5, 3, gl.FLOAT, false, stride, 40);
+      gl.vertexAttribPointer(5, 2, gl.FLOAT, false, stride, 40);
       gl.vertexAttribDivisor(5, 1);
 
       gl.bindVertexArray(null);
@@ -337,54 +395,56 @@
       this.rebuildInstances();
     }
 
-    setExplode(val) {
-      this.explode = parseFloat(val);
+    /** Space inserted between metal layers, in world units (0 = the real, touching stack). */
+    setLayerGap(val) {
+      this.layerGap = Math.max(0, parseFloat(val) || 0);
     }
 
     setHighlightModule(modId) {
       this.highlightMod = modId;
     }
 
-    setActiveCycleState(cycData) {
-      this.activeCycleMods.clear();
-      if (!cycData) return;
-      const cg = cycData.cg || {};
-      if (cg.qa) this.activeCycleMods.add(3);
-      if (cg.qb) this.activeCycleMods.add(4);
-      if (cg.macq) this.activeCycleMods.add(5);
-      if (cg.prod_reg) this.activeCycleMods.add(2);
-      if (cg.bank0) this.activeCycleMods.add(0);
-      if (cg.bank1) this.activeCycleMods.add(1);
-      if (cg.drain) this.activeCycleMods.add(8);
-      if (cg.prog) this.activeCycleMods.add(9);
-      if (cycData.events && cycData.events.some((e) => e.startsWith("port rd"))) {
-        this.activeCycleMods.add(6);
+    /** Mark the modules (MODULE_META keys) that are busy in the current cycle. */
+    setActiveModules(keys) {
+      const busy = new Set(keys);
+      MODULE_META.forEach((m) => {
+        this.actTarget[m.id] = busy.has(m.key) ? 1 : 0;
+      });
+    }
+
+    setLive(on) {
+      this.live = !!on;
+    }
+
+    _easeActivity(dt) {
+      const rise = 1 - Math.exp(-dt / 0.04);
+      const fade = 1 - Math.exp(-dt / 0.30);
+      for (let i = 0; i < this.actLevel.length; i++) {
+        const t = this.actTarget[i];
+        const l = this.actLevel[i];
+        this.actLevel[i] = l + (t - l) * (t > l ? rise : fade);
       }
-      if (cycData.events && cycData.events.some((e) => e.startsWith("fe issue"))) {
-        this.activeCycleMods.add(7);
-      }
-      this.rebuildInstances();
     }
 
     flyToPreset(preset) {
       if (preset === "iso") {
         this.cam.goalTheta = -0.62;
         this.cam.goalPhi = 0.82;
-        this.cam.goalRadius = 118;
+        this.cam.goalRadius = 150;
         this.cam.goalTarget = [0, 0, 1.5];
         this.highlightMod = -1;
       } else if (preset === "top") {
-        // Pure North-Up (+Y = North, +X = East) 2D Floorplan Orientation
+        // Plan view: +Y (north) up, +X (east) right, as in the DEF
         this.cam.goalTheta = 0.0;
         this.cam.goalPhi = 0.01;
-        this.cam.goalRadius = 114;
+        this.cam.goalRadius = 150;
         this.cam.goalTarget = [0, 0, 0];
       } else if (preset === "side") {
-        this.cam.goalTheta = -0.18;
-        this.cam.goalPhi = 1.44;
-        this.cam.goalRadius = 106;
-        this.cam.goalTarget = [0, 0, 7];
-        if (this.explode < 4.5) this.explode = 5.2;
+        // Low view from the south: shows the layer stack in profile
+        this.cam.goalTheta = 0.0;
+        this.cam.goalPhi = 1.40;
+        this.cam.goalRadius = 125;
+        this.cam.goalTarget = [0, 0, 3];
       }
     }
 
@@ -394,100 +454,116 @@
         return;
       }
       const bm = this.chipData.bookmarks[modKey];
-      const dieW = this.chipData.die.width_um;
-      const dieH = this.chipData.die.height_um;
-      const nx = ((bm.cx / dieW) - 0.5) * 100;
-      const ny = ((bm.cy / dieH) - 0.5) * 100;
-      this.cam.goalTarget = [nx, ny, 1.0];
+      const f = this._dieFrame();
+      this.cam.goalTarget = [f.X(bm.cx), f.Y(bm.cy), 1.0];
       this.cam.goalRadius = 58;
       this.cam.goalPhi = 0.62;
       this.highlightMod = bm.id;
     }
 
+    /**
+     * Die µm -> world mapping. One scale for x and y (100 world units across the longer
+     * die side), origin at the die centre, +X east, +Y north: the DEF's own axes.
+     */
+    _dieFrame() {
+      const die = this.chipData.die;
+      const k = 100.0 / Math.max(die.width_um, die.height_um);
+      const ox = die.width_um * 0.5;
+      const oy = die.height_um * 0.5;
+      return { k, ox, oy, X: (um) => (um - ox) * k, Y: (um) => (um - oy) * k };
+    }
+
+    _stack() {
+      return LAYER_STACK[this.chipData.platform] || LAYER_STACK.asap7;
+    }
+
     rebuildInstances() {
       if (!this.chipData || !this.gl) return;
       const d = this.chipData;
-      const dieW = d.die.width_um;
-      const dieH = d.die.height_um;
-      const scaleX = 100.0 / dieW;
-      const scaleY = 100.0 / dieH;
+      const { k, X, Y } = this._dieFrame();
+      this.k = k;
+      const stack = this._stack();
+      const dieWk = d.die.width_um * k;
+      const dieHk = d.die.height_um * k;
       const isDbu = d.cell_units === "dbu" && d.dbu > 0;
-      const cellScaleX = isDbu ? 100.0 / (dieW * d.dbu) : scaleX;
-      const cellScaleY = isDbu ? 100.0 / (dieH * d.dbu) : scaleY;
+      const toUm = (v) => (isDbu ? v / d.dbu : v);
+      // Smallest drawn wire/via/pin width in world units: real ASAP7 / sky130 wires are
+      // 0.01-0.03 world units wide, far below a pixel, so they are drawn at least this wide.
+      const minW = 0.10;
 
-      const list = []; // flat float array (13 floats per box)
-      function pushBox(cx, cy, baseZ, sx, sy, sz, r, g, b, a, layerIdx, modId, pulse) {
-        list.push(cx, cy, baseZ, sx, sy, sz, r, g, b, a, layerIdx, modId, pulse);
+      // Instance layout (12 floats): x, y, z0, sx, sy, sz, r, g, b, a, slot, modId
+      //   slot -1: decoration, z in world units
+      //   slot  0: cells and the in-cell metal (ASAP7 M1 / sky130 li1), z in µm
+      //   slot  n: metal layer n (data layer index), z in µm, lifted n x the layer gap
+      const list = [];
+      function pushBox(cx, cy, z0, sx, sy, sz, r, g, b, a, slot, modId) {
+        list.push(cx, cy, z0, sx, sy, sz, r, g, b, a, slot, modId);
       }
+      const layerOf = (lidx) => stack.layers[Math.min(lidx, stack.layers.length - 1)];
 
-      // 1. Silicon Substrate Base + Exact Core Frame + Die Seal Ring (Z = -1.5 .. 0)
+      // 1. Substrate, seal ring and core outline (decoration, just below the cells)
       if (this.vis.substrate) {
-        pushBox(0, 0, -1.5, 104, 104, 1.4, 0.04, 0.07, 0.12, 1.0, 0.0, -1, 0);
-        // Die Seal Ring
-        pushBox(0, -50.6, -0.08, 101.6, 0.45, 0.25, 0.18, 0.34, 0.52, 1.0, 0.0, -1, 0);
-        pushBox(0,  50.6, -0.08, 101.6, 0.45, 0.25, 0.22, 0.52, 0.72, 1.0, 0.0, -1, 0); // North edge brighter
-        pushBox(-50.6, 0, -0.08, 0.45, 101.6, 0.25, 0.18, 0.34, 0.52, 1.0, 0.0, -1, 0);
-        pushBox( 50.6, 0, -0.08, 0.45, 101.6, 0.25, 0.18, 0.34, 0.52, 1.0, 0.0, -1, 0);
-        // Exact Core Area Boundary Frame (from 6_final.def ROW bounds)
+        pushBox(0, 0, -1.5, dieWk + 4, dieHk + 4, 1.4, 0.04, 0.07, 0.12, 1.0, -1, -1);
+        const ex = dieWk * 0.5 + 0.6;
+        const ey = dieHk * 0.5 + 0.6;
+        pushBox(0, -ey, -0.08, dieWk + 1.6, 0.45, 0.06, 0.18, 0.34, 0.52, 1.0, -1, -1);
+        pushBox(0, ey, -0.08, dieWk + 1.6, 0.45, 0.06, 0.22, 0.52, 0.72, 1.0, -1, -1); // north edge brighter
+        pushBox(-ex, 0, -0.08, 0.45, dieHk + 1.6, 0.06, 0.18, 0.34, 0.52, 1.0, -1, -1);
+        pushBox(ex, 0, -0.08, 0.45, dieHk + 1.6, 0.06, 0.18, 0.34, 0.52, 1.0, -1, -1);
         if (typeof d.die.core_x0_um === "number") {
-          const cx0 = d.die.core_x0_um * scaleX - 50.0;
-          const cx1 = d.die.core_x1_um * scaleX - 50.0;
-          const cy0 = d.die.core_y0_um * scaleY - 50.0;
-          const cy1 = d.die.core_y1_um * scaleY - 50.0;
+          const cx0 = X(d.die.core_x0_um), cx1 = X(d.die.core_x1_um);
+          const cy0 = Y(d.die.core_y0_um), cy1 = Y(d.die.core_y1_um);
           const cw = cx1 - cx0, ch = cy1 - cy0;
           const cmx = (cx0 + cx1) * 0.5, cmy = (cy0 + cy1) * 0.5;
-          pushBox(cmx, cy0, -0.05, cw, 0.18, 0.12, 0.25, 0.48, 0.68, 0.75, 0.0, -1, 0);
-          pushBox(cmx, cy1, -0.05, cw, 0.18, 0.12, 0.25, 0.48, 0.68, 0.75, 0.0, -1, 0);
-          pushBox(cx0, cmy, -0.05, 0.18, ch, 0.12, 0.25, 0.48, 0.68, 0.75, 0.0, -1, 0);
-          pushBox(cx1, cmy, -0.05, 0.18, ch, 0.12, 0.25, 0.48, 0.68, 0.75, 0.0, -1, 0);
+          pushBox(cmx, cy0, -0.08, cw, 0.18, 0.06, 0.25, 0.48, 0.68, 0.75, -1, -1);
+          pushBox(cmx, cy1, -0.08, cw, 0.18, 0.06, 0.25, 0.48, 0.68, 0.75, -1, -1);
+          pushBox(cx0, cmy, -0.08, 0.18, ch, 0.06, 0.25, 0.48, 0.68, 0.75, -1, -1);
+          pushBox(cx1, cmy, -0.08, 0.18, ch, 0.06, 0.25, 0.48, 0.68, 0.75, -1, -1);
         }
       }
 
-      // 1B. Translucent RTL Macro Floorplan Region Slabs & Borders (p8..p92 of true sequential flops)
+      // 1B. Module floorplan regions: a translucent sheet on top of the cell layer
       if (this.vis.regions && d.bookmarks) {
-        const bms = d.bookmarks;
-        for (const k of Object.keys(bms)) {
-          const bm = bms[k];
+        for (const key of Object.keys(d.bookmarks)) {
+          const bm = d.bookmarks[key];
           const m = MODULE_META[bm.id];
           if (!m) continue;
-          const inset = k === "mac_bank1" ? 0.42 : 0.0;
-          const x0 = bm.x0 * scaleX - 50.0 + inset;
-          const x1 = bm.x1 * scaleX - 50.0 - inset;
-          const y0 = bm.y0 * scaleY - 50.0 + inset;
-          const y1 = bm.y1 * scaleY - 50.0 - inset;
-          const cx = (x0 + x1) * 0.5;
-          const cy = (y0 + y1) * 0.5;
-          const bw = Math.max(3.0, x1 - x0);
-          const bh = Math.max(3.0, y1 - y0);
+          const inset = key === "mac_bank1" ? 0.42 : 0.0;
+          const x0 = X(bm.x0) + inset, x1 = X(bm.x1) - inset;
+          const y0 = Y(bm.y0) + inset, y1 = Y(bm.y1) - inset;
+          const cx = (x0 + x1) * 0.5, cy = (y0 + y1) * 0.5;
+          const bw = Math.max(3.0, x1 - x0), bh = Math.max(3.0, y1 - y0);
           const [r, g, b] = m.rgb;
-          const isPulsing = this.activeCycleMods.has(bm.id) ? 1.0 : 0.0;
-          if (k !== "mac_bank1") {
-            pushBox(cx, cy, -0.04, bw, bh, 0.06, r * 0.55, g * 0.55, b * 0.55, 0.22, 0.04, bm.id, isPulsing);
+          const z = stack.cellTop;
+          if (key !== "mac_bank1") {
+            pushBox(cx, cy, z, bw, bh, 0.04 * z, r * 0.55, g * 0.55, b * 0.55, 0.22, 0, bm.id);
           }
           const rail = 0.20;
-          pushBox(cx, y0, -0.02, bw, rail, 0.10, r, g, b, 0.75, 0.05, bm.id, isPulsing);
-          pushBox(cx, y1, -0.02, bw, rail, 0.10, r, g, b, 0.75, 0.05, bm.id, isPulsing);
-          pushBox(x0, cy, -0.02, rail, bh, 0.10, r, g, b, 0.75, 0.05, bm.id, isPulsing);
-          pushBox(x1, cy, -0.02, rail, bh, 0.10, r, g, b, 0.75, 0.05, bm.id, isPulsing);
+          pushBox(cx, y0, z, bw, rail, 0.12 * z, r, g, b, 0.75, 0, bm.id);
+          pushBox(cx, y1, z, bw, rail, 0.12 * z, r, g, b, 0.75, 0, bm.id);
+          pushBox(x0, cy, z, rail, bh, 0.12 * z, r, g, b, 0.75, 0, bm.id);
+          pushBox(x1, cy, z, rail, bh, 0.12 * z, r, g, b, 0.75, 0, bm.id);
         }
       }
 
-      // 2. FEOL Placed Standard Cells & Lossless Row Fill (100% 1:1 from 6_final.def + PDK LEF)
+      // 2. Standard cells and fill at their DEF position and LEF footprint. Every cell
+      //    occupies the same device layer, so every cell has the same height; class and
+      //    activity are shown by colour only.
       if (this.vis.cells) {
+        const cellH = stack.cellTop;
         for (let i = 0; i < d.cells.length; i++) {
-          const [x, y, w, h, mod, cclass, quad, rawAct] = d.cells[i];
+          const [x, y, w, h, mod, cclass, , rawAct] = d.cells[i];
           if (cclass === 4 && !this.vis.filler) continue;
 
           const act = isDbu ? rawAct * 0.01 : rawAct;
-          const cx = (x + w * 0.5) * cellScaleX - 50.0;
-          const cy = (y + h * 0.5) * cellScaleY - 50.0;
-          const sx = Math.max(0.03, w * cellScaleX * 0.992);
-          const sy = Math.max(0.05, h * cellScaleY * 0.955);
-          let sz = cclass === 1 ? 0.34 : cclass === 0 ? 0.23 : cclass === 4 ? 0.07 : 0.15;
+          const wu = toUm(w), hu = toUm(h);
+          const cx = X(toUm(x) + wu * 0.5);
+          const cy = Y(toUm(y) + hu * 0.5);
+          // A sliver of gap between neighbours so cell edges stay visible
+          const sx = Math.max(0.03, wu * k * 0.992);
+          const sy = Math.max(0.05, hu * k * 0.955);
 
           let r = 0.3, g = 0.5, b = 0.8, a = 0.97;
-          const isPulsing = cclass !== 4 && this.activeCycleMods.has(mod) ? 1.0 : 0.0;
-
           if (this.colorMode === "module") {
             if (cclass === 4) {
               r = 0.14; g = 0.18; b = 0.25; a = 0.94;
@@ -509,60 +585,50 @@
             if (cclass === 4) {
               r = 0.08; g = 0.12; b = 0.19; a = 0.88;
             } else {
-              const boost = isPulsing > 0.5 ? Math.min(1.0, act + 0.42) : act * 0.75;
-              const hc = heatColor(boost);
+              // Average switching activity over the gemm64 power run (static per cell)
+              const hc = heatColor(act * 0.75);
               r = hc[0]; g = hc[1]; b = hc[2];
-              sz *= (0.85 + boost * 0.75);
             }
           } else if (this.colorMode === "clock_xray") {
-            if (cclass === 1) {
-              r = 0.55; g = 1.0; b = 0.18; sz = 0.48;
-            } else if (cclass === 2) {
-              r = 0.0; g = 0.92; b = 1.0; sz = 0.36;
-            } else if (mod === 5 || mod === 2) {
-              r = 1.0; g = 0.32; b = 0.52; sz = 0.24;
-            } else {
-              r = 0.10; g = 0.14; b = 0.22; a = 0.32; sz = 0.08;
-            }
+            if (cclass === 1) { r = 0.55; g = 1.0; b = 0.18; }
+            else if (cclass === 2) { r = 0.0; g = 0.92; b = 1.0; }
+            else if (mod === 5 || mod === 2) { r = 1.0; g = 0.32; b = 0.52; }
+            else { r = 0.10; g = 0.14; b = 0.22; a = 0.32; }
           }
 
-          pushBox(cx, cy, 0.0, sx, sy, sz, r, g, b, a, 0.18, cclass === 4 ? -1 : mod, isPulsing);
+          pushBox(cx, cy, 0.0, sx, sy, cellH, r, g, b, a, 0, cclass === 4 ? -1 : mod);
         }
       }
 
-      // 3. Inter-Layer Via Pillars (V1..V6) — modId = -2.0 triggers uExplode Z-scaling in vertex shader
+      // 3. Vias: from the top of their (lower) layer to the bottom of the layer above;
+      //    the shader also stretches them across the layer gap
       if (this.vis.vias && d.vias) {
         for (let i = 0; i < d.vias.length; i++) {
           const [vx, vy, lidx, ntype] = d.vias[i];
-          if (!this.vis.layers[lidx]) continue;
+          if (!this.vis.layers[lidx] || lidx + 1 >= stack.layers.length) continue;
           if (this.colorMode === "clock_xray" && ntype !== 1 && i % 4 !== 0) continue;
-          const cx = vx * scaleX - 50.0;
-          const cy = vy * scaleY - 50.0;
+          const lo = stack.layers[lidx];
+          const hi = stack.layers[lidx + 1];
+          const z0 = lo[0] + lo[1];
+          const vw = Math.max(minW, lo[2] * k);
           const r = ntype === 1 ? 0.45 : 0.78;
           const g = ntype === 1 ? 0.98 : 0.84;
           const b = ntype === 1 ? 1.00 : 0.92;
-          pushBox(cx, cy, 0.15, 0.15, 0.15, 1.0, r, g, b, 0.92, lidx + 1.0, -2.0, ntype === 1 ? 1.0 : 0.0);
+          pushBox(X(vx), Y(vy), z0, vw, vw, Math.max(0.001, hi[0] - z0), r, g, b, 0.92, lidx, -2);
         }
       }
 
-      // 4. BEOL Routed Metal Segments (M1..M7 / li1..met5)
-      // Alternating orthogonal routing directions:
-      // ASAP7: M2=Horiz(X), M3=Vert(Y), M4=Horiz(X), M5=Vert(Y), M6=Horiz(X), M7=Vert(Y)
-      // Sky130HD: met1=Horiz(X), met2=Vert(Y), met3=Horiz(X), met4=Vert(Y), met5=Horiz(X)
+      // 4. Routed wire segments, on their layer's real height and thickness
       if (d.wires) {
         for (let i = 0; i < d.wires.length; i++) {
           const [x1, y1, x2, y2, lidx, ntype] = d.wires[i];
           if (!this.vis.layers[lidx]) continue;
           if (this.colorMode === "clock_xray" && ntype !== 1 && ntype !== 3 && i % 6 !== 0) continue;
 
-          const cx = ((x1 + x2) * 0.5) * scaleX - 50.0;
-          const cy = ((y1 + y2) * 0.5) * scaleY - 50.0;
-          const dx = Math.abs(x2 - x1) * scaleX;
-          const dy = Math.abs(y2 - y1) * scaleY;
-          const thick = 0.08 + lidx * 0.022;
-          const sx = Math.max(thick, dx);
-          const sy = Math.max(thick, dy);
-          const sz = 0.10 + lidx * 0.022;
+          const L = layerOf(lidx);
+          const ww = Math.max(minW, L[2] * k);
+          const sx = Math.max(ww, Math.abs(x2 - x1) * k);
+          const sy = Math.max(ww, Math.abs(y2 - y1) * k);
 
           const lm = LAYER_MAT_COLORS[Math.min(lidx, LAYER_MAT_COLORS.length - 1)];
           let r = lm.rgb[0], g = lm.rgb[1], b = lm.rgb[2];
@@ -580,46 +646,44 @@
             else if (ntype === 3) { r = 0.65; g = 0.45; b = 0.98; }
           }
 
-          pushBox(cx, cy, 0.2, sx, sy, sz, r, g, b, 0.92, lidx + 1.0, modTag, ntype === 1 ? 1.0 : 0.0);
+          pushBox(X((x1 + x2) * 0.5), Y((y1 + y2) * 0.5), L[0], sx, sy, L[1], r, g, b, 0.92, lidx, modTag);
         }
       }
 
-      // 5. Power Delivery Network Straps (SPECIALNETS VDD / VSS on their exact metal layer index: M5/M6 or met4/met5)
+      // 5. Power grid straps (SPECIALNETS VDD / VSS) at their real width and layer
       if (this.vis.pdn && d.pdn) {
         for (let i = 0; i < d.pdn.length; i++) {
           const [x1, y1, x2, y2, wUm, lidx, isVdd] = d.pdn[i];
-          const layerIdx = typeof lidx === "number" ? lidx : d.layers.length - 1;
+          const layerIdx = typeof lidx === "number" ? lidx : stack.layers.length - 1;
           if (this.vis.layers[layerIdx] === false) continue;
-          const cx = ((x1 + x2) * 0.5) * scaleX - 50.0;
-          const cy = ((y1 + y2) * 0.5) * scaleY - 50.0;
-          const sx = Math.max(wUm * scaleX * 0.85, Math.abs(x2 - x1) * scaleX);
-          const sy = Math.max(wUm * scaleY * 0.85, Math.abs(y2 - y1) * scaleY);
+          const L = layerOf(layerIdx);
+          const sx = Math.max(wUm * k, Math.abs(x2 - x1) * k);
+          const sy = Math.max(wUm * k, Math.abs(y2 - y1) * k);
           const r = isVdd ? 0.98 : 0.92;
           const g = isVdd ? 0.78 : 0.24;
           const b = isVdd ? 0.18 : 0.38;
-          pushBox(cx, cy, 0.22, sx, sy, 0.18, r, g, b, 0.82, layerIdx + 1.05, -1, 0.0);
+          pushBox(X((x1 + x2) * 0.5), Y((y1 + y2) * 0.5), L[0], sx, sy, L[1], r, g, b, 0.82, layerIdx, -1);
         }
       }
 
-      // 6. Perimeter I/O Pins (428 OBI Read, OBI Write, Reg Port, Clk/Rst Pins) on their true metal layer & orientation
+      // 6. I/O pins on their real layer at the die edge (enlarged to stay visible)
       if (this.vis.pins && d.pins) {
         for (let i = 0; i < d.pins.length; i++) {
           const p = d.pins[i];
-          const cx = p.x * scaleX - 50.0;
-          const cy = p.y * scaleY - 50.0;
-          const lidx = typeof p.lidx === "number" ? p.lidx : 3;
-          const sx = Math.max(0.24, (p.w || 0.3) * scaleX * 1.4);
-          const sy = Math.max(0.24, (p.h || 0.3) * scaleY * 1.4);
+          const pl = Math.min(typeof p.lidx === "number" ? p.lidx : 3, stack.layers.length - 1);
+          const L = stack.layers[pl];
+          const sx = Math.max(0.24, (p.w || 0.3) * k);
+          const sy = Math.max(0.24, (p.h || 0.3) * k);
           let r = 0.0, g = 0.94, b = 1.0;
           if (p.group === "wr_port") { r = 0.96; g = 0.25; b = 0.37; }
           else if (p.group === "reg_port") { r = 0.64; g = 0.90; b = 0.21; }
           else if (p.group === "clk_rst") { r = 1.0; g = 0.85; b = 0.10; }
-          pushBox(cx, cy, 0.2, sx, sy, 0.28, r, g, b, 1.0, lidx + 1.02, -1, 0.0);
+          pushBox(X(p.x), Y(p.y), L[0], sx, sy, L[1], r, g, b, 1.0, pl, -1);
         }
       }
 
       const arr = new Float32Array(list);
-      this.totalBoxes = arr.length / 13;
+      this.totalBoxes = arr.length / 12;
       const gl = this.gl;
       gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, arr, gl.DYNAMIC_DRAW);
@@ -725,10 +789,9 @@
         }
       }
 
-      const nx = Math.max(0, Math.min(1, (worldX + 50.0) / 100.0));
-      const ny = Math.max(0, Math.min(1, (worldY + 50.0) / 100.0));
-      const umX = nx * this.chipData.die.width_um;
-      const umY = ny * this.chipData.die.height_um;
+      const f = this._dieFrame();
+      const umX = Math.max(0, Math.min(this.chipData.die.width_um, worldX / f.k + f.ox));
+      const umY = Math.max(0, Math.min(this.chipData.die.height_um, worldY / f.k + f.oy));
 
       // Find module bookmark containing (umX, umY) or closest centroid
       let bestBm = null;
@@ -753,7 +816,10 @@
 
     _startLoop() {
       const render = (now) => {
+        const dt = this._lastNow ? Math.min(0.1, (now - this._lastNow) * 0.001) : 0;
+        this._lastNow = now;
         this.pulsePhase = now * 0.001;
+        this._easeActivity(dt);
         this._drawFrame();
         requestAnimationFrame(render);
       };
@@ -854,9 +920,12 @@
       if (this.totalBoxes > 0) {
         gl.useProgram(this.program);
         gl.uniformMatrix4fv(this.uViewProj, false, vp);
-        gl.uniform1f(this.uExplode, this.explode);
+        gl.uniform1f(this.uZScale, this.k);
+        gl.uniform1f(this.uGap, this.layerGap);
         gl.uniform1f(this.uHighlightMod, this.highlightMod);
         gl.uniform1f(this.uPulseTime, this.pulsePhase);
+        gl.uniform1f(this.uLive, this.live ? 1.0 : 0.0);
+        gl.uniform1fv(this.uAct, this.actLevel);
 
         gl.bindVertexArray(this.vao);
         gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, this.totalBoxes);
