@@ -91,6 +91,8 @@ jobs:
           python-version: "3.12"
           cache: pip
       - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: pip install -r requirements.txt
       - run: make rtl-lint
       - run: make rtl-test

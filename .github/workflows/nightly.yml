@@ -22,4 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: make formal-nightly
