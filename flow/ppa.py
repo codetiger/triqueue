@@ -61,9 +61,8 @@ UTIL_OVERRIDE = {}
 # thread count (`jobs`), Docker thread cap, extra ORFS variables. Pinning `jobs`, random seeds,
 # and `SYNTH_REPEATABLE_BUILD` keeps native reference runs deterministic across invocations.
 PLATFORMS = {
-    "sky130hd":   dict(period=10.0, unit="ns", util=55, jobs=6, max_jobs=8, extra={}),
-    "ihp-sg13g2": dict(period=8.0,  unit="ns", util=40, jobs=6, max_jobs=8, extra={}),
-    "asap7":      dict(period=1000, unit="ps", util=70, jobs=4, max_jobs=3, extra={}),
+    "sky130hd": dict(period=10.0, unit="ns", util=55, jobs=6, max_jobs=8, extra={}),
+    "asap7":    dict(period=1000, unit="ps", util=70, jobs=4, max_jobs=3, extra={}),
 }
 
 STAGES = ("synth", "floorplan", "place", "cts", "route", "finish")
