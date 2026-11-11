@@ -3,7 +3,7 @@
 Cycle-level Python model of the int8 Tri-Queue core in `docs/specification.md`.
 
 ```
-python3 -m pytest -q     # functional + structural proofs (bit-exact vs numpy), ~3 s
+python3 -m pytest -q     # functional + structural proofs (bit-exact vs numpy), ~15 s
 python3 bench.py         # cycle benchmarks at T = 8, writes results.md (~70 s)
 python3 dse.py           # tile-size sweep T = 8/16/32, writes dse.md (~35 s)
 python3 -m tri_queue.vectors --m 16 --n 16 --k 16 -o ../build/vectors/16x16x16   # golden vectors for RTL

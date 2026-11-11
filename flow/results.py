@@ -33,7 +33,7 @@ NAND2_UM2 = {
     "ihp-sg13g2": ("sg13g2_nand2_1", 1.92 * 3.78),
 }
 
-# Operand SRAM for the engine + SRAM line (metrics.md): a macro from the ORFS platform, one per
+# Operand SRAM for the engine + SRAM line (flow/README.md, "Energy"): a macro from the ORFS platform, one per
 # 128-bit slice of the W-byte port, with a read-write port (C writes) and a read port (A/B reads),
 # like tq_top's separate ports. Only sky130hd has a characterized open macro (OpenRAM); ASAP7 has
 # fakeram, whose generator calls its values not realistic, so ASAP7 gets no SRAM line.

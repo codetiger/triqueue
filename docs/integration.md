@@ -116,9 +116,10 @@ FIFOs do not hide the TileLink/L2/DRAM latency; that is a memory-system result, 
 The adapter is an AXI4 master with a W-byte data bus:
 
 - Reads: one aligned `BURST_BEATS`-beat INCR burst per line when `BURST_BEATS > 1`, or one single-beat
-  INCR per port word when `BURST_BEATS = 1` (default). `BURST_BEATS` must be a power of two and
-  `BURST_BEATS × W` must not cross a 4 KiB boundary. The RTL does not assert these parameter rules
-  yet; check them in your build (and prefer a value that divides 4 KiB).
+  INCR per port word when `BURST_BEATS = 1` (default). Bursts are aligned to their own size, so
+  `BURST_BEATS × W ≤ 4 KiB` keeps a burst inside the AXI 4 KiB boundary. `tq_axi_mem` checks that
+  `BURST_BEATS` is a power of two, that `BURST_BEATS × W ≤ 4 KiB`, `ID_W ≥ 1` and `MAX_OUT ≥ 1` at
+  elaboration, and refuses to build otherwise.
 - Writes: one single-beat INCR per drain write, with `WSTRB = wr_be_o`.
 - `RREADY` and `BREADY` are always 1; the core never back-pressures a response.
 - `ARREADY`, `AWREADY`/`WREADY` act as the core's `gnt`.

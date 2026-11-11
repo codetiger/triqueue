@@ -11,7 +11,7 @@ runs OpenSTA (flow/power.tcl) on the routed design with its extracted parasitics
 build/orfs/<platform>/<config>/power/<workload>.json.
 
 Energy covers the whole SAIF window (see flow/activity.py) and is charged to the workload's
-useful MACs (M x N x K), as defined in metrics.md. Engine only: the SRAM is outside tq_top.
+useful MACs (M x N x K), as defined in flow/README.md. Engine only: the SRAM is outside tq_top.
 """
 import json
 import re
