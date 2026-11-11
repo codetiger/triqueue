@@ -36,10 +36,11 @@ jobs:
           - "tq_axi_mem.sby prove"
           - "tq_axi_mem.sby burst_prove"
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: YosysHQ/setup-oss-cad-suite@c2fa6abeb5c4d6de7466725ba615f11b20a18477 # v4.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
         with:
-          version: "2026-11-01"
+          version: "2026-11-11"  # last build the full rtl job passed on
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run SymbiYosys proof (${{ matrix.task }})
         working-directory: verif/formal
         run: sby -f ${{ matrix.task }}
