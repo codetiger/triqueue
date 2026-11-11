@@ -81,9 +81,10 @@ jobs:
 
   rtl:
     # Lint (Verilator + Yosys), RTL-vs-model regression (cocotb + Verilator), formal (SymbiYosys),
-    # and a generic synthesizability check.
+    # and a generic synthesizability check. The core split proof is unbounded PDR and has run past
+    # 35 minutes on a slow ABC draw, so the job allows 90.
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

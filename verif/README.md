@@ -3,7 +3,7 @@
 ```
 make rtl-lint        # Verilator -Wall (12 parameter sets + 3 adapter tops + burst AXI) + Yosys elaboration
 make rtl-test        # cocotb + Verilator regression against the cycle model (1,709 cases in 25 configs, ~165 s)
-make formal          # SymbiYosys: clock-gating, FIFO, AXI4-Lite & CV-X-IF proofs, AXI4 burst cover, T=4 core split (~3–11 min, PDR variance)
+make formal          # SymbiYosys: clock-gating, FIFO, AXI4-Lite & CV-X-IF proofs, AXI4 burst cover, T=4 core split (typically 3–11 min, but PDR variance can exceed 30 min)
 make formal-nightly  # SymbiYosys: T=4 core (shared, ack, panel) + unbounded AXI4 master proof (~10–80 min)
 make synth-check     # generic Yosys synthesis, both ACC_FORMs: no unintended latches, loops or undriven nets
 python3 -m pytest verif -q -k t16    # selects t16 and t16_panel; use -k "t16 and not panel" for one
@@ -58,7 +58,7 @@ Stalled cases are cycle-exact too: the testbench draws its grants from the model
 
 **`tq_axil_regs.sby`**, **`tq_xif_regs.sby`** and **`tq_axi_mem.sby`** prove the AXI4-Lite register slave, CV-X-IF instruction adapter and AXI4 memory master (`tq_axi_mem.sby` runs `cover` in `make formal` and the unbounded `prove` in `make formal-nightly`).
 
-**`tq_core.sby`** proves, unbounded (ABC PDR), the core invariants of `tq_core` at T = 4 with minimal queues (`tq_core_env.sv`): an accumulate never targets the bank being drained, no queue (QA, QB, MAC and stream command queues, read tags) overflows or underflows, and an ungranted request stays asserted with the same address (OBI request stability). It holds for any program (the program buffer is an arbitrary constant), START and ABORT at any time, any `gnt` pattern on both ports, and any read latency including zero. Tasks `split`, `shared`, `ack` (`WR_ACK = 1`) and `panel` (`PANEL_BYTES = 64`) cover all modes. `make formal` runs `split` (~3–11 min, PDR variance); `shared`, `ack` and `panel` run in `make formal-nightly`. With `TQ_FORMAL_CORE` defined, `tq_fifo`'s legal-use conditions become assertions instead of assumptions.
+**`tq_core.sby`** proves, unbounded (ABC PDR), the core invariants of `tq_core` at T = 4 with minimal queues (`tq_core_env.sv`): an accumulate never targets the bank being drained, no queue (QA, QB, MAC and stream command queues, read tags) overflows or underflows, and an ungranted request stays asserted with the same address (OBI request stability). It holds for any program (the program buffer is an arbitrary constant), START and ABORT at any time, any `gnt` pattern on both ports, and any read latency including zero. Tasks `split`, `shared`, `ack` (`WR_ACK = 1`) and `panel` (`PANEL_BYTES = 64`) cover all modes. `make formal` runs `split` (typically 3–11 min, but PDR variance can exceed 30 min); `shared`, `ack` and `panel` run in `make formal-nightly`. With `TQ_FORMAL_CORE` defined, `tq_fifo`'s legal-use conditions become assertions instead of assumptions.
 
 Before solving, the script keeps only the input cone of the assertions and assumptions, so the multipliers and accumulators drop out (and the accumulator form doesn't matter). The environment isn't vacuous: with the reference kernel (`KERNEL = 1`) a cover of accumulate-during-drain is reached at step 20. The proof found that START or ABORT with reads in flight let the stale responses overflow an operand FIFO; `tq_stream` now discards them.
 

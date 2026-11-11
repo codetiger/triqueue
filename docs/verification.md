@@ -84,7 +84,7 @@ gating and accumulator deltas are therefore same-RTL comparisons. T = 16 is reco
 pip install -r requirements.txt
 make model-test sw-test          # no EDA tools
 make rtl-lint rtl-test           # Verilator + cocotb
-make formal                      # SymbiYosys, ~3–11 min (PDR variance)
+make formal                      # SymbiYosys, typically 3–11 min (PDR variance can exceed 30 min)
 make synth-check                 # generic Yosys
 make lock-check                  # PPA records and locked UI layouts
 python3 flow/results.py >/dev/null   # regenerate flow/results.md from records
