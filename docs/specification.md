@@ -481,7 +481,7 @@ At a high level, the Tri-Queue takes the **outer-product tile dataflow of Apple'
 
    The RTL implements `PANEL_BYTES` today as flip-flops, so the default is 0 and the option is not part of the reference configuration. A 1 KiB buffer is about 8 K flip-flops, which is not competitive with an SRAM macro. The buffer adds T × Kp bytes of storage (4 KiB, 32 Kbit at T = 8 for K ≤ 512), and whether it pays for itself in energy per MAC needs place and route with the SRAM energy line. Until that record exists, treat the panel buffer as experimental.
 
-Tile size is a parameter rather than a choice (§7.3): larger T reads fewer bytes per MAC and improves dense area efficiency (`T = 16` on ASAP7 reaches 0.361 MACs/cycle/kGE vs. 0.294 at `T = 8`, `flow/results.md`), but uses the array less well on small and irregular shapes, so the right T depends on the SoC's workloads and clock target.
+Tile size is a parameter rather than a choice (§7.3): larger T reads fewer bytes per MAC and improves dense area efficiency per kGE (`T = 16` on ASAP7 reaches 0.448 MACs/cycle/kGE vs. 0.363 at `T = 8`, +23%, `flow/results.md`), though not per mm² at its own clock (11.70 vs 12.36 TOPS/mm², because T = 16 closes at 762 MHz against 992.5 MHz at T = 8), and it uses the array less well on small and irregular shapes, so the right T depends on the SoC's workloads and clock target.
 
 ---
 

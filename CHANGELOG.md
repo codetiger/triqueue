@@ -20,6 +20,12 @@ All notable changes to the Tri-Queue project. This format follows
 - **Epilogue delivery cost** (`model/dse.md` §11): per-column bias and scale, as a per-tile stream or as
   an extra k step.
 
+### Changed
+
+- The spec's tile-size note now quotes the current place-and-route records: T = 16 reaches 0.448
+  MACs/cycle/kGE against 0.363 at T = 8 (+23%), though 11.70 vs 12.36 TOPS/mm² at their own clocks
+  (spec §10).
+
 ## [v1.0.0] — 2026-11-10
 
 The first release of the int8 matrix coprocessor: a cycle-exact model, synthesizable RTL, formal
