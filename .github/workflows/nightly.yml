@@ -21,5 +21,5 @@ jobs:
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
-      - uses: YosysHQ/setup-oss-cad-suite@v3
+      - uses: YosysHQ/setup-oss-cad-suite@v4
       - run: make formal-nightly

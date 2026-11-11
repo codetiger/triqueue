@@ -67,7 +67,7 @@ Peak throughput is a parameter, set by tile size and port width. It is not a goa
 
 ## Quick start
 
-Python 3.10+ and a C compiler are enough to run the cycle model and C driver tests. RTL targets also need Verilator 5, Yosys, SymbiYosys and Yices:
+Python 3.12+ and a C compiler are enough to run the cycle model and C driver tests. RTL targets also need Verilator 5, Yosys, SymbiYosys and Yices:
 
 ```sh
 git clone https://github.com/codetiger/triqueue.git && cd triqueue
