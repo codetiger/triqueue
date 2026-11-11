@@ -70,7 +70,7 @@ proofs, a physical-design flow, a bare-metal driver and the SoC integration cont
 - The AXI4 master drives constant `AxID`/`AxPROT`/`AxCACHE`/`AxQOS`/`AxREGION` and accepts `RID`/`BID`; `AxUSER` is not exposed.
 - The panel buffer uses flip-flops and has no PPA record; treat it as experimental.
 - T=16 closes at 762 MHz on ASAP7 (run at 741 MHz), not 1 GHz; T=32 has no PPA record.
-- Cached-DRAM integration is correctness-only (10.6% on Chipyard Rocket).
+- Cached-DRAM integration is correctness-only (10.6% on Chipyard Rocket, measured before the v1 RTL and the driver's GEMM API; not re-run since).
 - CV-X-IF is a reference adapter and has not run on real silicon; APB and RoCC are not included.
 - Comparative Gemmini/RVV results are not part of v1.
 

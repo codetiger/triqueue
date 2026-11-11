@@ -110,6 +110,8 @@ The operand FIFOs hide SRAM read latency, not cache misses. A FIFO depth of 8 hi
 every T; depth 16 hides 16. Choose `FIFO_DEPTH` from the memory's read latency plus the adapter's
 latency. The 64³ GEMM on the Chipyard Rocket SoC passes bit-exact but runs at 10.6% because the 8-word
 FIFOs do not hide the TileLink/L2/DRAM latency; that is a memory-system result, not a core limit.
+The committed run predates the driver's GEMM API and the v1 RTL, so treat the cycle count as
+indicative until it is re-run (`docs/benchmarks.md` §6).
 
 ## 5. AXI4 master (`tq_top_axi`)
 
@@ -164,7 +166,7 @@ profile's energy or area from a different configuration.
 - int8 output is shift-only: no per-tensor/per-channel scale, bias or activation.
 - The panel buffer is experimental and uses flip-flops.
 - `AxUSER` is not exposed; tie it off in a wrapper if required.
-- Cached-DRAM performance is not a v1 use case; the Chipyard result is 10.6%.
+- Cached-DRAM performance is not a v1 use case; the Chipyard result is 10.6% (measured before the v1 RTL).
 - T=16 closes at 762 MHz on ASAP7 (741 MHz run); T=32 has no PPA record.
 - CV-X-IF has not been validated on a real CVA6/CV32E40X.
 - APB and RoCC adapters are not included.
