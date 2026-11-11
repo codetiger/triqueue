@@ -20,6 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: YosysHQ/setup-oss-cad-suite@v3
       - run: make formal-nightly
