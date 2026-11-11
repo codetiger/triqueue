@@ -15,4 +15,4 @@ python3 flow/fpga/fpga.py all   t8_cpa
 
 Tools come from `PATH`, or from `$OSS_CAD_SUITE/bin` (YosysHQ [oss-cad-suite](https://github.com/YosysHQ/oss-cad-suite-build)).
 
-Synthesis at T = 8 (`t8_cpa`, Yosys 0.70): 22,365 LUT4, 8,809 flip-flops, 1,657 CCU2C carry cells, 64 MULT18X18D (one per 9×9 multiplier). That is 27% of the 85F's LUTs and 41% of its multipliers.
+Synthesis at T = 8 (`t8_cpa`, Yosys 0.70, v1.0.0 RTL): 16,658 LUT4, 8,562 flip-flops, 2,294 CCU2C carry cells, 64 MULT18X18D (one per 9×9 multiplier). That is 20% of the 85F's LUTs and 41% of its multipliers. The flip-flop count equals the ASIC record (`flow/results.md`).
