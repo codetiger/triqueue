@@ -79,6 +79,8 @@ Layer shapes from `bench/workloads/README.md` (MLPerf Tiny and BERT-tiny, batch 
 | `ad_fcae` | 10 | 0.26 | 16.6% | 8.2% | 4.0% | 10.6 | 21.0 | 41.3 |
 | `bert_tiny` | 16 | 58.72 | 99.9% | 99.7% | 97.7% | 64.0 | 255.1 | 1000.1 |
 
+Across these networks, K padding to a multiple of 8 adds at most 1.4% of padded K-step MACs (spec §7.1), and the per-layer prologue/epilogue (`idle` MAC cycles) is at most 0.0% of cycles (0.0 utilization points) at T = 8 and 0.0% (0.0 points) at T = 16 (spec §10.7).
+
 Per layer:
 
 | Network | Layer | M×N×K | × | T = 8 | T = 16 | T = 32 |
@@ -195,7 +197,7 @@ Real networks (tag `layers`), split port, MAC-weighted utilization:
 
 ## 9. int8 layer-path baseline (tag `layerpath`)
 
-The numbers the int8-inference plan is judged against: the pointwise layer that small-K CNN inference is bound by, plus batched decode and the GEMV shapes that size the A-panel buffer. The int8 column uses T drain lanes and a saturating shift (`MODE[2]`, §10.1). SRAM bytes count A/B reads and C writes; the model does not charge for the host packing pass (§5.3). T = 8, separate write port.
+The reference shapes for int8 inference: the pointwise layer that small-K CNN inference is bound by, plus batched decode and the GEMV shapes that size the A-panel buffer. The int8 column uses T drain lanes and a saturating shift (`MODE[2]`, §10.1). SRAM bytes count A/B reads and C writes; the model does not charge for the host packing pass (§5.3). T = 8, separate write port.
 
 | M×N×K | Cycles, int32 → int8 | Utilization, int32 → int8 | C bytes, int32 → int8 | Write transactions, int32 → int8 | SRAM bytes per MAC, int8 |
 | --- | --- | --- | --- | --- | --- |

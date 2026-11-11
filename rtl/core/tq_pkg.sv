@@ -46,6 +46,8 @@ package tq_pkg;
   localparam logic [3:0] ERR_CFG_LOOP  = 4'd4;  // CFG inside a loop body
   localparam logic [3:0] ERR_PC        = 4'd5;  // instruction runs past the program buffer
   localparam logic [3:0] ERR_ALIGN     = 4'd6;  // base address or C_LD not a multiple of the port width
+  localparam logic [3:0] ERR_CFG_VAL   = 4'd7;  // invalid CFG value (K/M/N range, MODE reserved bits, or C_LD < row)
+  localparam logic [3:0] ERR_OPERAND   = 4'd8;  // leftover or starved operands at FENCE / MAC queue full
 
   // ---- MAC command queue entry (front end -> MAC unit) ----
   typedef enum logic [1:0] {

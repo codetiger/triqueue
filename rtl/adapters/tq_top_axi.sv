@@ -14,14 +14,18 @@ module tq_top_axi #(
     parameter int PROG_BYTES  = 64,
     parameter int ACC_FORM    = tq_pkg::ACC_CPA,
     parameter bit CLK_GATE    = 1'b1,
-    parameter int MAX_OUT     = 16,      // AXI transactions in flight per direction (also the core's write limit)
+    parameter int MAX_OUT     = 16,      // AXI transactions in flight per direction
+    parameter int WR_OUT_MAX  = MAX_OUT, // core's outstanding-write limit (defaults to MAX_OUT)
     parameter int PANEL_BYTES = 0,
+    parameter int MAC_PIPE    = 2,
+    parameter bit PERF        = 1'b1,
     parameter int BURST_BEATS = 1,       // read burst beats (power of two, >= 1)
     parameter int ID_W        = 1,       // AXI ID width (constant 0)
     parameter logic [2:0] AXPROT  = 3'b000,
     parameter logic [3:0] AXCACHE = 4'b0000,
     parameter logic [3:0] AXQOS   = 4'b0000,
     parameter int ADDR_W      = 12,
+    parameter bit CHECK_PROT  = 1'b0,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -87,15 +91,15 @@ module tq_top_axi #(
     input  logic              m_bvalid_i,
     output logic              m_bready_o
 );
-  logic          rd_req, rd_gnt, rd_rvalid, wr_req, wr_gnt, wr_done, bus_err;
+  logic          rd_req, rd_gnt, rd_rvalid, wr_req, wr_gnt, wr_done, bus_err, flush, axi_pending;
   logic [31:0]   rd_addr, wr_addr;
   logic [VB-1:0] rd_rdata, wr_wdata;
   logic [W-1:0]  wr_be;
 
   tq_top_axil #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
                 .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
-                .CLK_GATE(CLK_GATE), .WR_ACK(1'b1), .WR_OUT_MAX(MAX_OUT), .PANEL_BYTES(PANEL_BYTES),
-                .ADDR_W(ADDR_W)) u_tq (
+                .CLK_GATE(CLK_GATE), .WR_ACK(1'b1), .WR_OUT_MAX(WR_OUT_MAX), .PANEL_BYTES(PANEL_BYTES),
+                .MAC_PIPE(MAC_PIPE), .PERF(PERF), .ADDR_W(ADDR_W), .CHECK_PROT(CHECK_PROT)) u_tq (
       .clk_i, .rst_ni,
       .s_awaddr_i, .s_awprot_i, .s_awvalid_i, .s_awready_o,
       .s_wdata_i, .s_wstrb_i, .s_wvalid_i, .s_wready_o,
@@ -105,14 +109,14 @@ module tq_top_axi #(
       .irq_o,
       .rd_req_o(rd_req), .rd_addr_o(rd_addr), .rd_gnt_i(rd_gnt), .rd_rvalid_i(rd_rvalid), .rd_rdata_i(rd_rdata),
       .wr_req_o(wr_req), .wr_addr_o(wr_addr), .wr_be_o(wr_be), .wr_wdata_o(wr_wdata), .wr_gnt_i(wr_gnt),
-      .wr_done_i(wr_done), .bus_err_i(bus_err));
+      .wr_done_i(wr_done), .bus_err_i(bus_err), .flush_o(flush), .ext_pending_i(axi_pending));
 
   tq_axi_mem #(.W(W), .MAX_OUT(MAX_OUT), .BURST_BEATS(BURST_BEATS), .ID_W(ID_W),
                 .AXPROT(AXPROT), .AXCACHE(AXCACHE), .AXQOS(AXQOS)) u_axi (
       .clk_i, .rst_ni,
       .rd_req_i(rd_req), .rd_addr_i(rd_addr), .rd_gnt_o(rd_gnt), .rd_rvalid_o(rd_rvalid), .rd_rdata_o(rd_rdata),
       .wr_req_i(wr_req), .wr_addr_i(wr_addr), .wr_be_i(wr_be), .wr_wdata_i(wr_wdata), .wr_gnt_o(wr_gnt),
-      .wr_done_o(wr_done), .bus_err_o(bus_err),
+      .wr_done_o(wr_done), .bus_err_o(bus_err), .flush_i(flush), .pending_o(axi_pending),
       .m_arid_o, .m_araddr_o, .m_arlen_o, .m_arsize_o, .m_arburst_o,
       .m_arprot_o, .m_arcache_o, .m_arqos_o, .m_arregion_o,
       .m_arvalid_o, .m_arready_i, .m_rid_i,

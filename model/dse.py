@@ -131,6 +131,8 @@ for t in TILES:
 w("")
 
 # 6. real network layers
+from tri_queue.packing import kp  # noqa: E402
+
 layers = workload_rows("layers")
 nets = list(dict.fromkeys(r["group"] for r in layers))
 w("## 6. Real int8 networks (tag `layers`)\n")
@@ -140,16 +142,31 @@ w("Layer shapes from `bench/workloads/README.md` (MLPerf Tiny and BERT-tiny, bat
 w("| Network | Layers | MMACs | " + " | ".join(f"T = {t}" for t in TILES) + " | " +
   " | ".join(f"MACs/cycle, T = {t}" for t in TILES) + " |")
 w("| --- | --- | --- |" + " --- |" * (2 * len(TILES)))
+max_kpad_waste = 0.0
+max_ovh_pct = {8: 0.0, 16: 0.0}
+max_ovh_pts = {8: 0.0, 16: 0.0}
 for net in nets:
     rs = [r for r in layers if r["group"] == net]
     macs = sum(r["count"] * r["m"] * r["n"] * r["k"] for r in rs)
+    kmacs = sum(r["count"] * r["m"] * r["n"] * kp(r["k"]) for r in rs)
+    max_kpad_waste = max(max_kpad_waste, (kmacs - macs) / kmacs)
     utils, mpc = [], []
     for t in TILES:
         cyc = sum(r["count"] * gemm(r["m"], r["n"], r["k"], Params(tile=t)).cycles for r in rs)
-        utils.append(pct(macs / (t * t * cyc)))
+        u0 = macs / (t * t * cyc)
+        utils.append(pct(u0))
         mpc.append(f"{macs / cyc:.1f}")
+        if t in max_ovh_pct:
+            ovh = sum(r["count"] * gemm(r["m"], r["n"], r["k"], Params(tile=t)).mac_state.get("idle", 0) for r in rs)
+            u_no_ovh = macs / (t * t * (cyc - ovh))
+            max_ovh_pct[t] = max(max_ovh_pct[t], ovh / cyc)
+            max_ovh_pts[t] = max(max_ovh_pts[t], 100.0 * (u_no_ovh - u0))
     w(f"| `{net}` | {sum(r['count'] for r in rs)} | {macs / 1e6:.2f} | " + " | ".join(utils) + " | " + " | ".join(mpc) + " |")
 w("")
+w(f"Across these networks, K padding to a multiple of 8 adds at most {pct(max_kpad_waste)} of padded K-step MACs "
+  f"(spec §7.1), and the per-layer prologue/epilogue (`idle` MAC cycles) is at most "
+  f"{pct(max_ovh_pct[8])} of cycles ({max_ovh_pts[8]:.1f} utilization points) at T = 8 and "
+  f"{pct(max_ovh_pct[16])} ({max_ovh_pts[16]:.1f} points) at T = 16 (spec §10.7).\n")
 w("Per layer:\n")
 w("| Network | Layer | M×N×K | × | " + " | ".join(f"T = {t}" for t in TILES) + " |")
 w("| --- | --- | --- | --- |" + " --- |" * len(TILES))
@@ -159,8 +176,6 @@ for r in layers:
 w("")
 
 # 7. A panel buffer (spec 10.9)
-from tri_queue.packing import kp  # noqa: E402
-
 PANEL = {8: 4096, 16: 8192}           # bytes: T x Kp up to K = 512
 
 
@@ -249,7 +264,7 @@ w("")
 from tri_queue.packing import panel_width  # noqa: E402
 
 w("## 9. int8 layer-path baseline (tag `layerpath`)\n")
-w("The numbers the int8-inference plan is judged against: the pointwise layer that small-K CNN "
+w("The reference shapes for int8 inference: the pointwise layer that small-K CNN "
   "inference is bound by, plus batched decode and the GEMV shapes that size the A-panel buffer. "
   "The int8 column uses T drain lanes and a saturating shift (`MODE[2]`, §10.1). SRAM bytes count "
   "A/B reads and C writes; the model does not charge for the host packing pass (§5.3). "

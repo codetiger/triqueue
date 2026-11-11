@@ -12,11 +12,12 @@ python3 -m tri_queue.vectors --m 20 --n 9 --k 33 --tile 16 --a u8 -o ../build/ve
 
 | File | Contents |
 | --- | --- |
-| `meta.json` | Format version, every `Params` field, the memory layout (`m, n, k, a_base, b_base, c_base, c_ld, mode`), image and program sizes, and the expected counters (`cycles`, `instructions`, `beats`, `read_vectors`, `read_bytes`, `write_vectors`, `write_bytes`, `mac_ops`, `utilization`) |
+| `meta.json` | Format version, every `Params` field, the memory layout (`m, n, k, a_base, b_base, c_base, c_ld, mode, out_bytes`), image and program sizes, and the expected counters (`cycles`, `instructions`, `beats`, `read_vectors`, `read_bytes`, `write_vectors`, `write_bytes`, `mac_ops`, `utilization`) |
 | `prog.hex` | The program (8 `CFG` + the GEMM kernel), one byte per line, 2 hex digits |
 | `mem_init.hex` | SRAM image before the run, one W-byte word per line, for `$readmemh` |
 | `mem_final.hex` | SRAM image after the run, same format. The C region holds the expected result. |
 | `trace.txt` | Event trace, described below |
+| `gnt.txt` | Written when `gnt_stall > 0`: one `<rd_gnt> <wr_gnt>` pair (`0` or `1`) per busy cycle, drawn from `GrantSource(gnt_stall, gnt_seed)` so non-Python SystemVerilog testbenches can replay the exact grant schedule |
 
 **Word images:** line *i* holds bytes `[i·W, (i+1)·W)`. The byte at the lowest address is the least significant, so a `logic [8*W-1:0] mem [N]` loaded with `$readmemh` has byte *j* of a word at bits `[8j+7 : 8j]`.
 
@@ -66,6 +67,6 @@ The RTL regression (`verif/`) applies checks 1–4 to every case, including thos
 - On every model cycle, starting at 0, draw `rd_gnt = rng.random() >= p`, then `wr_gnt = rng.random() >= p`. Both are drawn whether or not the port requests.
 - Outside the busy cycles the testbench grants without drawing.
 
-A request that isn't granted is held unchanged until it is: a held read keeps its stream (A/B arbitration and panel loads wait), and on a shared port a held read or write keeps the port. The testbench checks that every ungranted request reappears unchanged the next cycle.
+A request that isn't granted is held unchanged until it is: a held read keeps its stream (A/B arbitration and panel loads wait), and on a shared port a held read or write keeps the port. The testbench checks that every ungranted request reappears unchanged the next cycle (except when `ABORT` or a fatal program error `STATUS.ERROR = 1` terminates the run).
 
 The trace exposes no internal state (FIFO contents, sum/carry values), so an RTL that keeps the accumulator in a different internal form (spec §10.2) checks against the same vectors.

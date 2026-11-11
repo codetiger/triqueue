@@ -16,8 +16,9 @@ bench/soc/chipyard/run.sh      # ~1 h the first time (runtime + simulator build)
 | `tq_gemm_test.c` | 64×64×64 int8 GEMM: packs with `sw/tq.c`, runs on the Tri-Queue, compares C with the CPU, prints the hardware counters. |
 | `run.sh` | Builds the runtime, the program and the simulator in the Chipyard container (`bench/chipyard/setup.sh`), runs the program, and fails unless it prints `tq: PASS`. Output in `build/soc/<config>/`. |
 
-Result (Nov 8, 2026): `tq: PASS, 0 mismatches`, with 4,096 beats, 4,096 reads and 1,024 writes (the same as the cycle model), in 38,295 cycles. That is 10.6% utilization: the DRAM, L2 and FIFO-ordered path have far more latency than the 8-word operand FIFOs hide (the fixed-latency SRAM case takes 4,130 cycles). It is an integration check, not a performance result. This run predates the driver's GEMM API (`261d12d`) and the v1 RTL (`cfd68f4`); re-run before quoting the cycle count.
+Result (Nov 8, 2026): `tq: PASS, 0 mismatches`, with 4,096 beats, 4,096 reads and 1,024 writes (the same as the cycle model), in 38,295 cycles. That is 10.6% utilization: the DRAM, L2 and FIFO-ordered path have far more latency than the 8-word operand FIFOs hide (the fixed-latency SRAM case takes 4,130 cycles). It is an integration check, not a performance result. This run was recorded on pre-v1 RTL (`65815f3`), before the driver's GEMM API (`261d12d`) and the v1 RTL (`cfd68f4`), and has not been re-run on `v1.0.x`; re-run before quoting the cycle count.
 
 Integration notes:
 - `AXI4ToTL` reuses TileLink sources in order and needs responses in order per AXI ID, but the system bus only orders volatile regions. Without the `TLFIFOFixer`, cacheable DRAM answers out of order and TileLink's monitor reports a reused source.
 - GCC 16's nano newlib dereferences a NULL `_on_exit_args` at exit; the program links Chipyard's `tests/atexit-workaround.c` with `-Wl,--wrap=atexit`.
+- The Chipyard container (`ucbbar/chipyard-image`) is published for `linux/amd64` only; on macOS Apple Silicon (`arm64`), `bench/chipyard/setup.sh` runs it with `--platform linux/amd64` under Rosetta emulation.

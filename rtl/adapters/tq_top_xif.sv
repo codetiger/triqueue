@@ -17,8 +17,12 @@ module tq_top_xif #(
     parameter bit WR_ACK      = 1'b0,
     parameter int WR_OUT_MAX  = 15,
     parameter int PANEL_BYTES = 0,
+    parameter int MAC_PIPE    = 2,
+    parameter bit PERF        = 1'b1,
     parameter int X_ID_WIDTH  = 4,
     parameter int X_HARTID_WIDTH = 1,
+    parameter logic [6:0] OPCODE = 7'b0001011,
+    parameter logic [6:0] FUNCT7 = 7'b0000000,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -65,14 +69,17 @@ module tq_top_xif #(
     output logic [VB-1:0]     wr_wdata_o,
     input  logic              wr_gnt_i,
     input  logic              wr_done_i,
-    input  logic              bus_err_i
+    input  logic              bus_err_i,
+    output logic              flush_o,
+    input  logic              ext_pending_i = 1'b0
 );
   logic        reg_req, reg_gnt, reg_we, reg_rvalid;
   logic [11:0] reg_addr;
   logic [3:0]  reg_be;
   logic [31:0] reg_wdata, reg_rdata;
 
-  tq_xif_regs #(.X_ID_WIDTH(X_ID_WIDTH), .X_HARTID_WIDTH(X_HARTID_WIDTH)) u_xif (
+  tq_xif_regs #(.X_ID_WIDTH(X_ID_WIDTH), .X_HARTID_WIDTH(X_HARTID_WIDTH),
+                .OPCODE(OPCODE), .FUNCT7(FUNCT7)) u_xif (
       .clk_i, .rst_ni,
       .x_issue_valid_i, .x_issue_ready_o, .x_issue_req_instr_i, .x_issue_req_hartid_i,
       .x_issue_req_id_i, .x_issue_resp_accept_o, .x_issue_resp_writeback_o,
@@ -88,12 +95,13 @@ module tq_top_xif #(
   tq_top #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
            .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
            .CLK_GATE(CLK_GATE), .WR_ACK(WR_ACK), .WR_OUT_MAX(WR_OUT_MAX),
-           .PANEL_BYTES(PANEL_BYTES)) u_tq (
+           .PANEL_BYTES(PANEL_BYTES), .MAC_PIPE(MAC_PIPE), .PERF(PERF)) u_tq (
       .clk_i, .rst_ni,
       .reg_req_i(reg_req), .reg_gnt_o(reg_gnt), .reg_addr_i(reg_addr), .reg_we_i(reg_we),
       .reg_be_i(reg_be), .reg_wdata_i(reg_wdata), .reg_rvalid_o(reg_rvalid), .reg_rdata_o(reg_rdata),
       .irq_o,
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i,
-      .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i, .wr_done_i, .bus_err_i);
+      .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i, .wr_done_i, .bus_err_i,
+      .flush_o, .ext_pending_i);
 
 endmodule

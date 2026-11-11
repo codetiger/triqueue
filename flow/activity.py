@@ -16,27 +16,45 @@ Operands are uniform random int8 (seeded), a high-activity case, except *_relu w
 synthetic post-ReLU uint8 activations (about half zeros) and Gaussian int8 weights. Neither is
 data from a real network; uniform is the upper bound, the ReLU case a more typical one.
 """
+import hashlib
 import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "flow"))
+sys.path.insert(0, str(ROOT / "bench" / "workloads"))
 sys.path.insert(0, str(ROOT / "verif"))
 sys.path.insert(0, str(ROOT / "verif" / "tb"))
 
 from ppa import CONFIGS  # noqa: E402
 from test_rtl import SOURCES, case  # noqa: E402
+from workloads import shapes as workload_shapes  # noqa: E402
 
-# name: case (shapes from bench/workloads/gemm.csv)
-WORKLOADS = {
-    "gemm64":   case(64, 64, 64, lat=2),                 # dense, ~99% utilization at T = 8
-    "resnet8_conv32": case(256, 32, 288, lat=2),         # ic_resnet8 conv 3x3 32->32 (16x16)
-    "mbv1_pw8_16":    case(2304, 16, 8, lat=2),          # vww_mbv1 pointwise 8->16, low K
-    "fcae_fc640_128": case(1, 128, 640, lat=2),         # ad_fcae fc 640->128: GEMV, port-bound
-    # the ResNet-8 shape with synthetic inference-like operands (tq_cocotb.operands, dist="relu")
-    "resnet8_conv32_relu": dict(case(256, 32, 288, "u8", "s8", lat=2), dist="relu"),
+_PPA_NAMES = {
+    (64, 64, 64): ("gemm64", 0),                  # dense, ~99% utilization at T = 8
+    (256, 32, 288): ("resnet8_conv32", 1),        # ic_resnet8 conv 3x3 32->32 (16x16)
+    (2304, 16, 8): ("mbv1_pw8_16", 2),            # vww_mbv1 pointwise 8->16, low K
+    (1, 128, 640): ("fcae_fc640_128", 3),         # ad_fcae fc 640->128: GEMV, port-bound
 }
+
+
+def _build_workloads() -> dict[str, dict]:
+    found = {}
+    for m, n, k in workload_shapes("ppa"):
+        if (m, n, k) not in _PPA_NAMES:
+            raise ValueError(f"Unmapped 'ppa' workload shape in gemm.csv: {(m, n, k)}")
+        name, order = _PPA_NAMES[(m, n, k)]
+        found[order] = (name, case(m, n, k, lat=2))
+    out = {name: c for _, (name, c) in sorted(found.items())}
+    if "resnet8_conv32" in out:
+        c = out["resnet8_conv32"]
+        out["resnet8_conv32_relu"] = dict(case(c["m"], c["n"], c["k"], "u8", "s8", lat=2), dist="relu")
+    return out
+
+
+# Selected by tag `ppa` in bench/workloads/gemm.csv
+WORKLOADS = _build_workloads()
 
 TB_PERIOD_PS = 10_000                                   # clock in verif/tb/tq_tb.py
 
@@ -51,12 +69,29 @@ def model_params(rtl):
     return out
 
 
+def saif_source_digest(config: str, workload: str) -> str:
+    """SHA-256 over RTL sources, TB sources, config parameters, and workload specification."""
+    h = hashlib.sha256()
+    rtl_files = [ROOT / f for f in (ROOT / "rtl" / "files.f").read_text().split()]
+    tb_files = [ROOT / "verif" / "tb" / "tq_tb.py", ROOT / "verif" / "tb" / "tq_cocotb.py"]
+    for p in rtl_files + tb_files:
+        h.update(p.relative_to(ROOT).as_posix().encode())
+        h.update(b"\0")
+        h.update(p.read_bytes())
+        h.update(b"\0")
+    h.update(json.dumps(CONFIGS[config], sort_keys=True).encode())
+    h.update(b"\0")
+    h.update(json.dumps(WORKLOADS[workload], sort_keys=True).encode())
+    return h.hexdigest()
+
+
 def run(config, workload):
     from cocotb_tools.runner import get_results, get_runner
 
     rtl = CONFIGS[config]
     build_dir = ROOT / "build" / "activity" / config
     saif = build_dir / f"{workload}.saif"
+    meta = build_dir / f"{workload}.saif.meta.json"
     runner = get_runner("verilator")
     runner.build(
         sources=SOURCES,
@@ -82,6 +117,11 @@ def run(config, workload):
     if num == 0 or failed:
         print(f"[activity] {config} {workload}: run failed, see {results}")
         return 1
+    meta.write_text(json.dumps({
+        "config": config,
+        "workload": workload,
+        "source_sha256": saif_source_digest(config, workload),
+    }, indent=2) + "\n")
     print(f"[activity] {config} {workload}: checked against the model, {saif.relative_to(ROOT)}")
     return 0
 

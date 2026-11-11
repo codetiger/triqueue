@@ -129,6 +129,10 @@ def check_native():
                           capture_output=True, text=True).stdout.strip()
     if head != ORFS_COMMIT:
         sys.exit(f"[ppa] {ORFS_HOME} is at {head or '?'}, expected ORFS {ORFS_COMMIT}")
+    dirty = subprocess.run(["git", "-C", str(ORFS_HOME), "status", "--porcelain", "--ignore-submodules=none"],
+                           capture_output=True, text=True).stdout.strip()
+    if dirty:
+        sys.exit(f"[ppa] {ORFS_HOME} has uncommitted or submodule changes:\n{dirty}")
     for tool in ("OpenROAD/bin/openroad", "yosys/bin/yosys"):
         if not (ORFS_HOME / "tools" / "install" / tool).exists():
             sys.exit(f"[ppa] {ORFS_HOME}/tools/install/{tool} missing; build it (flow/README.md)")
@@ -150,8 +154,9 @@ def orfs_make(platform, config, target, jobs, log, env=None, native=False):
             f"{extra} {target}")
     if native:
         check_native()
+        make_bin = os.environ.get("MAKE") or shutil.which("gmake") or "make"
         cmd = ["bash", "-c", f"source {ORFS_HOME}/env.sh > /dev/null && "
-               f"gmake -C {ORFS_HOME}/flow {args}"]
+               f"{make_bin} -C {ORFS_HOME}/flow {args}"]
     else:
         cmd = ["docker", "run", "--rm", "--platform", "linux/amd64",
                "-v", f"{ROOT}:{WORK}", ORFS_IMAGE,

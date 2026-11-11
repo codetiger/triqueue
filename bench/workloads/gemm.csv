@@ -1,7 +1,7 @@
 group,m,n,k,count,tags,why
 square,16,16,16,1,model;dse;amx_sgemm,fixed start/end overhead dominates
 square,32,32,32,1,model;amx;dse;amx_hand;amx_sgemm,one AMX tile; 16 Tri-Queue tiles
-square,64,64,64,1,model;amx;dse;amx_hand;amx_sgemm,headline design point
+square,64,64,64,1,model;amx;dse;amx_hand;amx_sgemm;ppa,headline design point
 square,128,128,128,1,model;amx;dse;amx_hand;amx_sgemm,
 square,256,256,256,1,model;amx;dse;amx_hand;amx_sgemm,largest size the Python model runs quickly
 square,512,512,512,1,amx;amx_hand;amx_sgemm,
@@ -41,7 +41,7 @@ kws_dscnn,125,64,40,1,layers,conv 10x4 s2 1->64 (25x5 out)
 kws_dscnn,125,64,64,4,layers,pointwise 64->64 (25x5)
 kws_dscnn,1,12,64,1,layers,fc 64->12
 vww_mbv1,2304,8,27,1,layers,conv 3x3 s2 3->8 (48x48)
-vww_mbv1,2304,16,8,1,layers;layerpath,pointwise 8->16 (48x48)
+vww_mbv1,2304,16,8,1,layers;layerpath;ppa,pointwise 8->16 (48x48)
 vww_mbv1,576,32,16,1,layers,pointwise 16->32 (24x24)
 vww_mbv1,576,32,32,1,layers,pointwise 32->32 (24x24)
 vww_mbv1,144,64,32,1,layers,pointwise 32->64 (12x12)
@@ -54,13 +54,13 @@ vww_mbv1,1,2,256,1,layers,fc 256->2
 ic_resnet8,1024,16,27,1,layers,conv 3x3 3->16 (32x32)
 ic_resnet8,1024,16,144,2,layers,conv 3x3 16->16 (32x32)
 ic_resnet8,256,32,144,1,layers,conv 3x3 s2 16->32 (16x16)
-ic_resnet8,256,32,288,1,layers,conv 3x3 32->32 (16x16)
+ic_resnet8,256,32,288,1,layers;ppa,conv 3x3 32->32 (16x16)
 ic_resnet8,256,32,16,1,layers,shortcut 1x1 s2 16->32
 ic_resnet8,64,64,288,1,layers,conv 3x3 s2 32->64 (8x8)
 ic_resnet8,64,64,576,1,layers,conv 3x3 64->64 (8x8)
 ic_resnet8,64,64,32,1,layers,shortcut 1x1 s2 32->64
 ic_resnet8,1,10,64,1,layers,fc 64->10
-ad_fcae,1,128,640,1,layers,fc 640->128
+ad_fcae,1,128,640,1,layers;ppa,fc 640->128
 ad_fcae,1,128,128,6,layers,fc 128->128
 ad_fcae,1,8,128,1,layers,fc 128->8 (bottleneck)
 ad_fcae,1,128,8,1,layers,fc 8->128

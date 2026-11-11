@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
-"""RTL-to-UI Deterministic Cycle Trace & PPA Record Bundler.
+"""RTL-to-UI Deterministic Cycle Trace Bundler.
 
 Generates deterministic JS bundles from committed sources:
   1. Cycle-exact microarchitectural snapshots from `model/tri_queue` (which matches `rtl/` cycle
      for cycle) across curated GEMM scenarios (`ui/data/traces_data.js`).
-  2. Committed PPA records from `flow/records/*.json` (`ui/data/ppa_records.js`).
 
 Silicon 3D layout bundles (`ui/data/chip_asap7.js`, `ui/data/chip_sky130hd.js`) are strictly
 read-only here: they are extracted 1:1 from `6_final.def` ONLY by `flow/release_layout.py`
-(`ui/pipeline/extract_layout.py`) and cryptographically locked via `flow/LAYOUT_LOCK.json`.
+(`ui/pipeline/extract_layout.py`) and verified by `flow/LAYOUT_LOCK.json`.
 """
 from __future__ import annotations
 
@@ -91,9 +90,12 @@ def capture_scenario(
         pc_walk += sz
 
     cycles_data = []
+    max_cycles = 50_000_000
 
     while not core.halted:
         cyc = core.cycle
+        if cyc > max_cycles:
+            raise RuntimeError("cycle limit exceeded (deadlock?)")
         ev_start = len(trace_lines)
 
         prev_qa_n = core.fifo["A"].n
@@ -272,17 +274,20 @@ def capture_scenario(
 
     out_c = read_c(mem, layout)
     assert np.array_equal(out_c, ref_c), "Bit-exact check failed!"
+    util = round((m * n * k) / (params.tile * params.tile * core.cycle), 4)
+    ntiles = (-(-m // params.tile)) * (-(-n // params.tile))
+    resolved_badge = badge.format(util_pct=f"{util * 100:.1f}", tiles=ntiles)
 
     return {
         "id": sc_id,
         "title": title,
         "subtitle": subtitle,
-        "badge": badge,
+        "badge": resolved_badge,
         "description": description,
         "shape": {"m": m, "n": n, "k": k, "kp": kp(k)},
         "params": {
             "tile": params.tile,
-            "port_bytes": params.port_bytes,
+            "port_bytes": int(params.port_bytes),
             "fifo_depth": params.fifo_depth,
             "mac_queue_depth": params.mac_queue_depth,
             "stream_queue_depth": params.stream_queue_depth,
@@ -296,7 +301,7 @@ def capture_scenario(
             "cycles": core.cycle,
             "ideal_cycles": -(-(m * n * k) // (params.tile * params.tile)),
             "useful_macs": m * n * k,
-            "utilization": round((m * n * k) / (params.tile * params.tile * core.cycle), 4),
+            "utilization": util,
             "instructions": core.stats.instructions,
             "beats": core.stats.beats,
             "read_vectors": core.stats.read_vectors,
@@ -321,7 +326,7 @@ def capture_scenario(
 
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    print("[ui-pipeline] 1/3 Generating deterministic GEMM scenarios from model/tri_queue...")
+    print("[ui-pipeline] 1/2 Generating deterministic GEMM scenarios from model/tri_queue...")
 
     ref_q = dict(fifo_depth=4, mac_queue_depth=3, mem_latency=2)
     scenarios = [
@@ -329,7 +334,7 @@ def main():
             sc_id="overlap_16x16x32",
             title="16×16×32 Multi-Tile 3-Way Overlap",
             subtitle="4 Tiles (8×8×1, K=32) · 100% Hidden Drain · Ping-Pong Swap",
-            badge="80.5% Util · 4 Tiles",
+            badge="{util_pct}% Util · {tiles} Tiles",
             description=(
                 "Demonstrates the core Tri-Queue mechanism across four 8×8 output tiles (K=32, 32 cycles/tile): "
                 "while the MAC array accumulates Tile t into the active bank, the Stream Engine "
@@ -390,7 +395,7 @@ def main():
             f"util={sc['stats']['utilization']*100:.1f}%"
         )
 
-    print("[ui-pipeline] 2/3 Verifying locked 3D Silicon Die bundles (never overwritten here)...")
+    print("[ui-pipeline] 2/2 Verifying locked 3D Silicon Die bundles (never overwritten here)...")
     for chip_file in ("chip_asap7.js", "chip_sky130hd.js"):
         p = OUT_DIR / chip_file
         if not p.exists():
@@ -399,21 +404,10 @@ def main():
             )
         print(f"  - {chip_file}: present ({p.stat().st_size:,} bytes, read-only)")
 
-    print("[ui-pipeline] 3/3 Collecting committed PPA records from flow/records/...")
-    ppa_records = {"asap7": {}, "sky130hd": {}}
-    for pdk in ("asap7", "sky130hd"):
-        rec_dir = ROOT / "flow" / "records" / pdk
-        if rec_dir.exists():
-            for jf in sorted(rec_dir.glob("*.json")):
-                ppa_records[pdk][jf.stem] = json.loads(jf.read_text())
-
     (OUT_DIR / "traces_data.js").write_text(
         "window.TRIQUEUE_SCENARIOS = " + json.dumps(scenarios, sort_keys=True, separators=(",", ":")) + ";\n"
     )
-    (OUT_DIR / "ppa_records.js").write_text(
-        "window.TRIQUEUE_PPA_RECORDS = " + json.dumps(ppa_records, sort_keys=True, separators=(",", ":")) + ";\n"
-    )
-    print(f"[ui-pipeline] Done! Deterministic trace & PPA bundles written to {OUT_DIR}")
+    print(f"[ui-pipeline] Done! Deterministic trace bundle written to {OUT_DIR / 'traces_data.js'}")
 
 
 if __name__ == "__main__":

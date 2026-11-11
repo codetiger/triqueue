@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1 -->
 # FPGA build (ECP5, open tools)
 
-An out-of-context build of `tq_top` on a Lattice ECP5-85F (`LFE5U-85F`, CABGA381, speed 6: the ULX3S / OrangeCrab part) with Yosys `synth_ecp5` and `nextpnr-ecp5`. It is a sanity check of Fmax and resources for an FPGA demo or prototype. It is **not** a PPA result: FPGA numbers never go into `flow/records/` or `flow/results.md`.
+An out-of-context build of `tq_top` on a Lattice ECP5-85F (`LFE5U-85F`, CABGA381, speed 6: the ULX3S / OrangeCrab part) with Yosys `synth_ecp5` (and optional `nextpnr-ecp5` place and route). In v1, only the synthesis-only resource sanity check has been run (`nextpnr-ecp5` place and route is optional). It is **not** a PPA result: FPGA numbers never go into `flow/records/` or `flow/results.md`.
 
 - Configurations are the ASIC ones in `flow/ppa.py` (`CONFIGS`, reference queues), with `CLK_GATE = 0` (FPGA clocks are not gated with latches; the enable flops are used instead).
 - Out of context: no IO pads, because the memory ports (2 × 128 bits at T = 8) are wider than any ECP5 package. A board build wraps the core with an SoC (`rtl/adapters/tq_top_axi`) and on-chip RAM.

@@ -45,6 +45,8 @@ module tq_axi_mem #(
     output logic          wr_gnt_o,
     output logic          wr_done_o,
     output logic          bus_err_o,     // an error response to one of the core's transactions
+    input  logic          flush_i = 1'b0, // pulse on START/ABORT: invalidates buffered read burst lines
+    output logic          pending_o,     // any AXI read or write transaction held or in flight
     // AXI4 master
     output logic [ID_W-1:0] m_arid_o,
     output logic [31:0]   m_araddr_o,
@@ -126,7 +128,7 @@ module tq_axi_mem #(
   assign m_bready_o = 1'b1;
 
   // ---------------------------------------------------------------- read channel
-  logic rd_err;
+  logic rd_err, rd_pend;
   if (BURST_BEATS == 1) begin : g_rd_single
     // ar_q: a request is on AR (held: VALID stays until READY); ar_orph_q: the core dropped it.
     logic          ar_q, ar_orph_q;
@@ -155,15 +157,18 @@ module tq_axi_mem #(
     end
 
     // read tags: 1 = the response belongs to the core
-    logic rt_head;
+    logic rt_head, ar_tag;
     logic unused_rt1;
+    assign ar_tag = !(ar_q && (ar_orph_q || !rd_req_i));
     tq_fifo #(.WIDTH(1), .DEPTH(MAX_OUT)) u_rtag (
         .clk_i, .rst_ni, .clear_i(1'b0),
-        .push_i(ar_fire), .data_i(!(ar_q && (ar_orph_q || !rd_req_i))),
-        .pop_i({1'b0, m_rvalid_i}), .head0_o(rt_head), .head1_o(unused_rt1), .count_o(rt_cnt));
-    assign rd_rvalid_o = m_rvalid_i && rt_head;
+        .push_i(ar_fire && !(m_rvalid_i && (rt_cnt == '0))), .data_i(ar_tag),
+        .pop_i({1'b0, m_rvalid_i && (rt_cnt != '0)}),
+        .head0_o(rt_head), .head1_o(unused_rt1), .count_o(rt_cnt));
+    assign rd_rvalid_o = m_rvalid_i && ((rt_cnt != '0) ? rt_head : (ar_fire && ar_tag));
     assign rd_rdata_o  = m_rdata_i;
-    assign rd_err      = rd_rvalid_o && m_rresp_i[1];
+    assign rd_err      = (rd_rvalid_o && m_rresp_i[1]) || (m_rvalid_i && (rt_cnt == '0) && !ar_fire);
+    assign rd_pend     = ar_q || (rt_cnt != '0);
   end else begin : g_rd_burst
     // Four-slot read burst buffer: each miss issues an aligned BURST_BEATS-beat INCR AR burst,
     // subsequent beats in the line grant immediately without an AR, and u_rord returns responses
@@ -268,7 +273,9 @@ module tq_axi_mem #(
     assign ord_ready   = (ord_cnt != '0) && (ord_slot_cnt > {1'b0, ord_idx});
     assign rd_rvalid_o = ord_ready;
     assign rd_rdata_o  = ldata_q[(32'(ord_slot) * BURST_BEATS + 32'(ord_idx)) * VB +: VB];
-    assign rd_err      = ord_ready && lerr_q[32'(ord_slot) * BURST_BEATS + 32'(ord_idx)];
+    assign rd_err      = (ord_ready && lerr_q[32'(ord_slot) * BURST_BEATS + 32'(ord_idx)])
+                      || (m_rvalid_i && (rf_cnt == '0));
+    assign rd_pend     = ar_q || (rf_cnt != '0) || (ord_cnt != '0);
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
       if (!rst_ni) begin
@@ -308,7 +315,7 @@ module tq_axi_mem #(
             if (r_last) l_fill_q[s] <= 1'b0;
           end
 
-          if (drop_rd) begin
+          if (drop_rd || flush_i) begin
             lv_q[s] <= 1'b0;
           end else if (ar_fire && (alloc_slot == SW'(s))) begin
             lv_q[s] <= miss_take && (req_idx != LBW'(BURST_BEATS - 1));
@@ -372,18 +379,21 @@ module tq_axi_mem #(
   end
 
   // write tags: one per completed AW + W pair, 1 = the B belongs to the core
-  logic wt_head;
+  logic wt_head, w_tag;
   logic unused_wt1;
+  assign w_tag = !(wv_q && (w_orph_q || !wr_req_i));
   tq_fifo #(.WIDTH(1), .DEPTH(MAX_OUT)) u_wtag (
       .clk_i, .rst_ni, .clear_i(1'b0),
-      .push_i(wr_all), .data_i(!(wv_q && (w_orph_q || !wr_req_i))),
-      .pop_i({1'b0, m_bvalid_i}), .head0_o(wt_head), .head1_o(unused_wt1), .count_o(wt_cnt));
-  assign wr_done_o = m_bvalid_i && wt_head;
-  assign bus_err_o = rd_err || (wr_done_o && m_bresp_i[1]);
+      .push_i(wr_all && !(m_bvalid_i && (wt_cnt == '0))), .data_i(w_tag),
+      .pop_i({1'b0, m_bvalid_i && (wt_cnt != '0)}),
+      .head0_o(wt_head), .head1_o(unused_wt1), .count_o(wt_cnt));
+  assign wr_done_o = m_bvalid_i && ((wt_cnt != '0) ? wt_head : (wr_all && w_tag));
+  assign bus_err_o = rd_err || (wr_done_o && m_bresp_i[1]) || (m_bvalid_i && (wt_cnt == '0) && !wr_all);
+  assign pending_o = rd_pend || wv_q || (wt_cnt != '0);
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused;
-  assign unused = ^{m_rresp_i[0], m_rlast_i, m_bresp_i[0]};
+  assign unused = ^{m_rresp_i[0], m_rlast_i, m_bresp_i[0], flush_i};
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

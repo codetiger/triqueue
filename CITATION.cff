@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
+# SPDX-License-Identifier: Apache-2.0
 cff-version: 1.2.0
 message: "If you use Tri-Queue in academic work, please cite this repository."
 title: "Tri-Queue: an int8 outer-product matrix coprocessor for RISC-V"
@@ -5,9 +7,11 @@ abstract: >-
   Tri-Queue is an open-source int8 matrix-multiply coprocessor in SystemVerilog for RISC-V SoCs.
   It computes outer products into a double-banked accumulator tile, runs autonomously from a
   10-byte hardware-looped program, and is verified cycle-for-cycle against a bit-exact Python model.
-version: "1.0.0"
+version: "1.0.1"
 date-released: "2026-11-11"
-license: "Apache-2.0"
+license:
+  - "Apache-2.0"
+  - "Apache-2.0 WITH SHL-2.1"
 repository-code: "https://github.com/codetiger/triqueue"
 url: "https://github.com/codetiger/triqueue"
 keywords:

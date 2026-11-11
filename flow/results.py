@@ -11,13 +11,16 @@ and flow/results.md is generated from the records alone (CI checks that it is up
 
 `collect` reads the native run in build/orfs_native/<platform>/<config>/ (flow/ppa.py) and the
 power results of every workload (flow/power.py). It refuses a run whose RTL is older than the
-working tree's rtl/ or whose rtl/ has uncommitted changes, unless --force (say why in the commit).
-Metric definitions follow the ones in flow/README.md.
+working tree's rtl/, whose rtl/ has uncommitted changes, whose config.mk differs from the
+reference settings, or that is missing any `ppa`-tagged workload, unless --force (say why in the
+commit). Metric definitions follow the ones in flow/README.md.
 """
+import hashlib
 import json
 import math
 import platform as host_platform
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RECORDS = ROOT / "flow" / "records"
 RESULTS = ROOT / "flow" / "results.md"
+LOCK_FILE = ROOT / "flow" / "LAYOUT_LOCK.json"
 
 # Area of the PDK's smallest 2-input NAND (LEF SIZE), the gate equivalent for kGE.
 NAND2_UM2 = {
@@ -51,15 +55,37 @@ AREA_GROUPS = {
 
 
 def sh(*cmd):
-    return subprocess.run(cmd, capture_output=True, text=True).stdout.strip()
+    return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout.strip()
 
 
-def tool_versions():
+def tool_versions(run_dir: Path | None = None, base: str | None = None):
     from ppa import ORFS_HOME
+    openroad = None
+    yosys = None
+    if run_dir is not None and base is not None:
+        ylog = run_dir / "logs" / base / "1_2_yosys.log"
+        if ylog.exists():
+            ym = re.search(r"Yosys (\S+) \(git sha1 (\w+)", ylog.read_text(errors="ignore"))
+            if ym:
+                yosys = f"{ym.group(1)} {ym.group(2)}"
+        rlog = run_dir / "logs" / base / "6_report.log"
+        if rlog.exists():
+            om = re.search(r"OpenROAD (\S+)", rlog.read_text(errors="ignore"))
+            if om:
+                openroad = om.group(1)
     tools = ORFS_HOME / "tools" / "install"
-    openroad = sh(str(tools / "OpenROAD" / "bin" / "openroad"), "-version")
-    yosys = re.search(r"Yosys (\S+) \(git sha1 (\w+)", sh(str(tools / "yosys" / "bin" / "yosys"), "-V"))
-    return openroad, f"{yosys.group(1)} {yosys.group(2)}"
+    if not openroad:
+        openroad = sh(str(tools / "OpenROAD" / "bin" / "openroad"), "-version")
+    if not yosys:
+        ym = re.search(r"Yosys (\S+) \(git sha1 (\w+)", sh(str(tools / "yosys" / "bin" / "yosys"), "-V"))
+        yosys = f"{ym.group(1)} {ym.group(2)}"
+    return openroad, yosys
+
+
+def sim_versions():
+    verilator = sh(shutil.which("verilator") or "verilator", "--version").splitlines()[0]
+    import cocotb
+    return verilator, cocotb.__version__
 
 
 def host():
@@ -117,7 +143,7 @@ def sram_traffic(params, shape):
 
 def collect(platform, config, force=False):
     sys.path.insert(0, str(ROOT / "flow"))
-    from ppa import CONFIGS, ORFS_COMMIT, PLATFORMS, work_dir
+    from ppa import CONFIGS, ORFS_COMMIT, PLATFORMS, config_mk, reference_period, reference_util, work_dir
     from activity import WORKLOADS
 
     run = ROOT / work_dir(platform, config, native=True)
@@ -135,26 +161,36 @@ def collect(platform, config, force=False):
         problems.append("rtl/ changed after this run's synthesis")
     if sh("git", "-C", str(ROOT), "status", "--porcelain", "--", "rtl"):
         problems.append("rtl/ has uncommitted changes")
-    if problems and not force:
-        sys.exit(f"[results] {platform} {config}: " + "; ".join(problems) + " (rerun, or --force)")
 
     mk = (run / "config.mk").read_text()
+    exp_mk = config_mk(platform, config, reference_period(platform, config),
+                       util=reference_util(platform, config), native=True)
+    if mk != exp_mk:
+        problems.append("config.mk differs from reference settings")
+
     period = float(re.search(r"TQ_CLK_PERIOD\s*=\s*(\S+)", mk).group(1))
     util = int(re.search(r"CORE_UTILIZATION\s*=\s*(\S+)", mk).group(1))
     unit_ps = 1000 if PLATFORMS[platform]["unit"] == "ns" else 1
     cls = lambda c: m.get(f"finish__design__instance__area__class:{c}", 0.0)    # noqa: E731
     area_split = {g: round(sum(cls(c) for c in cs), 3) for g, cs in AREA_GROUPS.items()}
     power = {}
+    missing_wl = []
     for wl, w in WORKLOADS.items():
         f = run / "power" / f"{wl}.json"
         if not f.exists():
             print(f"[results] {platform} {config}: no power for {wl} (flow/power.py {platform} {config} {wl})")
+            missing_wl.append(wl)
             continue
         p = json.loads(f.read_text())
         power[wl] = dict(shape=[w["m"], w["n"], w["k"]], cycles=p["cycles"], useful_macs=p["useful_macs"],
                          utilization=p["utilization"], power_w=p["power_w"],
                          power_groups_w=power_groups(f.with_suffix(".rpt").read_text()), energy_j=p["energy_j"],
                          pj_per_mac=p["pj_per_mac"], tops_per_w=p["tops_per_w"])
+    if missing_wl:
+        problems.append(f"missing power workloads: {', '.join(missing_wl)}")
+    if problems and not force:
+        sys.exit(f"[results] {platform} {config}: " + "; ".join(problems) + " (rerun, or --force)")
+
     sram = sram_macro(platform)
     if sram:
         w_bits = 2 * CONFIGS[config]["T"] * 8
@@ -165,10 +201,16 @@ def collect(platform, config, force=False):
             time_s = p["cycles"] * period * unit_ps * 1e-12
             e = ((reads + writes) * sram["access_pj"] * 1e-12 + sram["leakage_w"] * time_s) * sram["macros_per_port_word"]
             p["sram"] = dict(reads=reads, writes=writes, energy_j=e)
-    openroad, yosys = tool_versions()
+    openroad, yosys = tool_versions(run, base)
+    verilator_ver, cocotb_ver = sim_versions()
     rec = dict(
-        flow="native", orfs_commit=ORFS_COMMIT, openroad=openroad, yosys=yosys, host=host(),
+        flow="native", orfs_commit=ORFS_COMMIT, openroad=openroad, yosys=yosys,
+        verilator=verilator_ver, cocotb=cocotb_ver, host=host(),
         rtl_commit=sh("git", "-C", str(ROOT), "log", "-1", "--format=%h", "--", "rtl"),
+        repo_head=sh("git", "-C", str(ROOT), "rev-parse", "--short=7", "HEAD"),
+        repo_dirty=bool(sh("git", "-C", str(ROOT), "status", "--porcelain")),
+        config_mk_sha256=hashlib.sha256(mk.encode()).hexdigest(),
+        jobs=PLATFORMS[platform]["jobs"],
         platform=platform, config=config, params=CONFIGS[config],
         clock_period_ps=period * unit_ps, core_utilization_pct=util,
         cell_area_um2=m["finish__design__instance__area__stdcell"], area_split_um2=area_split,
@@ -185,6 +227,8 @@ def collect(platform, config, force=False):
         power=power,
         sram=sram,
     )
+    if missing_wl:
+        rec["missing_workloads"] = missing_wl
     dst = RECORDS / platform / f"{config}.json"
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(json.dumps(rec, indent=2) + "\n")
@@ -220,7 +264,7 @@ def derived(r):
     return dict(macs=t * t, kge=kge, macs_per_kge=t * t / kge, tops_mm2=peak_tops / (r["cell_area_um2"] / 1e6))
 
 
-def platform_section(platform, recs):
+def platform_section(platform, recs, row_fill_pct=None):
     first = recs[0]
     out = [f"## {platform}", ""]
     clocks = sorted({r["clock_period_ps"] for r in recs})
@@ -230,23 +274,27 @@ def platform_section(platform, recs):
            "run at one it closes)")
     util_hdr = (f"core utilization {utils[0]}%" if len(utils) == 1 else
                 "core utilization per config (column *Util*)")
+    fill_note = (f" Reference `t8_cpa` layout physical row fill: {row_fill_pct:.1f}% (active standard cells plus "
+                 "physical decap/filler/tap cells)." if row_fill_pct is not None else "")
     out.append(f"{clk}, "
                f"{util_hdr}, typical corner of the platform. "
-               f"Gate equivalent: `{first['nand2_cell']}` ({first['nand2_um2']:.4g} µm²).")
+               f"Gate equivalent: `{first['nand2_cell']}` ({first['nand2_um2']:.4g} µm²)." + fill_note)
     mixed = len(clocks) > 1
     mixed_u = len(utils) > 1
     extra_cols = ("Clock | " if mixed else "") + ("Util | " if mixed_u else "")
     extra_seps = (" --- |" if mixed else "") + (" --- |" if mixed_u else "")
     out += ["", "### Area and timing", "",
-            "| Config | Parameters | " + extra_cols + "Cell area | kGE | Flops | Flops per MAC "
+            "| Config | Parameters | " + extra_cols + "Core area | Cell area | Density | kGE | Flops | Flops per MAC "
             "| MACs/cycle per kGE | Fmax (post-route) | Worst setup slack | Peak TOPS/mm² at Fmax | DRC |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |" + extra_seps]
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |" + extra_seps]
     for r in recs:
         d = derived(r)
         params = ", ".join(f"{k}={v}" for k, v in r["params"].items())
         clock = f"{num(1e6 / r['clock_period_ps'])} MHz | " if mixed else ""
         util_col = f"{r['core_utilization_pct']}% | " if mixed_u else ""
-        out.append(f"| {r['config']} | {params} | {clock}{util_col}{area_str(r['cell_area_um2'])} | {num(d['kge'], 1)} "
+        dens = f"{r['placement_density'] * 100:.1f}%"
+        out.append(f"| {r['config']} | {params} | {clock}{util_col}{area_str(r['core_area_um2'])} "
+                   f"| {area_str(r['cell_area_um2'])} | {dens} | {num(d['kge'], 1)} "
                    f"| {num(r['flops'])} | {num(r['flops'] / d['macs'])} | {d['macs_per_kge']:.3f} "
                    f"| {num(r['fmax_hz'] / 1e6, 1)} MHz | {num(r['setup_ws_ps'])} ps "
                    f"| {d['tops_mm2']:.3f} | {r['drc_errors']} |")
@@ -338,6 +386,9 @@ def write_results():
     recs = [json.loads(f.read_text()) for f in sorted(RECORDS.glob("*/*.json"))]
     order = {"sky130hd": 0, "asap7": 1}
     recs.sort(key=lambda r: (order.get(r["platform"], 9), r["params"]["T"], r["config"]))
+    lock_plats = {}
+    if LOCK_FILE.exists():
+        lock_plats = json.loads(LOCK_FILE.read_text()).get("platforms", {})
     out = ["# Physical design results", "",
            "Generated by `flow/results.py` from the run records in `flow/records/`. Do not edit by hand.", "",
            "Post-route results of `tq_top` from OpenROAD-flow-scripts (`flow/ppa.py`), with power from "
@@ -345,17 +396,25 @@ def write_results():
            "`flow/README.md`.", "",
            "- **Engine only** unless a table says otherwise. The operand SRAM is outside `tq_top`; where an "
            "open macro with characterized power exists (sky130hd), a separate table adds its access energy.",
-           "- **Cell area** is the placed standard-cell area (logic, flops, clock tree, buffers, taps), "
-           "without fill. kGE = cell area ÷ the PDK's NAND2 area.",
+           "- **Core area and density**: Core area is the floorplan core bounding box; Cell area is the placed "
+           "standard-cell area (logic, flops, clock tree, buffers, taps) without fill; Density is post-route "
+           "standard-cell placement density (Cell area ÷ Core area). Adding physical decap/filler/tap cells "
+           "brings row fill to 100.0%. kGE = cell area ÷ the PDK's NAND2 area.",
            "- **Fmax** is from post-route STA at the target clock (1 ÷ (period − worst slack)). Peak TOPS/mm² "
            "= 2 × T² × Fmax ÷ cell area. Energy is measured at the target clock, "
            "including where post-route timing misses it by a few percent (negative slack).",
-           "- **Workloads** run in Verilator against the cycle model; operands are uniform random int8, "
-           "more switching than real data. Energy and utilization cover the whole simulated window "
-           "(the run plus about 20 setup cycles), and energy is charged to the useful MACs (M × N × K). "
-           "`*_relu` workloads repeat a shape with synthetic inference-like operands (post-ReLU uint8 "
-           "activations, about half zeros, and Gaussian int8 weights; not data from a real network) and "
-           "are left out of the geometric means.", ""]
+           "- **Workloads** (`ppa` tag in `bench/workloads/gemm.csv`) run in Verilator against the cycle model; "
+           "operands are uniform random int8, more switching than real data. Energy and utilization cover the "
+           "whole simulated window (the run plus about 20 setup cycles), and energy is charged to the useful "
+           "MACs (M × N × K). `*_relu` workloads repeat a shape with synthetic inference-like operands "
+           "(post-ReLU uint8 activations, about half zeros, and Gaussian int8 weights; not data from a real "
+           "network) and are left out of the geometric means. The port-bound GEMV shape `fcae_fc640_128` "
+           "(1×128×640) is omitted from the `cfd68f4` records.",
+           "- **Post-record RTL control-logic deltas**: All nine records were placed and routed at RTL commit "
+           "`cfd68f4`. Subsequent `v1.0.1` RTL changes are control-plane and elaboration fixes only (`PCW` "
+           "`+16` lookahead, `CFG` pipeline serialization, `IRQ_STATUS` W1C priority, `STATUS.PENDING`, "
+           "error checks, and reset/adapter hygiene); the multiplier array, accumulator cells, FIFOs, and "
+           "GEMM cycle counts are unchanged.", ""]
     prov = sorted({(r["flow"], r["orfs_commit"], r["openroad"], r["yosys"], r["host"]) for r in recs})
     out += ["| Flow | ORFS | OpenROAD | Yosys | Host | Runs (RTL commit) |", "| --- | --- | --- | --- | --- | --- |"]
     for p in prov:
@@ -364,7 +423,8 @@ def write_results():
         out.append("| " + " | ".join(p) + f" | {runs} |")
     out.append("")
     for plat in dict.fromkeys(r["platform"] for r in recs):
-        out += platform_section(plat, [r for r in recs if r["platform"] == plat])
+        fill_pct = lock_plats.get(plat, {}).get("core_row_fill_pct")
+        out += platform_section(plat, [r for r in recs if r["platform"] == plat], row_fill_pct=fill_pct)
     RESULTS.write_text("\n".join(out).rstrip() + "\n")
     print(f"[results] wrote {RESULTS.relative_to(ROOT)} ({len(recs)} runs)")
 

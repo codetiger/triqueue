@@ -128,17 +128,24 @@ def test_probe_and_run(lib):
     assert lib.tq_probe(regs, ctypes.byref(info)) == 0
     _, prog, _ = build_gemm(np.zeros((9, 9), np.int8), np.zeros((9, 9), np.int8))
     p = np.frombuffer(prog, np.uint8).copy()
+    regs[0x40 + 14] = 0xDEADBEEF
+    regs[0x40 + 15] = 0xCAFECAFE
     regs[3] = 0x2                                                              # STATUS: DONE
     assert lib.tq_run(regs, ctypes.byref(info), ptr(p), len(p), 10) == 0
-    words = [regs[0x40 + i] for i in range(13)]                                 # PROG at 0x100
-    padded = prog + bytes(-len(prog) % 4)
-    assert words == [int.from_bytes(padded[i:i + 4], "little") for i in range(0, len(padded), 4)]
+    words = [regs[0x40 + i] for i in range(16)]                                 # PROG at 0x100 (all 64B zero-padded)
+    padded = prog + bytes(64 - len(prog))
+    assert words == [int.from_bytes(padded[i:i + 4], "little") for i in range(0, 64, 4)]
     assert regs[2] == 1                                                         # CTRL: START
     regs[3] = 0x2 | 0x4 | (6 << 8)                                              # DONE + ERROR(align)
     assert lib.tq_run(regs, ctypes.byref(info), ptr(p), len(p), 10) == 6
     regs[3] = 0x2 | 0x8                                                         # DONE + BUS_ERR
     assert lib.tq_run(regs, ctypes.byref(info), ptr(p), len(p), 10) == 20
-    regs[3] = 0x1                                                               # BUSY forever
+    regs[3] = 0x1                                                               # BUSY at entry -> TQ_ERR_BUSY (21)
+    assert lib.tq_run(regs, ctypes.byref(info), ptr(p), len(p), 10) == 21
+    regs[3] = 0x10                                                              # PENDING at entry -> TQ_ERR_BUSY (21)
+    assert lib.tq_run(regs, ctypes.byref(info), ptr(p), len(p), 10) == 21
+    # Timeout when STATUS stays 0 (never DONE) -> writes ABORT and returns TQ_ERR_TIMEOUT (18)
+    regs[3] = 0x0
     assert lib.tq_run(regs, ctypes.byref(info), ptr(p), len(p), 10) == 18
     assert regs[2] == 2                                                         # ABORT after the timeout
     big = np.zeros(65, np.uint8)
@@ -150,7 +157,7 @@ class Plan(ctypes.Structure):
                 ("c_ld", ctypes.c_uint32), ("prog_len", ctypes.c_uint32), ("prog", ctypes.c_uint8 * 50)]
 
 
-@pytest.mark.parametrize("tile", [4, 8, 16])
+@pytest.mark.parametrize("tile", [4, 8, 16, 32])
 @pytest.mark.parametrize("m,n,k,sa,sb", [(1, 1, 1, 1, 1), (20, 24, 27, 1, 0), (64, 64, 64, 0, 1), (9, 13, 0, 1, 1),
                                          (37, 5, 100, 0, 0)])
 def test_gemm_api_end_to_end(lib, tile, m, n, k, sa, sb):
@@ -182,3 +189,54 @@ def test_gemm_api_end_to_end(lib, tile, m, n, k, sa, sb):
     c = np.full((m, ldc), -1, np.int32)
     lib.tq_gemm_finish(ctypes.byref(plan), ptr(core.mem), c.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ldc, m, n)
     assert np.array_equal(c[:, :n], reference(a, b)) and np.all(c[:, n:] == -1)
+
+
+def test_driver_hardening_and_cache_hooks(lib):
+    """Checks B13 (zeroed/invalid tq_info), B15 (uint32 wrap and W alignment), and B16 (cache hooks)."""
+    u8p = ctypes.POINTER(ctypes.c_uint8)
+    lib.tq_gemm_workspace_bytes.restype = ctypes.c_size_t
+    lib.tq_gemm_workspace_bytes.argtypes = [ctypes.c_uint32] * 4
+    lib.tq_gemm_prepare.argtypes = [ctypes.POINTER(Plan), u8p, ctypes.c_uint32, ctypes.POINTER(Info), u8p,
+                                    ctypes.c_size_t, u8p, ctypes.c_size_t] + [ctypes.c_uint32] * 3 + [ctypes.c_int] * 2
+    lib.tq_gemm_finish.argtypes = [ctypes.POINTER(Plan), u8p, ctypes.POINTER(ctypes.c_int32), ctypes.c_size_t,
+                                   ctypes.c_uint32, ctypes.c_uint32]
+    # B13: zeroed / invalid tq_info or tile = 0 must not loop forever and must return 0 / TQ_ERR_ARG (19)
+    assert lib.tq_packed_a_bytes(8, 8, 0) == 0
+    assert lib.tq_packed_b_bytes(8, 8, 3) == 0
+    assert lib.tq_gemm_workspace_bytes(8, 8, 8, 0) == 0
+    ws = np.zeros(4096, np.uint8)
+    plan = Plan()
+    bad_info = Info(0, 0, 0, 0, 0, 0)
+    assert lib.tq_gemm_prepare(ctypes.byref(plan), ptr(ws), 0, ctypes.byref(bad_info),
+                               ptr(ws), 8, ptr(ws), 8, 8, 8, 8, 1, 1) == 19
+    info_bad_w = Info(8, 32, 4, 3, 0, 64)
+    assert lib.tq_gemm_prepare(ctypes.byref(plan), ptr(ws), 0, ctypes.byref(info_bad_w),
+                               ptr(ws), 8, ptr(ws), 8, 8, 8, 8, 1, 1) == 19
+
+    # B15: overflow in tq_kp, tq_c_ld, tq_gemm_workspace_bytes, and ws_addr wrap / W alignment
+    assert lib.tq_kp(0xFFFF_FFFC) == 0
+    assert lib.tq_c_ld(1 << 30, 16) == 0
+    assert lib.tq_gemm_workspace_bytes(65536, 8, 65536, 8) == 0
+    info8 = Info(8, 16, 4, 3, 0, 64)
+    assert lib.tq_gemm_prepare(ctypes.byref(plan), ptr(ws), 0xFFFF_FF00, ctypes.byref(info8),
+                               ptr(ws), 8, ptr(ws), 8, 8, 8, 8, 1, 1) == 19
+    info64 = Info(64, 128, 4, 3, 0, 64)
+    assert lib.tq_gemm_prepare(ctypes.byref(plan), ptr(ws), 64, ctypes.byref(info64),
+                               ptr(ws), 8, ptr(ws), 8, 8, 8, 8, 1, 1) == 19
+
+    # B16: cache_clean and cache_invalidate hooks
+    events = []
+    CB = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_size_t)
+    clean_cb = CB(lambda p, n: events.append(("clean", int(n))))
+    inval_cb = CB(lambda p, n: events.append(("inval", int(n))))
+    lib.tq_set_cache_ops.argtypes = [CB, CB]
+    lib.tq_set_cache_ops(clean_cb, inval_cb)
+    try:
+        c = np.zeros((8, 8), np.int32)
+        assert lib.tq_gemm_prepare(ctypes.byref(plan), ptr(ws), 0, ctypes.byref(info8),
+                                   ptr(ws), 8, ptr(ws), 8, 8, 8, 8, 1, 1) == 0
+        lib.tq_gemm_finish(ctypes.byref(plan), ptr(ws), c.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), 8, 8, 8)
+        assert events == [("clean", int(plan.c_off)), ("inval", int(8 * plan.c_ld))]
+    finally:
+        lib.tq_set_cache_ops(CB(0), CB(0))
+

@@ -1,16 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
-name: pages
+
+name: Deploy Interactive RTL & Silicon Explorer to GitHub Pages
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - "ui/**"
-      - "model/**"
-      - "flow/records/**"
-      - ".github/workflows/pages.yml"
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -24,55 +19,45 @@ concurrency:
 
 jobs:
   build:
+    name: Build Deterministic RTL Traces & Verify Silicon Lock
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-          cache: "pip"
-
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
-      - name: Verify locked UI traces, PPA records, and 3D silicon layouts
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Verify Silicon Layout Lock (flow/LAYOUT_LOCK.json)
         run: python flow/check_lock.py
-
-      - name: Verify UI JavaScript syntax and data bundles
+      - name: Generate Cycle-Exact RTL Traces
+        run: python ui/pipeline/build_ui_data.py
+      - name: Verify all UI assets exist
         run: |
-          node --check ui/app.js
-          node --check ui/chip3d.js
+          test -s ui/index.html
+          test -s ui/style.css
+          test -s ui/app.js
+          test -s ui/chip3d.js
           test -s ui/data/traces_data.js
           test -s ui/data/chip_asap7.js
           test -s ui/data/chip_sky130hd.js
-          test -s ui/data/ppa_records.js
-
-      - name: Stage static site bundle
-        run: |
-          rm -rf _site
-          mkdir -p _site/data
-          cp ui/index.html ui/styles.css ui/app.js ui/chip3d.js _site/
-          cp ui/data/*.js _site/data/
-          touch _site/.nojekyll
-
       - name: Configure Pages
-        uses: actions/configure-pages@v6
-
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
-          path: "_site"
+          path: ui
 
   deploy:
+    name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@d6db92664ac5e86f2d354606b6520c8296b48108 # v4.0.5

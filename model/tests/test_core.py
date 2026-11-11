@@ -137,10 +137,34 @@ def test_chaining_output_layout(tile, m, n, k, snapshot):
 
 
 def test_chaining_param_checks():
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         Params(chain_c=True)                      # needs int8 output
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         Params(out_bytes=1, chain_snapshot=True)  # needs the chaining layout
+
+
+@pytest.mark.parametrize("shape", [(8, 8), (8, 4), (4, 8), (4, 4)])
+def test_explicit_vouter_shapes(shape):
+    """Explicit (non-AUTO) VOUTER_MAC shapes match AUTO on a single tile of matching size."""
+    r, c = shape
+    rng = np.random.default_rng(r * 10 + c)
+    a, b = rand(rng, (r, 16), np.int8), rand(rng, (16, c), np.int8)
+    mem, _, L = build_gemm(a, b, Params())
+    cfg = isa.gemm_config(L["a_base"], L["b_base"], L["c_base"], L["c_ld"], L["k"], L["m"], L["n"], L["mode"])
+    prog = cfg + b"".join([
+        isa.enc(isa.ZERO_C),
+        isa.enc(isa.STREAM_A),
+        isa.enc(isa.STREAM_B),
+        isa.enc(isa.LOOP_K, 1),
+        isa.vouter(shape),
+        isa.enc(isa.SWAP_C),
+        isa.enc(isa.FENCE),
+    ])
+    core = TriQueueCore(mem, prog, Params())
+    s = core.run()
+    assert s.error == 0
+    from tri_queue.core import read_c
+    np.testing.assert_array_equal(read_c(mem, L), reference(a, b))
 
 
 @pytest.mark.parametrize("shared", [False, True])

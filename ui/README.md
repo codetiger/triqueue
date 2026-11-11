@@ -10,11 +10,11 @@ A single-page interactive hardware visualization pipeline connecting:
 
 ## Deterministic & Release-Locked Data Pipeline
 
-- **Routine trace & PPA record bundling** (`ui/data/traces_data.js`, `ui/data/ppa_records.js` — never modifies `chip_*.js`):
+- **Routine trace bundling** (`ui/data/traces_data.js` — never modifies `chip_*.js`):
   ```bash
   make ui-data      # or: python3 ui/pipeline/build_ui_data.py
   ```
-- **Silicon 3D layout bundles** (`ui/data/chip_asap7.js`, `ui/data/chip_sky130hd.js`) are extracted 1:1 from `6_final.def` + PDK LEFs + `6_final.v` (`ui/pipeline/extract_layout.py`) **only** when publishing a new versioned layout release via `python3 flow/release_layout.py --version vX.Y.Z`, and are cryptographically locked by SHA-256 in [`flow/LAYOUT_LOCK.json`](../flow/LAYOUT_LOCK.json) (enforced by `make lock-check`, CI, and GitHub Pages).
+- **Silicon 3D layout bundles** (`ui/data/chip_asap7.js`, `ui/data/chip_sky130hd.js`) are extracted 1:1 from `6_final.def` + PDK LEFs + `6_final.v` (`ui/pipeline/extract_layout.py`) **only** when publishing a new versioned layout release via `python3 flow/release_layout.py --version vX.Y.Z`, and are integrity-locked by SHA-256 in [`flow/LAYOUT_LOCK.json`](../flow/LAYOUT_LOCK.json) (enforced by `make lock-check`, CI, and GitHub Pages).
 
 Open `ui/index.html` directly in any browser, or serve locally:
 

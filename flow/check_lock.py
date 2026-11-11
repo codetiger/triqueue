@@ -7,18 +7,23 @@
     python3 flow/check_lock.py --check-git-base origin/main
 
 Enforces two invariants:
-  1. Every locked file (`flow/io_constraints.tcl`, `flow/constraint.sdc`, `flow/results.md`,
-     `flow/records/*/*.json`, and `ui/data/*.js`) matches its recorded SHA-256 digest byte-for-byte,
-     and `flow/ppa.py` platform utilization/clock/thread settings match the lock manifest.
-  2. When `--check-git-base <ref>` is supplied (e.g. in CI), any change to the locked silicon
-     artifacts or utilization settings relative to `<ref>` MUST be accompanied by a strictly higher
-     semantic `release_version` in `flow/LAYOUT_LOCK.json`.
+  1. Every locked silicon file (`flow/io_constraints.tcl`, `flow/constraint.sdc`,
+     `flow/records/*/*.json`, and `ui/data/chip_*.js`) matches its recorded SHA-256 digest
+     byte-for-byte, `flow/ppa.py` platform utilization/clock/thread settings and overrides match
+     the lock manifest and records, and every record's `pj_per_mac` / `tops_per_w` / `utilization`
+     is consistent with its `energy_j`, `useful_macs`, and `cycles`.
+     (Derived files `flow/results.md` and `ui/data/traces_data.js` are verified by regeneration.)
+  2. When `--check-git-base <ref>` is supplied (e.g. in CI), `<ref>:flow/LAYOUT_LOCK.json` must be
+     readable, and any change to the locked silicon artifacts or utilization settings relative to
+     `<ref>` MUST be accompanied by a strictly higher semantic `release_version` in
+     `flow/LAYOUT_LOCK.json`.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import math
 import re
 import subprocess
 import sys
@@ -77,10 +82,19 @@ def verify_lock(check_git_base: str | None = None) -> list[str]:
             errors.append(f"Locked platform '{plat}' missing from flow/ppa.py PLATFORMS")
             continue
         actual_p = ppa.PLATFORMS[plat]
-        if actual_p["util"] != pmeta["core_utilization_pct"]:
+        unit_ps = 1000.0 if actual_p["unit"] == "ns" else 1.0
+        cfg_name = pmeta.get("config", "t8_cpa")
+        expected_util = ppa.reference_util(plat, cfg_name)
+        expected_period_ps = ppa.reference_period(plat, cfg_name) * unit_ps
+        if expected_util != pmeta["core_utilization_pct"]:
             errors.append(
-                f"flow/ppa.py PLATFORMS['{plat}']['util'] is {actual_p['util']}%, "
+                f"flow/ppa.py reference_util('{plat}', '{cfg_name}') is {expected_util}%, "
                 f"locked as {pmeta['core_utilization_pct']}% in {lock['release_version']}"
+            )
+        if expected_period_ps != pmeta["clock_period_ps"]:
+            errors.append(
+                f"flow/ppa.py reference_period('{plat}', '{cfg_name}') is {expected_period_ps} ps, "
+                f"locked as {pmeta['clock_period_ps']} ps in {lock['release_version']}"
             )
         if actual_p["jobs"] != pmeta["jobs"]:
             errors.append(
@@ -98,7 +112,7 @@ def verify_lock(check_git_base: str | None = None) -> list[str]:
     for extra in sorted(actual_records - locked_records):
         errors.append(f"Unlocked PPA record present on disk: {extra}")
 
-    # Check SHA-256 of every locked file
+    # Check SHA-256 of every locked silicon file
     for rel_str, expected_sha in sorted(locked_files.items()):
         fpath = ROOT / rel_str
         if not fpath.exists():
@@ -111,6 +125,47 @@ def verify_lock(check_git_base: str | None = None) -> list[str]:
                 f"expected {expected_sha[:12]}..., got {actual_sha[:12]}... "
                 f"(bump release version via flow/release_layout.py to modify)"
             )
+
+    # Verify internal arithmetic consistency and overrides of every PPA record
+    for rel_str in sorted(locked_records):
+        fpath = ROOT / rel_str
+        if not fpath.exists():
+            continue
+        rec = json.loads(fpath.read_text())
+        plat = rec.get("platform", "")
+        cfg_name = rec.get("config", "")
+        t = rec.get("params", {}).get("T", 0)
+        if plat in ppa.PLATFORMS:
+            unit_ps = 1000.0 if ppa.PLATFORMS[plat]["unit"] == "ns" else 1.0
+            exp_period_ps = ppa.reference_period(plat, cfg_name) * unit_ps
+            exp_util = ppa.reference_util(plat, cfg_name)
+            if rec.get("clock_period_ps") != exp_period_ps:
+                errors.append(
+                    f"{rel_str}: clock_period_ps is {rec.get('clock_period_ps')}, "
+                    f"expected {exp_period_ps} from flow/ppa.py"
+                )
+            if rec.get("core_utilization_pct") != exp_util:
+                errors.append(
+                    f"{rel_str}: core_utilization_pct is {rec.get('core_utilization_pct')}, "
+                    f"expected {exp_util} from flow/ppa.py"
+                )
+        for wl, p in rec.get("power", {}).items():
+            shape = p.get("shape", [0, 0, 0])
+            macs = p.get("useful_macs", 0)
+            cycles = p.get("cycles", 0)
+            energy_j = p.get("energy_j", 0.0)
+            if len(shape) != 3 or shape[0] * shape[1] * shape[2] != macs or macs <= 0 or cycles <= 0 or energy_j <= 0:
+                errors.append(f"{rel_str} [{wl}]: invalid shape/useful_macs/cycles/energy_j")
+                continue
+            exp_util_w = macs / (t * t * cycles)
+            exp_pj = energy_j / macs * 1e12
+            exp_tw = 2.0 * macs / energy_j / 1e12
+            if not math.isclose(p.get("utilization", 0.0), exp_util_w, rel_tol=1e-9):
+                errors.append(f"{rel_str} [{wl}]: utilization {p.get('utilization')} != {exp_util_w}")
+            if not math.isclose(p.get("pj_per_mac", 0.0), exp_pj, rel_tol=1e-9):
+                errors.append(f"{rel_str} [{wl}]: pj_per_mac {p.get('pj_per_mac')} != {exp_pj}")
+            if not math.isclose(p.get("tops_per_w", 0.0), exp_tw, rel_tol=1e-9):
+                errors.append(f"{rel_str} [{wl}]: tops_per_w {p.get('tops_per_w')} != {exp_tw}")
 
     # Check internal consistency of 3D silicon layout bundles against PPA records & lock
     for plat in ("asap7", "sky130hd"):
@@ -152,7 +207,12 @@ def verify_lock(check_git_base: str | None = None) -> list[str]:
             capture_output=True,
             text=True,
         )
-        if res.returncode == 0 and res.stdout.strip():
+        if res.returncode != 0 or not res.stdout.strip():
+            errors.append(
+                f"Cannot read {check_git_base}:flow/LAYOUT_LOCK.json "
+                f"(git show exited {res.returncode}: {res.stderr.strip() or 'empty output'})"
+            )
+        else:
             base_lock = json.loads(res.stdout)
             base_ver = parse_semver(base_lock["release_version"])
             if lock != base_lock and cur_ver <= base_ver:

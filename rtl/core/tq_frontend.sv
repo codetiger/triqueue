@@ -15,14 +15,16 @@ module tq_frontend #(
     parameter bit CLK_GATE   = 1'b1,    // one clock gate per CFG register (tq_cg)
     localparam int L2T       = $clog2(T),
     localparam int H         = T / 2,
-    localparam int PCW       = $clog2(PROG_BYTES + 8)
+    localparam int PCW       = $clog2(PROG_BYTES + 16)
 ) (
     input  logic                    clk_i,
     input  logic                    rst_ni,
-    input  logic                    start_i,         // restart at pc 0 (clears all front-end state)
+    input  logic                    start_i,         // restart at pc 0 (clears front-end control state)
+    input  logic                    cfg_clear_i,     // clear CFG registers (on START only, not ABORT)
     input  logic                    run_i,           // core is running
     input  logic [PROG_BYTES*8-1:0] prog_i,
     // room in the queues, after this cycle's pops
+    input  logic                    queues_idle_i,
     input  logic                    macq_full_i,
     input  logic                    scmd_a_full_i,
     input  logic                    scmd_b_full_i,
@@ -44,6 +46,7 @@ module tq_frontend #(
     output logic [31:0]             cfg_mode_o,
     // status
     output logic                    fence_o,         // a FENCE has retired
+    output logic                    macq_stall_o,    // front end stalled on MAC command queue full
     output logic                    retire_o,        // an instruction retired this cycle
     output logic                    error_o,         // pulse: illegal program
     output logic [3:0]              err_code_o
@@ -148,13 +151,17 @@ module tq_frontend #(
   always_comb begin
     stall = 1'b0;
     case (op)
+      tq_pkg::OP_CFG:                                          stall = !queues_idle_i;
       tq_pkg::OP_ZERO_C, tq_pkg::OP_VOUTER, tq_pkg::OP_SWAP_C: stall = macq_full_i;
-      tq_pkg::OP_STREAM_A:                     stall = scmd_a_full_i;
-      tq_pkg::OP_STREAM_B:                     stall = scmd_b_full_i;
-      default:                         stall = 1'b0;
+      tq_pkg::OP_STREAM_A:                                     stall = scmd_a_full_i;
+      tq_pkg::OP_STREAM_B:                                     stall = scmd_b_full_i;
+      default:                                                 stall = 1'b0;
     endcase
   end
   assign exec = run_i && !fence_q && !stall;
+  assign macq_stall_o = run_i && !fence_q &&
+                        (op == tq_pkg::OP_ZERO_C || op == tq_pkg::OP_VOUTER || op == tq_pkg::OP_SWAP_C) &&
+                        macq_full_i;
 
   // ---------------------------------------------------------------- next state
   logic [PCW-1:0] pc_n;
@@ -205,15 +212,25 @@ module tq_frontend #(
         err = 1'b1; err_code = tq_pkg::ERR_PC;
       end
       case (op)
-        tq_pkg::OP_NOP: ;
+        tq_pkg::OP_NOP: begin
+          if (arg != 4'h0) begin err = 1'b1; err_code = tq_pkg::ERR_OPCODE; end
+        end
         tq_pkg::OP_CFG: begin
           if (arg[3])          begin err = 1'b1; err_code = tq_pkg::ERR_CFG_REG;  end
           else if (sp_q != 0)  begin err = 1'b1; err_code = tq_pkg::ERR_CFG_LOOP; end
-          else cfg_we = 1'b1;
+          else if ((arg == 4'(tq_pkg::CFG_K) && imm > ((32'hFFFF_FFFF >> L2T) & ~32'd7)) ||
+                   ((arg == 4'(tq_pkg::CFG_M) || arg == 4'(tq_pkg::CFG_N)) && imm > (32'hFFFF << L2T)) ||
+                   (arg == 4'(tq_pkg::CFG_MODE) && imm[31:8] != 24'd0)) begin
+            err = 1'b1; err_code = tq_pkg::ERR_CFG_VAL;
+          end else begin
+            cfg_we = !err;
+          end
         end
         tq_pkg::OP_STREAM_A: begin
-          if (!s_exh) begin
-            scmd_a_push_o      = 1'b1;
+          if (arg != 4'h0) begin
+            err = 1'b1; err_code = tq_pkg::ERR_OPCODE;
+          end else if (!s_exh) begin
+            scmd_a_push_o      = !err;
             scmd_a_data_o.addr = s_addr;
             scmd_a_data_o.vecs = s_vecs;
             if (s_cols_more) sa_tj_n = s_tj_inc[15:0];
@@ -225,8 +242,10 @@ module tq_frontend #(
           end
         end
         tq_pkg::OP_STREAM_B: begin
-          if (!s_exh) begin
-            scmd_b_push_o      = 1'b1;
+          if (arg != 4'h0) begin
+            err = 1'b1; err_code = tq_pkg::ERR_OPCODE;
+          end else if (!s_exh) begin
+            scmd_b_push_o      = !err;
             scmd_b_data_o.addr = s_addr;
             scmd_b_data_o.vecs = s_vecs;
             if (s_cols_more) begin
@@ -240,23 +259,38 @@ module tq_frontend #(
           end
         end
         tq_pkg::OP_ZERO_C: begin
-          macq_push_o      = 1'b1;
-          macq_data_o.kind = tq_pkg::MC_ZERO;
+          if (arg != 4'h0) begin
+            err = 1'b1; err_code = tq_pkg::ERR_OPCODE;
+          end else begin
+            macq_push_o      = !err;
+            macq_data_o.kind = tq_pkg::MC_ZERO;
+          end
         end
         tq_pkg::OP_VOUTER: begin
-          macq_push_o       = 1'b1;
-          macq_data_o.kind  = tq_pkg::MC_MAC;
-          macq_data_o.rfull = arg[3] ? fe_rfull : arg[1];
-          macq_data_o.cfull = arg[3] ? fe_cfull : arg[0];
+          if (arg[3] ? (arg[2:0] != 3'b0) : arg[2]) begin
+            err = 1'b1; err_code = tq_pkg::ERR_OPCODE;
+          end else begin
+            macq_push_o       = !err;
+            macq_data_o.kind  = tq_pkg::MC_MAC;
+            macq_data_o.rfull = arg[3] ? fe_rfull : arg[1];
+            macq_data_o.cfull = arg[3] ? fe_cfull : arg[0];
+          end
         end
         tq_pkg::OP_SWAP_C: begin
-          macq_push_o        = 1'b1;
-          macq_data_o.kind   = tq_pkg::MC_SWAP;
-          macq_data_o.c_addr = cfg_q[tq_pkg::CFG_C_BASE] + {fe_crow_q[31:L2T], {L2T{1'b0}}}
-                             + (cfg_q[tq_pkg::CFG_MODE][tq_pkg::MODE_OUT_INT8]
-                                ? ({16'b0, fe_tj_q} << L2T) : ({16'b0, fe_tj_q} << (L2T + 2)));
-          macq_data_o.rows   = fe_r_ge_t ? 8'(T) : 8'(m_lo);
-          macq_data_o.cols   = fe_c_ge_t ? 8'(T) : 8'(n_lo);
+          if (arg != 4'h0) begin
+            err = 1'b1; err_code = tq_pkg::ERR_OPCODE;
+          end else if (m != 32'd0 && n != 32'd0 &&
+                       cfg_q[tq_pkg::CFG_C_LD] < (cfg_q[tq_pkg::CFG_MODE][tq_pkg::MODE_OUT_INT8] ? n : (n << 2))) begin
+            err = 1'b1; err_code = tq_pkg::ERR_CFG_VAL;
+          end else begin
+            macq_push_o        = !err;
+            macq_data_o.kind   = tq_pkg::MC_SWAP;
+            macq_data_o.c_addr = cfg_q[tq_pkg::CFG_C_BASE] + {fe_crow_q[31:L2T], {L2T{1'b0}}}
+                               + (cfg_q[tq_pkg::CFG_MODE][tq_pkg::MODE_OUT_INT8]
+                                  ? ({16'b0, fe_tj_q} << L2T) : ({16'b0, fe_tj_q} << (L2T + 2)));
+            macq_data_o.rows   = fe_r_ge_t ? 8'(T) : 8'(m_lo);
+            macq_data_o.cols   = fe_c_ge_t ? 8'(T) : 8'(n_lo);
+          end
         end
         tq_pkg::OP_LOOP_K, tq_pkg::OP_LOOP_T: begin
           if (loop_is_t)
@@ -265,9 +299,9 @@ module tq_frontend #(
             loop_count = kp >> (1 + 32'(!fe_rfull) + 32'(!fe_cfull));   // Kp / (2d)
           if (loop_count == 0) begin
             pc_n = pc_q + 1 + PCW'(arg);                         // skip the body
-          end else if (sp_q == 2 || (loop_is_t && lt_seen_q)) begin
-            // a third level, or a LOOP_T after (or inside) another: the stream counters walk
-            // the tiles once per program, so a second tile loop would wait for panels forever
+          end else if (arg == 4'h0 || sp_q == 2 || (loop_is_t && lt_seen_q) ||
+                       (sp_q == 2'd1 && (pc_q + 1 + PCW'(arg)) > f0_end_q)) begin
+            // empty body, third level, second LOOP_T, or inner loop extending past outer loop
             err = 1'b1; err_code = tq_pkg::ERR_LOOP;
           end else if (sp_q == 0) begin
             lt_seen_n = lt_seen_q || loop_is_t;
@@ -281,7 +315,10 @@ module tq_frontend #(
             fe_reset = loop_is_t;
           end
         end
-        tq_pkg::OP_FENCE: fence_n = 1'b1;
+        tq_pkg::OP_FENCE: begin
+          if (arg != 4'h0) begin err = 1'b1; err_code = tq_pkg::ERR_OPCODE; end
+          else fence_n = !err;
+        end
         default: begin err = 1'b1; err_code = tq_pkg::ERR_OPCODE; end
       endcase
 
@@ -360,11 +397,11 @@ module tq_frontend #(
   for (genvar i = 0; i < 8; i++) begin : g_cfg
     logic        we, gclk;
     logic [31:0] q;
-    assign we = start_i || (cfg_we && 32'(arg[2:0]) == i);
+    assign we = cfg_clear_i || (cfg_we && 32'(arg[2:0]) == i);
     tq_cg #(.EN(CLK_GATE)) u_cg (.clk_i, .en_i(we), .gclk_o(gclk));
     always_ff @(posedge gclk or negedge rst_ni) begin
       if (!rst_ni)              q <= '0;
-      else if (we || CLK_GATE)  q <= start_i ? '0 : imm;
+      else if (we || CLK_GATE)  q <= cfg_clear_i ? '0 : imm;
     end
     assign cfg_q[i] = q;
   end

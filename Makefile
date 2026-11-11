@@ -17,7 +17,7 @@ ACC_FORMS := cpa:1 csa:0
 
 all: model-test sw-test spdx-check lock-check rtl-lint rtl-test formal synth-check
 
-VERSION ?= $(shell sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)
+VERSION ?= $(shell sed -n 's/^__version__ = "\(.*\)"/\1/p' model/tri_queue/__init__.py | head -1)
 
 model-test:
 	cd model && $(PYTHON) -m pytest -q
@@ -26,9 +26,10 @@ model-test:
 sw-test:
 	$(PYTHON) -m pytest sw -q
 
-# Every checked-in source/config file carries an SPDX license identifier
+# Every checked-in source/config file carries an SPDX license identifier and consistent version
 spdx-check:
 	$(PYTHON) tools/check_spdx.py
+	$(PYTHON) tools/check_version.py
 
 model-results:
 	cd model && $(PYTHON) bench.py > /dev/null && $(PYTHON) dse.py > /dev/null
@@ -72,7 +73,7 @@ formal:
 	cd verif/formal && $(SBY) -f tq_cg.sby && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_xif_regs.sby && $(SBY) -f tq_axi_mem.sby cover burst && $(SBY) -f tq_core.sby split
 
 formal-nightly:
-	cd verif/formal && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_core.sby panel && $(SBY) -f tq_axi_mem.sby prove
+	cd verif/formal && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_core.sby ack_split && $(SBY) -f tq_core.sby panel && $(SBY) -f tq_axi_mem.sby prove && $(SBY) -f tq_axi_mem.sby burst_prove
 
 # Synthesizability check with generic Yosys cells: no latches, no loops, no undriven nets.
 # The clock-gating cell (tq_icg, a latch by design) is kept as its own module and is the only
@@ -97,17 +98,18 @@ ui-data:
 	$(PYTHON) ui/pipeline/build_ui_data.py
 
 ui-serve:
-	$(PYTHON) -m http.server 8080 --directory ui
+	$(PYTHON) -m http.server 8080 --bind 127.0.0.1 --directory ui
 
-# Release artifacts: source tarball, a representative golden-vector set, and checksums.
+# Release artifacts: source tarball, a representative golden-vector set, and reproducible checksums.
 dist:
 	rm -rf dist
 	mkdir -p dist
 	git archive --format=tar.gz --prefix=triqueue-$(VERSION)/ -o dist/triqueue-$(VERSION).tar.gz HEAD
 	cd model && $(PYTHON) -m tri_queue.vectors --m 16 --n 16 --k 16 -o ../dist/vectors/16x16x16
-	cd model && $(PYTHON) -m tri_queue.vectors --m 20 --n 9 --k 33 -o ../dist/vectors/20x9x33
-	cd model && $(PYTHON) -m tri_queue.vectors --m 64 --n 64 --k 64 -o ../dist/vectors/64x64x64
-	tar -czf dist/triqueue-$(VERSION)-vectors.tar.gz -C dist vectors
+	cd model && $(PYTHON) -m tri_queue.vectors --m 20 --n 9 --k 33 --out-int8 --out-shift 5 -o ../dist/vectors/20x9x33
+	cd model && $(PYTHON) -m tri_queue.vectors --m 64 --n 64 --k 64 --panel-bytes 1024 --gnt-stall 0.2 --gnt-seed 7 -o ../dist/vectors/64x64x64
+	$(PYTHON) -c "import gzip,os,subprocess,tarfile; ts=int(subprocess.check_output(['git','log','-1','--format=%ct','HEAD']).strip()); f=open('dist/triqueue-$(VERSION)-vectors.tar.gz','wb'); gz=gzip.GzipFile(filename='',mode='wb',fileobj=f,mtime=ts); tf=tarfile.open(mode='w',fileobj=gz,format=tarfile.PAX_FORMAT); [tf.add(p,arcname=os.path.relpath(p,'dist'),recursive=False,filter=lambda ti:(setattr(ti,'uid',0),setattr(ti,'gid',0),setattr(ti,'uname',''),setattr(ti,'gname',''),setattr(ti,'mtime',ts),setattr(ti,'pax_headers',{}),ti)[-1]) for p in sorted(os.path.join(r,x) for r,ds,fs in os.walk('dist/vectors') for x in list(ds)+list(fs)+['']) if os.path.exists(p)]; tf.close(); gz.close(); f.close()"
+	rm -rf dist/vectors
 	cd dist && $(PYTHON) -c "import hashlib,glob,os; files=sorted(f for f in glob.glob('*') if os.path.isfile(f)); open('SHA256SUMS','w').write(''.join(hashlib.sha256(open(f,'rb').read()).hexdigest()+'  '+f+'\n' for f in files))"
 
 clean:

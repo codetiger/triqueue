@@ -17,6 +17,7 @@ module tq_axi_mem_env #(
 ) (
     input  logic        clk_i,
     input  logic        rst_ni,
+    input  logic        flush_i,
     input  logic        rd_req_i,
     input  logic [31:0] rd_addr_i,
     input  logic        wr_req_i,
@@ -25,11 +26,13 @@ module tq_axi_mem_env #(
     input  logic [31:0] wr_wdata_i,
     input  logic        m_arready_i,
     input  logic        m_rvalid_i,
+    input  logic        m_rerr_i,
     input  logic        m_awready_i,
     input  logic        m_wready_i,
-    input  logic        m_bvalid_i
+    input  logic        m_bvalid_i,
+    input  logic        m_berr_i
 );
-  logic        rd_gnt, rd_rvalid, wr_gnt, wr_done;
+  logic        rd_gnt, rd_rvalid, wr_gnt, wr_done, pending, bus_err;
   logic [31:0] rd_rdata;
   logic [31:0] araddr, awaddr, wdata;
   logic [7:0]  arlen, awlen;
@@ -40,16 +43,16 @@ module tq_axi_mem_env #(
   logic [31:0] rdata;
 
   tq_axi_mem #(.W(4), .MAX_OUT(MAX_OUT), .BURST_BEATS(BURST_BEATS)) dut (
-      .clk_i, .rst_ni,
+      .clk_i, .rst_ni, .flush_i, .pending_o(pending),
       .rd_req_i, .rd_addr_i, .rd_gnt_o(rd_gnt), .rd_rvalid_o(rd_rvalid), .rd_rdata_o(rd_rdata),
-      .wr_req_i, .wr_addr_i, .wr_be_i, .wr_wdata_i, .wr_gnt_o(wr_gnt), .wr_done_o(wr_done), .bus_err_o(),
+      .wr_req_i, .wr_addr_i, .wr_be_i, .wr_wdata_i, .wr_gnt_o(wr_gnt), .wr_done_o(wr_done), .bus_err_o(bus_err),
       .m_araddr_o(araddr), .m_arlen_o(arlen), .m_arsize_o(arsize), .m_arburst_o(arburst),
       .m_arvalid_o(arvalid), .m_arready_i,
-      .m_rdata_i(rdata), .m_rresp_i(2'b00), .m_rlast_i(1'b1), .m_rvalid_i, .m_rready_o(rready),
+      .m_rdata_i(rdata), .m_rresp_i({m_rerr_i, 1'b0}), .m_rlast_i(1'b1), .m_rvalid_i, .m_rready_o(rready),
       .m_awaddr_o(awaddr), .m_awlen_o(awlen), .m_awsize_o(awsize), .m_awburst_o(awburst),
       .m_awvalid_o(awvalid), .m_awready_i,
       .m_wdata_o(wdata), .m_wstrb_o(wstrb), .m_wlast_o(wlast), .m_wvalid_o(wvalid), .m_wready_i,
-      .m_bresp_i(2'b00), .m_bvalid_i, .m_bready_o(bready));
+      .m_bresp_i({m_berr_i, 1'b0}), .m_bvalid_i, .m_bready_o(bready));
 
   logic past_valid = 1'b0;
   always_ff @(posedge clk_i) past_valid <= 1'b1;
@@ -67,7 +70,9 @@ module tq_axi_mem_env #(
     p_wr_wdata <= wr_wdata_i;                     p_wr_be <= wr_be_i;
   end
   always_comb begin
+    assume (rd_addr_i[31] == 1'b0);
     if (BURST_BEATS > 1) assume (rd_addr_i[1:0] == 2'b00 && rd_addr_i[31:6] == '0 && wr_addr_i[31:6] == '0);
+    if (flush_i) assume (!rd_req_i && !wr_req_i);
     if (run && p_rd_wait) assume (!rd_req_i || rd_addr_i == p_rd_addr);           // held or dropped
     if (run && p_wr_wait) assume (!wr_req_i || (wr_addr_i == p_wr_addr && wr_wdata_i == p_wr_wdata
                                                 && wr_be_i == p_wr_be));
@@ -75,24 +80,27 @@ module tq_axi_mem_env #(
 
   // ---------------------------------------------------------------- AXI slave (assumptions)
   // R: a FIFO of accepted AR beat addresses; R carries the oldest one, never in the AR cycle.
+  // epoch_q toggles on flush_i when no read is in flight (host rewrote operand memory before START).
   localparam int RQ_MAX = ((BURST_BEATS > 1) ? 4 : MAX_OUT) * BURST_BEATS;
   logic [RQ_MAX:0][31:0] ar_q;
   logic [3:0]  ar_n;
-  logic [2:0]  b_n;
+  logic [2:0]  b_n, cr_n, cw_n;
   logic        ar_fire, aw_fire, w_fire;
   logic        aw_open_q, w_open_q;                 // AW / W of the current write accepted
+  logic        epoch_q;
   assign ar_fire = arvalid && m_arready_i;
   assign aw_fire = awvalid && m_awready_i;
   assign w_fire  = wvalid && m_wready_i;
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      ar_n <= '0; b_n <= '0; aw_open_q <= 1'b0; w_open_q <= 1'b0;
+      ar_n <= '0; b_n <= '0; aw_open_q <= 1'b0; w_open_q <= 1'b0; epoch_q <= 1'b0;
     end else begin
+      if (flush_i && ar_n == 0 && !arvalid && cr_n == 0) epoch_q <= ~epoch_q;
       for (int i = 0; i < RQ_MAX; i++)
         ar_q[i] <= (m_rvalid_i ? ar_q[i + 1] : ar_q[i]);
       if (ar_fire) begin
         for (int b = 0; b < BURST_BEATS; b++)
-          ar_q[32'(ar_n) - 32'(m_rvalid_i) + b] <= araddr + 32'(b * 4);
+          ar_q[32'(ar_n) - 32'(m_rvalid_i) + b] <= {epoch_q, araddr[30:0] + 31'(b * 4)};
       end
       ar_n <= ar_n + (ar_fire ? 4'(BURST_BEATS) : 4'd0) - 4'(m_rvalid_i);
       // a write is complete in the slave when both AW and W are in
@@ -138,16 +146,15 @@ module tq_axi_mem_env #(
   end
 
   // The core's reads: in single-beat mode, a FIFO of granted read addresses; in burst mode,
-  // hits complete in the grant cycle with rd_rdata == rd_addr_i.
+  // hits complete in the grant cycle with rd_rdata == {epoch_q, rd_addr_i[30:0]}.
   logic [MAX_OUT:0][31:0] cr_q;
-  logic [2:0]  cr_n, cw_n;
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       cr_n <= '0; cw_n <= '0;
     end else begin
       for (int i = 0; i < MAX_OUT; i++)
         cr_q[i] <= (rd_rvalid ? cr_q[i + 1] : cr_q[i]);
-      if (rd_gnt) cr_q[32'(cr_n) - 32'(rd_rvalid)] <= rd_addr_i;
+      if (rd_gnt) cr_q[32'(cr_n) - 32'(rd_rvalid)] <= {epoch_q, rd_addr_i[30:0]};
       cr_n <= cr_n + 3'(rd_gnt) - 3'(rd_rvalid);
       cw_n <= cw_n + 3'(wr_gnt) - 3'(wr_done);
     end
@@ -157,6 +164,10 @@ module tq_axi_mem_env #(
       if (rd_rvalid) assert (cr_n != 0 && rd_rdata == cr_q[0]);
       if (wr_done) assert (cw_n != 0);
       assert (32'(cw_n) <= MAX_OUT);
+      assert (!bus_err || rd_rvalid || wr_done);
+      if (wr_done && m_berr_i) assert (bus_err);
+      if (BURST_BEATS == 1) assert (bus_err == ((rd_rvalid && m_rerr_i) || (wr_done && m_berr_i)));
+      if (cr_n != 0 || cw_n != 0 || ar_n != 0 || b_n != 0) assert (pending);
     end
   end
 
@@ -174,6 +185,8 @@ module tq_axi_mem_env #(
     if (run) begin
       cover (orph_r_q && rd_rvalid);
       cover (orph_w_q && wr_done);
+      cover (bus_err);
+      cover (epoch_q && rd_rvalid);
     end
   end
 

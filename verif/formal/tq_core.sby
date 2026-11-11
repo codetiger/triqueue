@@ -16,6 +16,7 @@
 split
 shared
 ack
+ack_split
 panel
 
 [options]
@@ -26,10 +27,11 @@ abc pdr
 
 [script]
 read_verilog -sv -formal -DSYNTHESIS -DTQ_FORMAL_CORE tq_pkg.sv tq_icg.sv tq_cg.sv tq_fifo.sv tq_frontend.sv tq_stream.sv tq_mac_array.sv tq_drain.sv tq_core.sv tq_core_env.sv
-split:  chparam -set KERNEL 0 -set SHARED_PORT 0 tq_core_env
-shared: chparam -set KERNEL 0 -set SHARED_PORT 1 tq_core_env
-ack:    chparam -set KERNEL 0 -set SHARED_PORT 1 -set WR_ACK 1 tq_core_env
-panel:  chparam -set KERNEL 0 -set PANEL_BYTES 32 tq_core_env
+split:     chparam -set KERNEL 0 -set SHARED_PORT 0 tq_core_env
+shared:    chparam -set KERNEL 0 -set SHARED_PORT 1 tq_core_env
+ack:       chparam -set KERNEL 0 -set SHARED_PORT 1 -set WR_ACK 1 tq_core_env
+ack_split: chparam -set KERNEL 0 -set SHARED_PORT 0 -set WR_ACK 1 tq_core_env
+panel:     chparam -set KERNEL 0 -set PANEL_BYTES 32 tq_core_env
 prep -top tq_core_env
 flatten
 # keep only the input cone of the assertions and assumptions (drops the datapath)

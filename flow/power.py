@@ -6,9 +6,10 @@
     python3 flow/power.py --docker sky130hd t8_csa gemm64     # a Docker run (flow/ppa.py --docker)
 
 Needs a finished flow (flow/ppa.py run <platform> <config>), native unless --docker. Runs flow/activity.py for the
-workload if its SAIF is missing, rescales the SAIF from the testbench clock to the flow clock,
-runs OpenSTA (flow/power.tcl) on the routed design with its extracted parasitics, and writes
-build/orfs/<platform>/<config>/power/<workload>.json.
+workload if its SAIF or source-hash sidecar is missing/stale, rescales the SAIF from the testbench
+clock to the flow clock, runs OpenSTA (flow/power.tcl) on the routed design with its extracted
+parasitics, and writes build/orfs_native/<platform>/<config>/power/<workload>.json
+(or build/orfs_docker/... with --docker).
 
 Energy covers the whole SAIF window (see flow/activity.py) and is charged to the workload's
 useful MACs (M x N x K), as defined in flow/README.md. Engine only: the SRAM is outside tq_top.
@@ -21,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "flow"))
-from activity import TB_PERIOD_PS, WORKLOADS  # noqa: E402
+from activity import TB_PERIOD_PS, WORKLOADS, saif_source_digest  # noqa: E402
 from ppa import CONFIGS, PLATFORMS, base, orfs_make, work_dir  # noqa: E402
 
 TIME_FIELD = re.compile(r"\((DURATION|T0|T1|TZ|TX|TB) (\d+)\)")
@@ -116,12 +117,22 @@ def parse_total_power(rpt: str):
     raise ValueError("no Total row in the power report")
 
 
+def _saif_fresh(saif: Path, config: str, workload: str) -> bool:
+    meta = saif.with_suffix(".saif.meta.json")
+    if not saif.exists() or not meta.exists():
+        return False
+    try:
+        doc = json.loads(meta.read_text())
+    except (OSError, ValueError):
+        return False
+    return doc.get("source_sha256") == saif_source_digest(config, workload)
+
+
 def run_one(platform, config, workload, native):
     rel = work_dir(platform, config, native)
     WORK = base(native)
     saif = ROOT / "build" / "activity" / config / f"{workload}.saif"
-    rtl_mtime = max(f.stat().st_mtime for f in (ROOT / "rtl").rglob("*.sv"))
-    if not saif.exists() or saif.stat().st_mtime < rtl_mtime:     # missing or older than the RTL
+    if not _saif_fresh(saif, config, workload):
         rc = subprocess.run([sys.executable, str(ROOT / "flow" / "activity.py"), config, workload]).returncode
         if rc:
             return rc

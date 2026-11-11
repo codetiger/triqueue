@@ -59,9 +59,13 @@ def test_trace_writes_reproduce_c():
 def test_export_files(tmp_path):
     a, b = gemm(12, 20, 17, seed=5)
     p = Params(tile=8)
-    meta = export(a, b, p, tmp_path)
-    assert {f.name for f in tmp_path.iterdir()} == {"mem_init.hex", "mem_final.hex", "prog.hex", "trace.txt", "meta.json"}
+    meta = export(a, b, p, tmp_path, seed=5)
+    assert {f.name for f in tmp_path.iterdir()} == {
+        "mem_init.hex", "mem_final.hex", "prog.hex", "trace.txt", "gnt.txt", "meta.json"
+    }
     assert json.loads((tmp_path / "meta.json").read_text()) == json.loads(json.dumps(meta))
+    assert "version" in meta and meta["seed"] == 5 and meta["a_dtype"] == "s8"
+    assert len((tmp_path / "gnt.txt").read_text().splitlines()) == meta["expected"]["cycles"]
     final = read_words(tmp_path / "mem_final.hex", p.port_bytes)
     L = meta["layout"]
     np.testing.assert_array_equal(read_c(final, L), reference(a, b))
@@ -70,7 +74,17 @@ def test_export_files(tmp_path):
     assert len((tmp_path / "prog.hex").read_text().split()) == meta["prog_bytes"] == 50
 
 
-def test_cli(tmp_path, capsys):
-    main(["--m", "16", "--n", "8", "--k", "24", "--tile", "16", "--a", "u8", "-o", str(tmp_path / "v")])
+def test_export_int8_and_cli(tmp_path, capsys):
+    a, b = gemm(12, 20, 17, seed=5)
+    p8 = Params(tile=8, out_bytes=1, out_shift=6)
+    meta8 = export(a, b, p8, tmp_path / "int8", seed=5)
+    final8 = read_words(tmp_path / "int8" / "mem_final.hex", p8.port_bytes)
+    want8 = np.clip(reference(a, b) >> 6, -128, 127).astype(np.int8)
+    np.testing.assert_array_equal(read_c(final8, meta8["layout"]), want8)
+
+    main(["--m", "16", "--n", "8", "--k", "24", "--tile", "16", "--a", "u8",
+          "--out-int8", "--out-shift", "5", "--panel-bytes", "512", "-o", str(tmp_path / "v")])
     assert "cycles" in capsys.readouterr().out
-    assert json.loads((tmp_path / "v" / "meta.json").read_text())["params"]["port_bytes"] == 32
+    vmeta = json.loads((tmp_path / "v" / "meta.json").read_text())
+    assert vmeta["params"]["port_bytes"] == 32 and vmeta["params"]["out_bytes"] == 1
+    assert vmeta["expected"]["panel_hits"] == 0

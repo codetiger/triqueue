@@ -29,7 +29,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "ui" / "data"
-ORFS_HOME = Path(os.environ.get("ORFS_HOME", "~/Development/OpenROAD-flow-scripts")).expanduser()
+sys.path.insert(0, str(ROOT / "flow"))
+from ppa import ORFS_HOME  # noqa: E402
 
 MODULE_COLORS = {
     "mac_bank0":  {"id": 0,  "name": "Accumulator Bank X (u_array.v0)",          "hex": "#81c995"},

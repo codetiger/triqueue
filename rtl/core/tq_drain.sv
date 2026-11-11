@@ -184,9 +184,9 @@ module tq_drain #(
   end
 
   assign wr_valid_o       = stg_v_q;
-  assign wr_addr_o        = stg_addr_q;
-  assign wr_be_o          = stg_be_q;
-  assign wr_data_o        = stg_data_q;
+  assign wr_addr_o        = stg_v_q ? stg_addr_q : 32'd0;
+  assign wr_be_o          = stg_v_q ? stg_be_q   : '0;
+  assign wr_data_o        = stg_v_q ? stg_data_q : '0;
   assign clear_bank_o     = wr_fire_i && stg_last_q;
   assign clear_bank_sel_o = bank_q;
   assign active_o         = act_q;

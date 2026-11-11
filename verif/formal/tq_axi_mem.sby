@@ -11,6 +11,7 @@
 prove
 cover
 burst
+burst_prove
 
 [options]
 prove: mode prove
@@ -18,15 +19,18 @@ cover: mode cover
 cover: depth 16
 burst: mode bmc
 burst: depth 8
+burst_prove: mode prove
 
 [engines]
 prove: abc pdr
 cover: smtbmc yices
 burst: smtbmc yices
+burst_prove: abc pdr
 
 [script]
 read_verilog -sv -formal tq_icg.sv tq_cg.sv tq_fifo.sv tq_axi_mem.sv tq_axi_mem_env.sv
 burst: chparam -set BURST_BEATS 2 tq_axi_mem_env
+burst_prove: chparam -set BURST_BEATS 2 tq_axi_mem_env
 prep -top tq_axi_mem_env
 flatten
 opt_clean

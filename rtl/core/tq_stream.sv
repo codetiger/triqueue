@@ -76,6 +76,9 @@ module tq_stream #(
     output logic [VB-1:0] qa_data_o,       // QA data: memory, or a replayed panel vector
     // status
     output logic          idle_o,          // no commands, panels or reads outstanding after this cycle
+    output logic          scmd_idle_o,     // stream command queues empty after this cycle's pops
+    output logic          pending_o,       // reads in flight, stale reads dropping, or panel replay valid
+    output logic          drop_busy_o,     // waiting for stale reads from a prior aborted run
     output logic          align_err_o
 );
   // ---------------------------------------------------------------- command queues
@@ -159,7 +162,7 @@ module tq_stream #(
   end
   assign wr_fire_o = wr_req_o && wr_gnt_i;
   assign rd_req_o  = rd_want;
-  assign rd_addr_o = sel_b ? cur_addr_b : cur_addr_a;
+  assign rd_addr_o = rd_want ? (sel_b ? cur_addr_b : cur_addr_a) : 32'd0;
   assign rd_fire_o = rd_want && rd_gnt_i;
 
   logic fire_a, fire_b;
@@ -306,9 +309,11 @@ module tq_stream #(
     end
   end
 
-  assign idle_o = (32'(cnt_a) - 32'(load_a) == 0) && (32'(cnt_b) - 32'(load_b) == 0)
-               && !act_a_n && !act_b_n && (infl_q == 0) && (drop_q == 0) && !rd_fire_o
-               && !pb_v_q && !pb_fire;
+  assign scmd_idle_o = (32'(cnt_a) - 32'(load_a) == 0) && (32'(cnt_b) - 32'(load_b) == 0);
+  assign pending_o   = (infl_q != 0) || (drop_q != 0) || pb_v_q;
+  assign drop_busy_o = (drop_q != 0);
+  assign idle_o      = scmd_idle_o && !act_a_n && !act_b_n && (infl_q == 0) && (drop_q == 0)
+                    && !rd_fire_o && !pb_v_q && !pb_fire;
 `ifdef FORMAL
   // OBI: a request without gnt stays asserted with the same address next cycle (unless cleared,
   // or the run stopped on an error)
@@ -326,6 +331,36 @@ module tq_stream #(
       if (past_wr_q) assert (wr_req_o);
     end
   end
+`endif
+
+`ifndef SYNTHESIS
+  logic sim_past_ok_q, sim_past_rd_q, sim_past_wr_q;
+  logic [31:0] sim_past_addr_q;
+  /* verilator lint_off SYNCASYNCNET */
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      sim_past_ok_q   <= 1'b0;
+      sim_past_rd_q   <= 1'b0;
+      sim_past_wr_q   <= 1'b0;
+      sim_past_addr_q <= '0;
+    end else begin
+      sim_past_ok_q   <= !clear_i;
+      sim_past_rd_q   <= rd_req_o && !rd_gnt_i;
+      sim_past_wr_q   <= wr_req_o && !wr_gnt_i;
+      sim_past_addr_q <= rd_addr_o;
+      assert (!$isunknown({rd_req_o, rd_gnt_i, rd_rvalid_i, wr_req_o, wr_gnt_i}))
+        else $error("tq_stream: X on memory port handshake");
+      assert (!(rd_rvalid_i && (32'(infl_q) + 32'(drop_q) + 32'(rd_fire_o) == 0)))
+        else $error("tq_stream: rd_rvalid_i without an outstanding read");
+      if (!clear_i && run_i && sim_past_ok_q) begin
+        if (sim_past_rd_q) assert (rd_req_o && rd_addr_o == sim_past_addr_q)
+          else $error("tq_stream: held read request changed before gnt");
+        if (sim_past_wr_q) assert (wr_req_o)
+          else $error("tq_stream: held write request dropped before gnt");
+      end
+    end
+  end
+  /* verilator lint_on SYNCASYNCNET */
 `endif
 
   assign align_err_o = (load_a && ha.addr[L2T:0] != '0) || (load_b && hb.addr[L2T:0] != '0);

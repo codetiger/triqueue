@@ -107,14 +107,22 @@ module tq_xif_regs #(
 
   // A register transaction for this instruction waits (ready low) until the operands it needs
   // are valid; any other one (an instruction not accepted here) is taken and ignored.
+  // CORE-V-XIF commit rules: commit_kill = 0 commits commit_id and all older instructions;
+  // commit_kill = 1 kills commit_id and all younger instructions (modular ID comparison).
   logic rs_ok, rs_mine, rs_fire, commit_fire, kill;
-  assign rs_ok   = x_register_rs_valid_i[0] && (cur_rd || x_register_rs_valid_i[1]);
-  assign rs_mine = cur && !cur_rs && x_register_id_i == cur_id && x_register_hartid_i == cur_hart;
+  logic [X_ID_WIDTH-1:0] commit_delta;
+  logic                  commit_ge, commit_le, commit_match;
+  assign rs_ok        = x_register_rs_valid_i[0] && (cur_rd || x_register_rs_valid_i[1]);
+  assign rs_mine      = cur && !cur_rs && x_register_id_i == cur_id && x_register_hartid_i == cur_hart;
   assign x_register_ready_o = !rs_mine || rs_ok;
-  assign rs_fire     = x_register_valid_i && rs_mine && rs_ok;
-  assign commit_fire = cur && !cur_commit && x_commit_valid_i
-                    && x_commit_id_i == cur_id && x_commit_hartid_i == cur_hart;
-  assign kill        = commit_fire && x_commit_kill_i;
+  assign rs_fire      = x_register_valid_i && rs_mine && rs_ok;
+  assign commit_delta = x_commit_id_i - cur_id;
+  assign commit_ge    = !commit_delta[X_ID_WIDTH-1];
+  assign commit_le    = (commit_delta == '0) || commit_delta[X_ID_WIDTH-1];
+  assign commit_match = x_commit_kill_i ? commit_le : commit_ge;
+  assign commit_fire  = cur && !cur_commit && x_commit_valid_i
+                     && x_commit_hartid_i == cur_hart && commit_match;
+  assign kill         = commit_fire && x_commit_kill_i;
 
   logic rs_now, commit_now;
   assign rs_now     = cur_rs || rs_fire;
@@ -167,18 +175,77 @@ module tq_xif_regs #(
 
 `ifdef FORMAL
   // ---- properties, proved by k-induction (verif/formal/tq_xif_regs.sby) ----
+  localparam int N_IDS = 1 << X_ID_WIDTH;
   logic past_valid = 1'b0;
   always_ff @(posedge clk_i) past_valid <= 1'b1;
   always_comb if (!past_valid) assume (!rst_ni);
 
-  // CPU side: an offered issue stays (with its instruction) until ready; every accepted
-  // instruction is committed or killed once, and gets its operands once, each in the issue
-  // cycle or later
-  logic open_q;                                    // an accepted instruction is not finished
+  // Independent per-id tracker for the active instruction's hart (V6): records register operands,
+  // batched commits (commit_id and older), and range kills (commit_id and younger).
+  logic                      open_q;
+  logic [X_ID_WIDTH-1:0]     f_id_q, f_id;
+  logic [X_HARTID_WIDTH-1:0] f_hart_q, f_hart;
+  logic                      f_rd_q, f_rd;
+  logic [11:0]               f_addr_q;
+  logic [31:0]               f_wdata_q;
+  logic [N_IDS-1:0]          f_comm_q, f_kill_q, f_rs_q, f_comm_n, f_kill_n, f_rs_n;
+
+  assign f_id   = open_q ? f_id_q   : x_issue_req_id_i;
+  assign f_hart = open_q ? f_hart_q : x_issue_req_hartid_i;
+  assign f_rd   = open_q ? f_rd_q   : (x_issue_req_instr_i[14:12] == 3'd1);
+
+  always_comb begin
+    f_comm_n = (issue_fire && accept) ? '0 : f_comm_q;
+    f_kill_n = (issue_fire && accept) ? '0 : f_kill_q;
+    f_rs_n   = (issue_fire && accept) ? '0 : f_rs_q;
+    if (open_q || (issue_fire && accept)) begin
+      if (x_register_valid_i && x_register_ready_o && x_register_hartid_i == f_hart
+          && x_register_rs_valid_i[0] && (f_rd || x_register_rs_valid_i[1])) begin
+        f_rs_n[x_register_id_i] = 1'b1;
+      end
+      if (x_commit_valid_i && x_commit_hartid_i == f_hart) begin
+        for (int k = 0; k < N_IDS; k++) begin
+          logic [X_ID_WIDTH-1:0] d;
+          d = x_commit_id_i - X_ID_WIDTH'(k);
+          if (!x_commit_kill_i && !d[X_ID_WIDTH-1] && !f_kill_n[k]) f_comm_n[k] = 1'b1;
+          if (x_commit_kill_i && (d == '0 || d[X_ID_WIDTH-1]) && !f_comm_n[k]) f_kill_n[k] = 1'b1;
+        end
+      end
+    end
+  end
+
+  // CPU side: an offered issue stays (with its instruction) until ready; a committed instruction
+  // is not later killed, and operands are not re-sent after they have been accepted.
+  always_comb begin
+    if (rst_ni && (open_q || (issue_fire && accept))) begin
+      if (f_comm_q[f_id]) assume (!(x_commit_valid_i && x_commit_hartid_i == f_hart && x_commit_kill_i));
+      if (f_rs_q[f_id])   assume (!(x_register_valid_i && x_register_hartid_i == f_hart && x_register_id_i == f_id));
+    end
+  end
+
   always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) open_q <= 1'b0;
-    else if (issue_fire && accept && !kill) open_q <= 1'b1;
-    else if (kill || (x_result_valid_o && x_result_ready_i)) open_q <= 1'b0;
+    if (!rst_ni) begin
+      open_q <= 1'b0; f_id_q <= '0; f_hart_q <= '0; f_rd_q <= 1'b0;
+      f_addr_q <= '0; f_wdata_q <= '0;
+      f_comm_q <= '0; f_kill_q <= '0; f_rs_q <= '0;
+    end else begin
+      f_comm_q <= f_comm_n;
+      f_kill_q <= f_kill_n;
+      f_rs_q   <= f_rs_n;
+      if (issue_fire && accept) begin
+        f_id_q   <= x_issue_req_id_i;
+        f_hart_q <= x_issue_req_hartid_i;
+        f_rd_q   <= (x_issue_req_instr_i[14:12] == 3'd1);
+      end
+      if ((open_q || (issue_fire && accept)) && !f_rs_q[f_id]
+          && x_register_valid_i && x_register_ready_o
+          && x_register_hartid_i == f_hart && x_register_id_i == f_id) begin
+        f_addr_q  <= x_register_rs0_i[11:0];
+        f_wdata_q <= x_register_rs1_i;
+      end
+      if (issue_fire && accept && !f_kill_n[x_issue_req_id_i]) open_q <= 1'b1;
+      else if (f_kill_n[f_id_q] || (x_result_valid_o && x_result_ready_i)) open_q <= 1'b0;
+    end
   end
   always_ff @(posedge clk_i) begin
     if (past_valid && $past(rst_ni) && rst_ni) begin
@@ -210,12 +277,16 @@ module tq_xif_regs #(
   end
   always_comb begin
     if (rst_ni) begin
-      // the register port is used only for a committed instruction with its operands
-      assert (!reg_req_o || (have_rs_q && have_commit_q));
-      // nothing is issued while an instruction is open; a result only for an open one
+      // checked against the independent per-id tracker, not only the adapter's internal flags
+      assert (!reg_req_o || (f_comm_q[f_id_q] && !f_kill_q[f_id_q] && f_rs_q[f_id_q]));
+      assert (!reg_req_o || (reg_addr_o == f_addr_q && (!reg_we_o || reg_wdata_o == f_wdata_q)));
+      // nothing is issued while an instruction is open; a result only for an open committed one
       assert (!x_issue_ready_o || !open_q);
-      assert (!x_result_valid_o || open_q);
+      assert (!x_result_valid_o || (open_q && f_comm_q[f_id_q] && !f_kill_q[f_id_q] && f_rs_q[f_id_q]));
       assert (open_q == (state_q != S_IDLE));
+      assert (!open_q || (id_q == f_id_q && hartid_q == f_hart_q && rd_q == f_rd_q));
+      assert (!open_q || (have_rs_q == f_rs_q[f_id_q] && have_commit_q == f_comm_q[f_id_q] && !f_kill_q[f_id_q]));
+      assert (!have_rs_q || (addr_q == f_addr_q && wdata_q == f_wdata_q));
       assert (obi_out_q == (state_q == S_RESP));
       assert (!(state_q == S_REQ || state_q == S_RESP || state_q == S_RESULT) || (have_rs_q && have_commit_q));
       assert (!x_result_valid_o || x_result_we_o || x_result_data_o == 32'h0);
@@ -227,6 +298,8 @@ module tq_xif_regs #(
       cover (x_result_valid_o && x_result_ready_i && !x_result_we_o);
       cover (issue_fire && accept && kill);
       cover (state_q == S_WAIT && commit_fire && !kill && !have_rs_q);   // commit before operands
+      cover (state_q == S_WAIT && commit_fire && !kill && x_commit_id_i != cur_id); // batched commit
+      cover (state_q == S_WAIT && commit_fire &&  kill && x_commit_id_i != cur_id); // older-id kill
     end
   end
 `endif

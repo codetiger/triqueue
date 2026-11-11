@@ -21,7 +21,7 @@ OUT=$ROOT/build/soc/$CONFIG
 mkdir -p "$OUT"
 
 docker run --rm --name "$NAME" --platform linux/arm64 -v "$VOLUME:/work" -v "$ROOT:/tq:ro" -v "$OUT:/out" \
-  -e TAG="$CHIPYARD_TAG" -e CONFIG="$CONFIG" "$IMAGE" bash -euo pipefail -c '
+  -e TAG="$CHIPYARD_TAG" -e CONFIG="$CONFIG" -e MINIFORGE="${MINIFORGE:-}" "$IMAGE" bash -euo pipefail -c '
   source /tq/bench/chipyard/setup.sh
   if ! ls $RISCV/riscv64-unknown-elf/lib/libgloss_htif.a > /dev/null 2>&1; then
     ./scripts/build-toolchain-extra.sh riscv-tools -p $RISCV > /out/toolchain-extra.log 2>&1 \

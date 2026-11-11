@@ -40,10 +40,11 @@ class RunRecord:
 class TqTb:
     """Drives tq_top through its native register port."""
 
-    def __init__(self, dut, tile: int):
+    def __init__(self, dut, tile: int, prog_bytes: int = PROG_BYTES):
         self.dut = dut
         self.T = tile
         self.W = 2 * tile
+        self.prog_bytes = prog_bytes
         self.core = self.core_handle()
 
     def core_handle(self):
@@ -58,6 +59,8 @@ class TqTb:
         Clock(d.clk_i, 10, unit="ns").start()
         for s in (*self.host_inputs(), d.rd_rvalid_i, d.rd_rdata_i, d.wr_done_i, d.bus_err_i):
             s.value = 0
+        if hasattr(d, "ext_pending_i"):
+            d.ext_pending_i.value = 0
         d.rd_gnt_i.value = 1
         d.wr_gnt_i.value = 1
         d.rst_ni.value = 0
@@ -101,7 +104,7 @@ class TqTb:
         d, W, H = self.dut, self.W, self.T // 2
         assert mem_latency >= 1
         sram_lat = mem_latency - 1
-        padded = prog + bytes(PROG_BYTES - len(prog))          # NOP-pad the whole buffer (as the model)
+        padded = prog + bytes(self.prog_bytes - len(prog))     # NOP-pad the whole buffer (as the model)
         for i in range(0, len(padded), 4):
             await self.reg_write(REG_PROG + i, int.from_bytes(padded[i:i + 4], "little"))
         await self.start_cmd()                                 # START: the core is busy from the next cycle
@@ -119,7 +122,9 @@ class TqTb:
                 cyc += 1
             elif started:
                 break
-            if cyc > max_cycles:
+            if not started and absc > 32:
+                raise TimeoutError("BUSY never rose after START")
+            if cyc > max_cycles or absc > max_cycles + 200:
                 raise TimeoutError("core did not finish")
             if prog_poke:                                      # a host write to PROG while busy
                 poke = busy and cyc == 3
@@ -141,6 +146,7 @@ class TqTb:
             # read requests
             if val(d.rd_req_o) and rd_gnt:
                 addr = val(d.rd_addr_o)
+                assert (addr % W == 0 or val(core.stream_align_err)) and 0 <= addr and addr + W <= len(mem), f"bad rd_addr {addr:#x} (mem {len(mem):#x})"
                 word = int.from_bytes(mem[addr:addr + W].tobytes(), "little")
                 pending.append((absc + sram_lat, word))
                 rec.reads.append((cyc, addr))
@@ -148,7 +154,7 @@ class TqTb:
             if val(d.wr_req_o) and wr_gnt:
                 addr, be, data = val(d.wr_addr_o), val(d.wr_be_o), val(d.wr_wdata_o)
                 raw = data.to_bytes(W, "little")
-                assert addr % W == 0, f"unaligned wr_addr {addr:#x}"
+                assert addr % W == 0 and 0 <= addr and addr + W <= len(mem), f"bad wr_addr {addr:#x} (mem {len(mem):#x})"
                 lo = (be & -be).bit_length() - 1 if be else 0
                 n = be.bit_count()
                 assert lo in (0, self.T) and be == ((1 << n) - 1) << lo, f"non-contiguous byte enables {be:#x}"
@@ -179,6 +185,8 @@ class TqTb:
         if prog_poke:                                          # native register port only
             d.reg_req_i.value = d.reg_we_i.value = 0
         while pending:                                         # reads in flight when the core stopped
+            if absc > max_cycles + 400:
+                raise TimeoutError("post-stop pending read drain did not finish")
             due, word = pending[0]
             d.rd_rvalid_i.value = int(due == absc)
             if due == absc:
@@ -187,6 +195,8 @@ class TqTb:
             await FallingEdge(d.clk_i)
             absc += 1
         while wr_due:                                          # write responses (error stop only)
+            if absc > max_cycles + 400:
+                raise TimeoutError("post-stop write response drain did not finish")
             d.wr_done_i.value = int(wr_due[0] == absc)
             if wr_due[0] == absc:
                 wr_due.pop(0)
@@ -230,6 +240,9 @@ class TqTbAxil(TqTb):
     async def _write_addr(self, addr: int, data: int, be: int):
         """Present AW and W until accepted; return at the falling edge after the handshake."""
         d = self.dut
+        if val(d.s_bvalid_o):
+            await self._write_resp()
+        d.s_bready_i.value = 0
         d.s_awaddr_i.value, d.s_awvalid_i.value = addr, 1
         d.s_wdata_i.value, d.s_wstrb_i.value, d.s_wvalid_i.value = data, be, 1
         await self._handshake(d.s_awready_o, "AXI write not accepted")
@@ -255,6 +268,8 @@ class TqTbAxil(TqTb):
 
     async def reg_read(self, addr: int) -> int:
         d = self.dut
+        if val(d.s_bvalid_o):
+            await self._write_resp()
         d.s_bready_i.value = 0
         d.s_araddr_i.value, d.s_arvalid_i.value, d.s_rready_i.value = addr, 1, 1
         await self._handshake(d.s_arready_o, "AXI read not accepted")
@@ -293,6 +308,10 @@ class TqTbAxi(TqTbAxil):
         Clock(d.clk_i, 10, unit="ns").start()
         for s in self.host_inputs():
             s.value = 0
+        if hasattr(d, "m_rid_i"):
+            d.m_rid_i.value = 0
+        if hasattr(d, "m_bid_i"):
+            d.m_bid_i.value = 0
         d.m_rlast_i.value = 1
         d.m_arready_i.value = d.m_awready_i.value = d.m_wready_i.value = 1
         d.rst_ni.value = 0
@@ -302,14 +321,15 @@ class TqTbAxi(TqTbAxil):
         d.rst_ni.value = 1
 
     async def run(self, mem, prog, mem_latency, max_cycles=2_000_000, stall=0.0, seed=0, wr_resp_latency=None,
-                  bus_err=None):
-        """bus_err = i: the i-th write's B response is SLVERR (the data is still written)."""
+                  bus_err=None, rresp_err=None):
+        """bus_err = i: the i-th write's B response is SLVERR (the data is still written).
+        rresp_err = i: the i-th read beat's R response is SLVERR."""
         gnt = GrantSource(stall, seed)
         d, W, H = self.dut, self.W, self.T // 2
         assert mem_latency >= 1 and wr_resp_latency is not None and wr_resp_latency >= 1
         sram_lat = mem_latency - 1
         size = W.bit_length() - 1
-        padded = prog + bytes(PROG_BYTES - len(prog))          # NOP-pad the whole buffer (as the model)
+        padded = prog + bytes(self.prog_bytes - len(prog))     # NOP-pad the whole buffer (as the model)
         for i in range(0, len(padded), 4):
             await self.reg_write(REG_PROG + i, int.from_bytes(padded[i:i + 4], "little"))
         await self.start_cmd()
@@ -317,7 +337,7 @@ class TqTbAxi(TqTbAxil):
         core = self.core
         rec = RunRecord()
         r_due, b_due = [], []
-        n_b = 0
+        n_r = n_b = 0
         absc, cyc, started = 0, -1, False
         held_ar = held_aw = held_w = None
         while True:
@@ -327,7 +347,9 @@ class TqTbAxi(TqTbAxil):
                 cyc += 1
             elif started:
                 break
-            if cyc > max_cycles:
+            if not started and absc > 32:
+                raise TimeoutError("BUSY never rose after START")
+            if cyc > max_cycles or absc > max_cycles + 200:
                 raise TimeoutError("core did not finish")
             rd_gnt, wr_gnt = (int(g) for g in gnt.next()) if busy else (1, 1)
             d.m_arready_i.value = rd_gnt
@@ -346,17 +368,23 @@ class TqTbAxi(TqTbAxil):
             held_w = w if w and not wr_gnt else None
             if ar and rd_gnt:
                 addr, beats = ar[0], ar[1] + 1
+                assert (addr % W == 0 or val(core.stream_align_err)) and 0 <= addr and addr + W <= len(mem), f"bad AR addr {addr:#x} (mem {len(mem):#x})"
                 base_due = max(absc + sram_lat, r_due[-1][0] + 1 if r_due else 0)
                 for b in range(beats):
                     ba = addr + b * W
-                    r_due.append((base_due + b, int.from_bytes(mem[ba:ba + W].tobytes(), "little"), int(b == beats - 1)))
+                    chunk = mem[ba:ba + W].tobytes()
+                    if len(chunk) < W:
+                        chunk += bytes(W - len(chunk))
+                    r_due.append((base_due + b, int.from_bytes(chunk, "little"), int(b == beats - 1)))
             if (ar and rd_gnt) if ar else val(core.rd_gnt_i):
-                rec.reads.append((cyc, val(core.rd_addr_o)))
+                raddr = val(core.rd_addr_o)
+                assert (raddr % W == 0 or val(core.stream_align_err)) and 0 <= raddr and raddr + W <= len(mem), f"bad rd_addr {raddr:#x} (mem {len(mem):#x})"
+                rec.reads.append((cyc, raddr))
             if (aw and wr_gnt) or (w and wr_gnt):
                 assert aw and w, f"cycle {cyc}: AW and W of a write accepted in different cycles"
                 addr, (data, be, _) = aw[0], w
                 raw = data.to_bytes(W, "little")
-                assert addr % W == 0, f"unaligned wr_addr {addr:#x}"
+                assert addr % W == 0 and 0 <= addr and addr + W <= len(mem), f"bad wr_addr {addr:#x} (mem {len(mem):#x})"
                 lo = (be & -be).bit_length() - 1 if be else 0
                 n = be.bit_count()
                 assert lo in (0, self.T) and be == ((1 << n) - 1) << lo, f"non-contiguous byte enables {be:#x}"
@@ -368,11 +396,15 @@ class TqTbAxi(TqTbAxil):
                 rf, cf = val(core.beat_rf), val(core.beat_cf)
                 r, c = (self.T if rf else H), (self.T if cf else H)
                 rec.mac_starts.append((cyc, f"{r}x{c}x{self.T * self.T // (r * c)}"))
+            d.m_rresp_i.value = 0
             if r_due and r_due[0][0] == absc:
                 _, rword, rlast = r_due.pop(0)
                 d.m_rvalid_i.value = 1
                 d.m_rdata_i.value = rword
                 d.m_rlast_i.value = rlast
+                if rresp_err is not None and n_r == rresp_err:
+                    d.m_rresp_i.value = 2                       # SLVERR
+                n_r += 1
             else:
                 d.m_rvalid_i.value = 0
                 d.m_rlast_i.value = 1
@@ -387,6 +419,9 @@ class TqTbAxi(TqTbAxil):
             await FallingEdge(d.clk_i)
             absc += 1
         while r_due or b_due:                                  # in flight when the core stopped (error)
+            if absc > max_cycles + 400:
+                raise TimeoutError("post-stop AXI drain did not finish")
+            d.m_rresp_i.value = d.m_bresp_i.value = 0
             d.m_rvalid_i.value = int(bool(r_due) and r_due[0][0] == absc)
             if r_due and r_due[0][0] == absc:
                 _, rword, rlast = r_due.pop(0)
@@ -398,6 +433,7 @@ class TqTbAxi(TqTbAxil):
             await FallingEdge(d.clk_i)
             absc += 1
         d.m_rvalid_i.value = d.m_bvalid_i.value = 0
+        d.m_rresp_i.value = d.m_bresp_i.value = 0
         d.m_arready_i.value = d.m_awready_i.value = d.m_wready_i.value = 1
         rec.cycles = cyc + 1
         rec.status = await self.reg_read(REG_STATUS)
@@ -417,8 +453,8 @@ class TqTbXif(TqTb):
 
     OPCODE = 0b0001011                                 # custom-0, funct7 = 0
 
-    def __init__(self, dut, tile: int):
-        super().__init__(dut, tile)
+    def __init__(self, dut, tile: int, prog_bytes: int = PROG_BYTES):
+        super().__init__(dut, tile, prog_bytes)
         self.rng = np.random.default_rng(7)
         self.next_id = 0
 
@@ -442,6 +478,9 @@ class TqTbXif(TqTb):
         at the falling edge after the cycle the register port request was granted (the result
         is then taken later, x_result_ready_i stays 1)."""
         d, xif = self.dut, self.dut.u_xif
+        if val(d.x_result_valid_o):
+            d.x_result_ready_i.value = 1
+            await FallingEdge(d.clk_i)
         ours = opcode is None
         xid = self.next_id
         self.next_id = (self.next_id + 1) % 16

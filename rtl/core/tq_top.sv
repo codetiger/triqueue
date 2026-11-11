@@ -46,9 +46,11 @@ module tq_top #(
     output logic [VB-1:0] wr_wdata_o,
     input  logic          wr_gnt_i,
     input  logic          wr_done_i,     // write response (WR_ACK = 1); tie 0 for an SRAM
-    input  logic          bus_err_i      // pulse: an interconnect error response (STATUS.BUS_ERR); tie 0 for an SRAM
+    input  logic          bus_err_i,     // pulse: an interconnect error response (STATUS.BUS_ERR); tie 0 for an SRAM
+    output logic          flush_o,       // pulse on START or ABORT (flushes external read-burst buffers)
+    input  logic          ext_pending_i = 1'b0  // external adapter transactions still in flight (STATUS.PENDING); tie 0 for an SRAM
 );
-  logic                    start, abort, busy, done, error;
+  logic                    start, abort, busy, core_pending, done, error;
   logic [3:0]              err_code;
   logic [PROG_BYTES*8-1:0] prog;
   logic [8*32-1:0]         cfg;
@@ -60,7 +62,8 @@ module tq_top #(
       .reg_req_i, .reg_gnt_o, .reg_addr_i, .reg_we_i, .reg_be_i, .reg_wdata_i,
       .reg_rvalid_o, .reg_rdata_o, .irq_o,
       .start_o(start), .abort_o(abort), .prog_o(prog),
-      .busy_i(busy), .done_i(done), .error_i(error), .err_code_i(err_code), .bus_err_i, .cfg_i(cfg),
+      .busy_i(busy), .pending_i(core_pending || ext_pending_i),
+      .done_i(done), .error_i(error), .err_code_i(err_code), .bus_err_i, .cfg_i(cfg),
       .perf_i({p_wr, p_rd, p_beat, p_ret, p_cyc}));
 
   tq_core #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
@@ -69,27 +72,28 @@ module tq_top #(
             .PANEL_BYTES(PANEL_BYTES), .MAC_PIPE(MAC_PIPE), .PERF(PERF)) u_core (
       .clk_i, .rst_ni,
       .start_i(start), .abort_i(abort), .prog_i(prog),
-      .busy_o(busy), .done_o(done), .error_o(error), .err_code_o(err_code), .cfg_o(cfg),
+      .clear_o(flush_o), .busy_o(busy), .pending_o(core_pending),
+      .done_o(done), .error_o(error), .err_code_o(err_code), .cfg_o(cfg),
       .perf_cycles_o(p_cyc), .perf_instret_o(p_ret), .perf_beats_o(p_beat),
       .perf_reads_o(p_rd), .perf_writes_o(p_wr),
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i,
       .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i, .wr_done_i);
 
   generate
-    if (T < 4 || (T & (T - 1)) != 0) begin : g_bad_t
-      $error("tq_top: T must be a power of two, at least 4");
+    if (T < 4 || T > 128 || (T & (T - 1)) != 0) begin : g_bad_t
+      $error("tq_top: T must be a power of two in [4, 128]");
     end
-    if (FIFO_DEPTH < 2) begin : g_bad_fifo
-      $error("tq_top: FIFO_DEPTH must be at least 2");
+    if (FIFO_DEPTH < 2 || FIFO_DEPTH > 255) begin : g_bad_fifo
+      $error("tq_top: FIFO_DEPTH must be in [2, 255]");
     end
-    if (MACQ_DEPTH < 1) begin : g_bad_macq
-      $error("tq_top: MACQ_DEPTH must be at least 1");
+    if (MACQ_DEPTH < 1 || MACQ_DEPTH > 15) begin : g_bad_macq
+      $error("tq_top: MACQ_DEPTH must be in [1, 15]");
     end
     if (SCMD_DEPTH < 1) begin : g_bad_scmd
       $error("tq_top: SCMD_DEPTH must be at least 1");
     end
-    if (PROG_BYTES < 50 || (PROG_BYTES % 4) != 0) begin : g_bad_prog
-      $error("tq_top: PROG_BYTES must be at least 50 and a multiple of 4");
+    if (PROG_BYTES < 50 || PROG_BYTES > 1020 || (PROG_BYTES % 4) != 0) begin : g_bad_prog
+      $error("tq_top: PROG_BYTES must be in [50, 1020] and a multiple of 4");
     end
     if (PANEL_BYTES < 0 || (PANEL_BYTES % (2 * T)) != 0) begin : g_bad_panel
       $error("tq_top: PANEL_BYTES must be a non-negative multiple of 2T");

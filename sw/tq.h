@@ -16,11 +16,36 @@
 // C rows are tq_c_ld() bytes apart (padded to whole port words). The addresses given to the
 // core are byte offsets in its memory port's address space; A, B and C bases and the C row
 // stride must be multiples of W (the core stops with TQ_ERR_ALIGN otherwise).
-#ifndef TQ_H
-#define TQ_H
+#ifndef TRIQUEUE_TQ_H
+#define TRIQUEUE_TQ_H
 
 #include <stddef.h>
 #include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// ---- host memory barriers (override before including tq.h if needed) ----
+#ifndef TQ_WMB
+#if defined(__riscv)
+#define TQ_WMB() __asm__ volatile("fence ow, ow" ::: "memory")
+#elif defined(__GNUC__) || defined(__clang__)
+#define TQ_WMB() __asm__ volatile("" ::: "memory")
+#else
+#define TQ_WMB() ((void)0)
+#endif
+#endif
+
+#ifndef TQ_RMB
+#if defined(__riscv)
+#define TQ_RMB() __asm__ volatile("fence ir, ir" ::: "memory")
+#elif defined(__GNUC__) || defined(__clang__)
+#define TQ_RMB() __asm__ volatile("" ::: "memory")
+#else
+#define TQ_RMB() ((void)0)
+#endif
+#endif
 
 // ---- register map (spec 6.4) ----
 #define TQ_REG_ID          0x000u
@@ -44,22 +69,26 @@
 #define TQ_STATUS_DONE     0x2u
 #define TQ_STATUS_ERROR    0x4u
 #define TQ_STATUS_BUS_ERR  0x8u   // an interconnect error response during the run (AXI SLVERR / DECERR)
+#define TQ_STATUS_PENDING  0x10u  // busy, or reads/writes/pipeline still draining after ABORT or error
 
 // STATUS[11:8] error codes
 enum tq_err {
     TQ_OK = 0,
-    TQ_ERR_OPCODE = 1,     // undefined opcode
+    TQ_ERR_OPCODE = 1,     // undefined opcode or non-zero reserved argument bits
     TQ_ERR_CFG_REG = 2,    // CFG to a register >= 8
-    TQ_ERR_LOOP = 3,       // loop stack overflow or nested LOOP_T
+    TQ_ERR_LOOP = 3,       // loop stack overflow, zero body, inner past outer, or nested LOOP_T
     TQ_ERR_CFG_LOOP = 4,   // CFG inside a loop body
     TQ_ERR_PC = 5,         // instruction past the program buffer
     TQ_ERR_ALIGN = 6,      // misaligned base or C_LD
+    TQ_ERR_CFG_VAL = 7,    // invalid CFG value (K, M, N, MODE or C_LD < row bytes)
+    TQ_ERR_OPERAND = 8,    // leftover or starved operand FIFOs
     // driver-side errors (not from the hardware)
     TQ_ERR_NO_DEVICE = 16, // ID does not match
     TQ_ERR_PROG_SIZE = 17, // program does not fit the program buffer
     TQ_ERR_TIMEOUT = 18,   // tq_run gave up polling
     TQ_ERR_ARG = 19,       // invalid argument
     TQ_ERR_BUS = 20,       // the run finished, but a memory access got an error response
+    TQ_ERR_BUSY = 21,      // device was busy or had pending transactions at tq_run
 };
 
 // MODE bits (CFG register 7)
@@ -90,6 +119,12 @@ typedef struct {
 typedef struct {
     uint32_t cycles, instret, beats, reads, writes;
 } tq_perf;
+
+// Optional cache-maintenance callbacks for non-coherent DMA workspaces:
+//   clean(ptr, len)      called at the end of tq_gemm_prepare on packed A and B
+//   invalidate(ptr, len) called at the start of tq_gemm_finish on padded C
+typedef void (*tq_cache_op_fn)(const void *ptr, size_t len);
+void tq_set_cache_ops(tq_cache_op_fn clean, tq_cache_op_fn invalidate);
 
 // ---- device access (base = the register port's address in the host's address space) ----
 int tq_probe(volatile uint32_t *base, tq_info *info);
@@ -141,4 +176,8 @@ int tq_gemm_run_timeout(volatile uint32_t *base, const tq_info *info, uint8_t *w
             const uint8_t *a, size_t lda, const uint8_t *b, size_t ldb, int32_t *c, size_t ldc,
             uint32_t m, uint32_t n, uint32_t k, int a_signed, int b_signed, uint32_t max_polls);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* TRIQUEUE_TQ_H */

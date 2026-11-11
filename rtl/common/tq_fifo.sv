@@ -9,7 +9,7 @@
 
 module tq_fifo #(
     parameter int WIDTH = 8,
-    parameter int DEPTH = 4,                    // >= 2
+    parameter int DEPTH = 4,                    // >= 1
     parameter bit CLK_GATE = 1'b0,
     localparam int CW = $clog2(DEPTH + 1)
 ) (
@@ -23,7 +23,7 @@ module tq_fifo #(
     output logic [WIDTH-1:0] head1_o,           // second oldest entry
     output logic [CW-1:0]    count_o
 );
-  localparam int PW = $clog2(DEPTH);
+  localparam int PW = (DEPTH > 1) ? $clog2(DEPTH) : 1;
 
   logic [DEPTH-1:0][WIDTH-1:0] mem_q;
   logic [PW-1:0]    rd_q, wr_q;
@@ -67,6 +67,18 @@ module tq_fifo #(
     end
     assign mem_q[i] = q;
   end
+
+`ifndef SYNTHESIS
+`ifndef FORMAL
+  always_ff @(posedge clk_i) begin
+    if (rst_ni && !clear_i) begin
+      assert (pop_i != 2'd3);
+      assert (32'(pop_i) <= 32'(count_q));                                // no underflow
+      assert (32'(count_q) - 32'(pop_i) + 32'(push_i) <= DEPTH);          // no overflow
+    end
+  end
+`endif
+`endif
 
 `ifdef FORMAL
 `ifdef TQ_FORMAL_CORE

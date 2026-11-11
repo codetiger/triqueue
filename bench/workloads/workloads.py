@@ -20,6 +20,8 @@ def rows(tag: str | None = None) -> list[dict]:
             r["tags"] = set(filter(None, r["tags"].split(";")))
             if tag is None or tag in r["tags"]:
                 out.append(r)
+        if tag is not None and not out:
+            raise ValueError(f"Unknown workload tag: {tag!r}")
         return out
 
 

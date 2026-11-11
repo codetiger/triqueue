@@ -68,7 +68,8 @@ module tq_core_env #(
             .CLK_GATE(1'b0), .WR_ACK(WR_ACK), .WR_OUT_MAX(3),
             .PANEL_BYTES(PANEL_BYTES)) dut (
       .clk_i, .rst_ni, .start_i, .abort_i, .prog_i(prog),
-      .busy_o(busy), .done_o(done), .error_o(error), .err_code_o(err_code), .cfg_o(cfg),
+      .clear_o(), .busy_o(busy), .pending_o(),
+      .done_o(done), .error_o(error), .err_code_o(err_code), .cfg_o(cfg),
       .perf_cycles_o(p_cyc), .perf_instret_o(p_ret), .perf_beats_o(p_beat),
       .perf_reads_o(p_rd), .perf_writes_o(p_wr),
       .rd_req_o(rd_req), .rd_addr_o(rd_addr), .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i,

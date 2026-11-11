@@ -16,7 +16,10 @@ module tq_top_axil #(
     parameter bit WR_ACK      = 1'b0,
     parameter int WR_OUT_MAX  = 15,
     parameter int PANEL_BYTES = 0,
+    parameter int MAC_PIPE    = 2,
+    parameter bit PERF        = 1'b1,
     parameter int ADDR_W      = 12,
+    parameter bit CHECK_PROT  = 1'b0,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -56,14 +59,16 @@ module tq_top_axil #(
     output logic [VB-1:0]     wr_wdata_o,
     input  logic              wr_gnt_i,
     input  logic              wr_done_i,
-    input  logic              bus_err_i
+    input  logic              bus_err_i,
+    output logic              flush_o,
+    input  logic              ext_pending_i = 1'b0
 );
   logic        reg_req, reg_gnt, reg_we, reg_rvalid;
   logic [11:0] reg_addr;
   logic [3:0]  reg_be;
   logic [31:0] reg_wdata, reg_rdata;
 
-  tq_axil_regs #(.ADDR_W(ADDR_W)) u_axil (
+  tq_axil_regs #(.ADDR_W(ADDR_W), .CHECK_PROT(CHECK_PROT)) u_axil (
       .clk_i, .rst_ni,
       .s_awaddr_i, .s_awprot_i, .s_awvalid_i, .s_awready_o,
       .s_wdata_i, .s_wstrb_i, .s_wvalid_i, .s_wready_o,
@@ -76,12 +81,13 @@ module tq_top_axil #(
   tq_top #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
            .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
            .CLK_GATE(CLK_GATE), .WR_ACK(WR_ACK), .WR_OUT_MAX(WR_OUT_MAX),
-           .PANEL_BYTES(PANEL_BYTES)) u_tq (
+           .PANEL_BYTES(PANEL_BYTES), .MAC_PIPE(MAC_PIPE), .PERF(PERF)) u_tq (
       .clk_i, .rst_ni,
       .reg_req_i(reg_req), .reg_gnt_o(reg_gnt), .reg_addr_i(reg_addr), .reg_we_i(reg_we),
       .reg_be_i(reg_be), .reg_wdata_i(reg_wdata), .reg_rvalid_o(reg_rvalid), .reg_rdata_o(reg_rdata),
       .irq_o,
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i,
-      .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i, .wr_done_i, .bus_err_i);
+      .wr_req_o, .wr_addr_o, .wr_be_o, .wr_wdata_o, .wr_gnt_i, .wr_done_i, .bus_err_i,
+      .flush_o, .ext_pending_i);
 
 endmodule

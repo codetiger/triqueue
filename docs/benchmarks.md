@@ -10,7 +10,7 @@ Source: `model/results.md` (`model/bench.py`). Memory latency 2, FIFO depth 8, s
 
 | M×N×K | Cycles | Utilization | Limited by |
 | --- | --- | --- | --- |
-| 16×16×16 | 101 | 63.4% | Fixed 34-cycle start/end overhead |
+| 16×16×16 | 101 | 63.4% | Fixed 34-cycle start/end overhead (+ 3 drain-wait cycles at K = 16) |
 | 32×32×32 | 546 | 93.8% | Fixed overhead |
 | 64×64×64 | 4,130 | 99.2% | Nothing significant |
 | 256×256×256 | 262,178 | 100.0% | Nothing significant |
@@ -30,7 +30,7 @@ Further tables in the source file: shared read/write port (79.8% at 64³), drain
 
 ## 2. RTL, T = 8
 
-Source: `verif/` (`make rtl-test`). The SystemVerilog core gives the same cycle count as the model for every one of **1,709 regression cases in 25 configurations** (T = 4, 8, 16, 32; shared port; minimal and reference queues; both accumulator forms; panel buffer; single-beat and burst AXI; CV-X-IF; and random memory back-pressure of 10–80%), including **4,130 cycles for 64³**. Results are bit-exact, and every memory transaction and MAC start happens on the same cycle as in the model. See [`docs/verification.md`](verification.md) for the matrix and the known coverage gaps.
+Source: `verif/` (`make rtl-test`). The SystemVerilog core gives the same cycle count as the model for every one of **1,742 regression cases in 26 configurations** (T = 4, 8, 16, 32; shared port; minimal and reference queues; both accumulator forms; panel buffer; single-beat and burst AXI; CV-X-IF; and random memory back-pressure of 10–80%), including **4,130 cycles for 64³**. Results are bit-exact, and every memory transaction and MAC start happens on the same cycle as in the model. See [`docs/verification.md`](verification.md) for the matrix and the known coverage gaps.
 
 ## 3. Tile size (cycle model)
 
@@ -80,7 +80,7 @@ The second bank removes the per-tile drain stall that a production outer-product
 
 ## 5. Place and route, T = 8 and T = 16
 
-Source: `flow/results.md` (`flow/results.py`, from runs of `flow/ppa.py` and `flow/power.py`). OpenROAD-flow-scripts `d0e5b3c13`, typical corner, post-route STA and extracted parasitics. Power comes from simulating each workload in Verilator (checked against the model) with uniform random int8 operands, which switch more than real data. Reference configuration: plain-adder accumulator, clock gating on, operand FIFOs of depth 4 and a 3-entry MAC command queue (enough for an SRAM with up to 3 cycles of read latency, with no cycle lost). Engine only unless stated.
+Source: `flow/results.md` (`flow/results.py`, from runs of `flow/ppa.py` and `flow/power.py`). OpenROAD-flow-scripts `d0e5b3c13`, typical corner, post-route STA and extracted parasitics. Power comes from simulating each workload in Verilator (checked against the model) with uniform random int8 operands, which switch more than real data. Reference configuration: plain-adder accumulator, clock gating on, operand FIFOs of depth 4 and a 3-entry MAC command queue (enough for an SRAM with up to 3 cycles of read latency, `L ≤ 3` / model `mem_latency ≤ 4`, with no cycle lost). Engine only unless stated.
 
 | | sky130hd, T = 8 (100 MHz, 55% util) | ASAP7, T = 8 (1 GHz, 70% util) | ASAP7, T = 16 (741 MHz, 70% util) |
 | --- | --- | --- | --- |
@@ -96,7 +96,7 @@ Source: `flow/results.md` (`flow/results.py`, from runs of `flow/ppa.py` and `fl
 | ResNet-8 conv with ReLU-like operands (synthetic, half-zero activations) | 13.9 pJ (0.144 TOPS/W) | 0.58 pJ (3.47 TOPS/W) | 0.54 pJ (3.70 TOPS/W) |
 | Engine + operand SRAM, geometric mean (OpenRAM macro, sky130 only) | 23.7 pJ (0.084 TOPS/W) | – | – |
 
-- **Clock gating** (`CLK_GATE = 0` for comparison) cuts power by 24–40%, cell area by 8.5% and energy per MAC by 29.9% (sky130hd; ASAP7: 21–34%, 6.7% and 25.7%), at essentially the same clock. The relative power saving is larger at lower utilization because the gated clock trees and registers stop switching. What remains is mostly the multiplier array's switching, which follows the operand data; operand isolation on idle and unused quadrants is the next power lever (spec §11).
+- **Clock gating** (`CLK_GATE = 0` for comparison) cuts power by 24–40%, cell area by 8.5% and energy per MAC by 29.9% (sky130hd; ASAP7: 21–34%, 6.7% and 25.7%), at essentially the same clock. The relative power saving is larger at lower utilization because the gated clock trees and registers stop switching. What remains is mostly the multiplier array's switching, which follows the operand data; operand isolation on idle and unused quadrants is the next power lever.
 - **Accumulator form:** against carry-save, the plain adder uses 23.4% less cell area, has 31.7% fewer flip-flops and uses 21.6% less energy per MAC on sky130hd (ASAP7: 18.4%, 31.7%, 18.0%), at a slightly higher clock (spec §10.2).
 - **SRAM line:** each workload's reads and writes times the access energy of ORFS's OpenRAM macro `sky130_sram_1rw1r_128x256_8` (179 pJ per access from its liberty, which charges every clock edge the same), plus leakage; it adds 3.0–8.4 pJ per MAC. ASAP7 has only placeholder SRAM models, so it has no SRAM line.
 

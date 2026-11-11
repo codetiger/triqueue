@@ -25,13 +25,16 @@ def auto_shape(rows_left: int, cols_left: int, t: int = 8):
 
 
 def _as_u8(x: np.ndarray) -> np.ndarray:
-    assert x.dtype in (np.int8, np.uint8), x.dtype
+    if x.dtype not in (np.int8, np.uint8):
+        raise ValueError(f"unsupported operand dtype: {x.dtype}")
     return x.view(np.uint8)
 
 
 def pack_a(a: np.ndarray, kpad: int, t: int = 8) -> np.ndarray:
     m, k = a.shape
     a = _as_u8(a)
+    if m == 0 or kpad == 0:
+        return np.zeros(0, np.uint8)
     panels = []
     for ti in range(-(-m // t)):
         rows = a[t * ti:t * ti + t]
@@ -45,6 +48,8 @@ def pack_a(a: np.ndarray, kpad: int, t: int = 8) -> np.ndarray:
 def pack_b(b: np.ndarray, kpad: int, t: int = 8) -> np.ndarray:
     k, n = b.shape
     b = _as_u8(b)
+    if n == 0 or kpad == 0:
+        return np.zeros(0, np.uint8)
     panels = []
     for tj in range(-(-n // t)):
         cols = b[:, t * tj:t * tj + t]

@@ -8,7 +8,8 @@
 //                         [31:24] PROG_BYTES / 4.  Port width W = 2T bytes.
 //   0x008 CTRL        WO  bit 0 START, bit 1 ABORT
 //   0x00C STATUS      RO  bit 0 BUSY, bit 1 DONE (sticky until START), bit 2 ERROR, bit 3 BUS_ERR
-//                         (an interconnect error response since START, sticky), [11:8] error code
+//                         (an interconnect error response since START, sticky), bit 4 PENDING
+//                         (busy, or reads/writes/pipeline still draining), [11:8] error code
 //   0x010 IRQ_EN      RW  bit 0 done, bit 1 error, bit 2 bus error
 //   0x014 IRQ_STATUS  RW1C bit 0 done, bit 1 error, bit 2 bus error
 //   0x020 PERF_CYCLES, 0x024 PERF_INSTRET, 0x028 PERF_BEATS, 0x02C PERF_READS, 0x030 PERF_WRITES   RO
@@ -40,6 +41,7 @@ module tq_regs #(
     output logic                    abort_o,
     output logic [PROG_BYTES*8-1:0] prog_o,
     input  logic                    busy_i,
+    input  logic                    pending_i,
     input  logic                    done_i,
     input  logic                    error_i,
     input  logic [3:0]              err_code_i,
@@ -57,21 +59,23 @@ module tq_regs #(
   logic       rvalid_q;
   logic [31:0] rdata_q;
 
-  logic wr, rd;
+  logic        wr, rd;
+  logic [11:0] addr_w;
   assign reg_gnt_o = 1'b1;
-  assign wr = reg_req_i && reg_we_i;
-  assign rd = reg_req_i && !reg_we_i;
+  assign wr        = reg_req_i && reg_we_i;
+  assign rd        = reg_req_i && !reg_we_i;
+  assign addr_w    = {reg_addr_i[11:2], 2'b00};
 
-  assign start_o = wr && reg_addr_i == 12'h008 && reg_be_i[0] && reg_wdata_i[0];
-  assign abort_o = wr && reg_addr_i == 12'h008 && reg_be_i[0] && reg_wdata_i[1];
+  assign start_o = wr && addr_w == 12'h008 && reg_be_i[0] && reg_wdata_i[0];
+  assign abort_o = wr && addr_w == 12'h008 && reg_be_i[0] && reg_wdata_i[1];
 
   logic [31:0] rdata;
   always_comb begin
     rdata = 32'd0;
-    case (reg_addr_i)
+    case (addr_w)
       12'h000: rdata = ID;
       12'h004: rdata = HW_CONFIG;
-      12'h00C: rdata = {20'd0, err_code_i, 4'd0, bus_err_q, error_i, done_q, busy_i};
+      12'h00C: rdata = {20'd0, err_code_i, 3'd0, pending_i, bus_err_q, error_i, done_q, busy_i};
       12'h010: rdata = {29'd0, irq_en_q};
       12'h014: rdata = {29'd0, irq_st_q};
       12'h020: rdata = perf_i[0*32 +: 32];
@@ -80,37 +84,32 @@ module tq_regs #(
       12'h02C: rdata = perf_i[3*32 +: 32];
       12'h030: rdata = perf_i[4*32 +: 32];
       default: begin
-        if (reg_addr_i >= 12'h040 && reg_addr_i < 12'h060) rdata = cfg_i[32'(reg_addr_i[4:2]) * 32 +: 32];
+        if (addr_w >= 12'h040 && addr_w < 12'h060) rdata = cfg_i[32'(addr_w[4:2]) * 32 +: 32];
       end
     endcase
   end
 
+  logic [2:0] irq_w1c, irq_set;
+  assign irq_w1c = (wr && addr_w == 12'h014 && reg_be_i[0]) ? reg_wdata_i[2:0] : 3'b000;
+  assign irq_set = {bus_err_i, done_i && error_i, done_i};
+
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       done_q <= 1'b0; bus_err_q <= 1'b0; irq_en_q <= '0; irq_st_q <= '0;
-      rvalid_q <= 1'b0;
+      rvalid_q <= 1'b0; rdata_q <= '0;
     end else begin
       rvalid_q <= reg_req_i;
       if (start_o && !busy_i) begin
         done_q    <= 1'b0;
-        bus_err_q <= 1'b0;
+        bus_err_q <= bus_err_i;
+      end else begin
+        if (done_i)    done_q    <= 1'b1;
+        if (bus_err_i) bus_err_q <= 1'b1;
       end
-      if (bus_err_i) begin
-        bus_err_q   <= 1'b1;
-        irq_st_q[2] <= 1'b1;
-      end
-      if (done_i) begin
-        done_q      <= 1'b1;
-        irq_st_q[0] <= 1'b1;
-        if (error_i) irq_st_q[1] <= 1'b1;
-      end
-      if (wr && reg_addr_i == 12'h010 && reg_be_i[0]) irq_en_q <= reg_wdata_i[2:0];
-      if (wr && reg_addr_i == 12'h014 && reg_be_i[0]) irq_st_q <= irq_st_q & ~reg_wdata_i[2:0];
+      irq_st_q <= (irq_st_q & ~irq_w1c) | irq_set;
+      if (wr && addr_w == 12'h010 && reg_be_i[0]) irq_en_q <= reg_wdata_i[2:0];
+      if (rd) rdata_q <= rdata;
     end
-  end
-
-  always_ff @(posedge clk_i) begin
-    if (rd) rdata_q <= rdata;
   end
 
   // program buffer: byte i is written by a PROG write to word i / 4 with byte enable i % 4
@@ -133,5 +132,10 @@ module tq_regs #(
   assign reg_rvalid_o = rvalid_q;
   assign reg_rdata_o  = rdata_q;
   assign irq_o        = |(irq_st_q & irq_en_q);
+
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_addr_lo;
+  assign unused_addr_lo = ^reg_addr_i[1:0];
+  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

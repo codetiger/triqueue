@@ -31,10 +31,12 @@ module tq_core #(
     input  logic                    clk_i,
     input  logic                    rst_ni,
     // control
-    input  logic                    start_i,     // ignored while busy
+    input  logic                    start_i,     // ignored while busy or abort_i
     input  logic                    abort_i,
     input  logic [PROG_BYTES*8-1:0] prog_i,
+    output logic                    clear_o,     // pulse on start or abort
     output logic                    busy_o,
+    output logic                    pending_o,   // busy, or reads/writes/pipeline still draining
     output logic                    done_o,      // pulse when a run ends (normally or on error)
     output logic                    error_o,     // sticky until the next start
     output logic [3:0]              err_code_o,
@@ -63,11 +65,13 @@ module tq_core #(
   logic running_q, err_q;
   logic [3:0] err_code_q;
   logic clear, start;
-  assign start = start_i && !running_q;
-  assign clear = start || abort_i;
+  assign start   = start_i && !abort_i && !running_q;
+  assign clear   = start || abort_i;
+  assign clear_o = clear;
 
   // ---------------------------------------------------------------- front end
   logic          macq_push, scmd_a_push, scmd_b_push, macq_full, scmd_a_full, scmd_b_full;
+  logic          queues_idle, scmd_idle, fe_macq_stall;
   tq_pkg::mcmd_t macq_in;
   tq_pkg::scmd_t scmd_a_in, scmd_b_in;
   logic [31:0]   a_base, b_base, c_base, c_ld, cfg_m, cfg_n, cfg_k, mode;
@@ -75,14 +79,16 @@ module tq_core #(
   logic [3:0]    fe_err_code;
 
   tq_frontend #(.T(T), .PROG_BYTES(PROG_BYTES), .CLK_GATE(CLK_GATE)) u_fe (
-      .clk_i, .rst_ni, .start_i(clear), .run_i(running_q), .prog_i,
+      .clk_i, .rst_ni, .start_i(clear), .cfg_clear_i(start), .run_i(running_q), .prog_i,
+      .queues_idle_i(queues_idle),
       .macq_full_i(macq_full), .scmd_a_full_i(scmd_a_full), .scmd_b_full_i(scmd_b_full),
       .macq_push_o(macq_push), .macq_data_o(macq_in),
       .scmd_a_push_o(scmd_a_push), .scmd_a_data_o(scmd_a_in),
       .scmd_b_push_o(scmd_b_push), .scmd_b_data_o(scmd_b_in),
       .cfg_a_base_o(a_base), .cfg_b_base_o(b_base), .cfg_c_base_o(c_base), .cfg_c_ld_o(c_ld),
       .cfg_m_o(cfg_m), .cfg_n_o(cfg_n), .cfg_k_o(cfg_k), .cfg_mode_o(mode),
-      .fence_o(fence), .retire_o(retire), .error_o(fe_err), .err_code_o(fe_err_code));
+      .fence_o(fence), .macq_stall_o(fe_macq_stall),
+      .retire_o(retire), .error_o(fe_err), .err_code_o(fe_err_code));
 
   assign cfg_o = {mode, cfg_n, cfg_m, cfg_k, c_ld, c_base, b_base, a_base};
 
@@ -130,8 +136,8 @@ module tq_core #(
   logic               active_n;
 
   always_comb begin
-    has0      = macq_cnt >= MCW'(1);
-    has1      = macq_cnt >= MCW'(2);
+    has0      = running_q && !clear && (32'(macq_cnt) >= 1);
+    has1      = running_q && !clear && (32'(macq_cnt) >= 2);
     // ZERO_C clears both banks, so like SWAP_C it waits while a drain reads one
     is_zero   = !b1_q && has0 && e0.kind == tq_pkg::MC_ZERO && !drain_act;
     zero_wait = !b1_q && has0 && e0.kind == tq_pkg::MC_ZERO && drain_act;
@@ -160,7 +166,7 @@ module tq_core #(
 
   logic beat, beat_rf, beat_cf, beat_bank;
   logic [VB-1:0] beat_a, beat_b;
-  assign beat      = b1_q || mac_start;
+  assign beat      = (b1_q || mac_start) && running_q && !clear;
   assign beat_rf   = b1_q ? b1_rf_q   : sh_rf;
   assign beat_cf   = b1_q ? b1_cf_q   : sh_cf;
   assign beat_bank = b1_q ? b1_bank_q : active_n;
@@ -244,7 +250,7 @@ module tq_core #(
   end
 
   // ---------------------------------------------------------------- stream engine + ports
-  logic stream_idle, stream_align_err, rd_fire, wr_req;
+  logic stream_idle, stream_pending, drop_busy, stream_align_err, rd_fire, wr_req;
   tq_stream #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .SCMD_DEPTH(SCMD_DEPTH), .SHARED_PORT(SHARED_PORT),
               .CLK_GATE(CLK_GATE), .PANEL_BYTES(PANEL_BYTES)) u_stream (
       .clk_i, .rst_ni, .clear_i(clear), .run_i(running_q),
@@ -255,18 +261,22 @@ module tq_core #(
       .wr_pending_i(wr_pending_room), .swap_wait_i(swap_wait || zero_wait), .wr_gnt_i, .wr_req_o(wr_req), .wr_fire_o(wr_fire),
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i, .rd_fire_o(rd_fire),
       .qa_push_o(qa_push), .qb_push_o(qb_push), .q_data_o(q_data), .qa_data_o(qa_data),
-      .idle_o(stream_idle), .align_err_o(stream_align_err));
+      .idle_o(stream_idle), .scmd_idle_o(scmd_idle),
+      .pending_o(stream_pending), .drop_busy_o(drop_busy),
+      .align_err_o(stream_align_err));
 
   assign wr_req_o = wr_req;
+  assign queues_idle = (32'(macq_cnt) - 32'(macq_pop) == 0) && !mac_start && scmd_idle;
 
   // ---------------------------------------------------------------- halt and errors
   // FENCE completes when, after this cycle's MAC and port activity, nothing is queued, streaming,
   // in flight, mid-instruction or draining (model: all_idle, evaluated in the front-end stage).
-  logic idle, halt, err_now;
+  logic mac_done, idle, halt, err_now;
   logic [3:0] err_now_code;
-  assign idle = (32'(macq_cnt) - 32'(macq_pop) == 0) && !mac_start && stream_idle && !drain_act_next
-             && wr_out_n == '0;
-  assign halt = running_q && fence && idle;
+  assign mac_done = (32'(macq_cnt) - 32'(macq_pop) == 0) && !mac_start && !drain_act_next
+                 && (wr_out_n == '0);
+  assign idle     = mac_done && stream_idle && (qa_cnt == '0) && (qb_cnt == '0);
+  assign halt     = running_q && fence && idle;
 
   always_comb begin
     err_now      = 1'b0;
@@ -276,6 +286,11 @@ module tq_core #(
         err_now = 1'b1; err_now_code = fe_err_code;
       end else if (drain_align_err || stream_align_err) begin
         err_now = 1'b1; err_now_code = tq_pkg::ERR_ALIGN;
+      end else if (fence && mac_done && !drop_busy && (!stream_idle || qa_cnt != '0 || qb_cnt != '0)) begin
+        err_now = 1'b1; err_now_code = tq_pkg::ERR_OPERAND;
+      end else if ((fence || fe_macq_stall) && stream_idle && !b1_q && !mac_start && !drain_act_next
+                   && (wr_out_n == '0) && mc_has && (mc_kind == tq_pkg::MC_MAC)) begin
+        err_now = 1'b1; err_now_code = tq_pkg::ERR_OPERAND;
       end
     end
   end
@@ -301,6 +316,7 @@ module tq_core #(
   end
 
   assign busy_o     = running_q;
+  assign pending_o  = running_q || stream_pending || prod_valid || (wr_out_q != '0);
   assign done_o     = done_q;
   assign error_o    = err_q;
   assign err_code_o = err_code_q;
@@ -355,10 +371,18 @@ module tq_core #(
   end
   // write responses, checked at the clock edge (inputs may change between edges)
   /* verilator lint_off SYNCASYNCNET */
+  logic sim_past_rst_q;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) sim_past_rst_q <= 1'b0;
+    else         sim_past_rst_q <= 1'b1;
+  end
   always_ff @(posedge clk_i) begin
-    if (rst_ni && WR_ACK) begin
+    if (rst_ni && sim_past_rst_q && WR_ACK) begin
       assert (!(wr_done_i && 32'(wr_out_q) + 32'(wr_fire) == 0)) else $error("wr_done without a write");
       assert (32'(wr_out_n) <= WR_OUT_MAX) else $error("more than WR_OUT_MAX writes outstanding");
+    end
+    if (rst_ni && sim_past_rst_q && !WR_ACK) begin
+      assert (!wr_done_i) else $error("wr_done without WR_ACK");
     end
   end
   /* verilator lint_on SYNCASYNCNET */

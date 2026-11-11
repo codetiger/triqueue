@@ -7,6 +7,13 @@ Tri-Queue is a research/edge matrix coprocessor, not a security boundary. It has
 no memory protection and no isolation: the host program controls the memory ports. Do not use it to
 enforce security properties without your own wrappers and review.
 
+## Supported versions
+
+| Version | Supported |
+| --- | --- |
+| `1.0.x` | Yes |
+| `< 1.0` | No |
+
 ## Reporting a vulnerability
 
 Please **do not** open a public issue for a security-sensitive report. Use GitHub's private

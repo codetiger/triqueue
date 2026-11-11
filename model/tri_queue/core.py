@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
-"""Cycle-level model of the Tri-Queue int8 matrix core (spec rev 4, docs/specification.md).
+"""Cycle-level model of the Tri-Queue int8 matrix core (spec rev 5, docs/specification.md).
 
 The simulator executes the real instruction bytes. The arithmetic is done the way the hardware
 does it: 9x9 multiplies, per-quadrant operand selection for the k-depth arity modes, and
@@ -14,14 +14,18 @@ Per-cycle order: memory responses land -> MAC unit -> memory port(s) -> front en
 
 Modelling assumptions (stated in model/README.md):
   * Front end decodes 1 instruction/cycle; loops are zero-overhead (loop buffer).
+  * CFG waits until the MAC and stream command queues are empty so queued work always sees the
+    configuration under which it was issued.
   * ZERO_C and SWAP_C are bank-pointer operations that take no MAC cycle. Per cycle the MAC unit
     consumes at most one of them, followed by at most one VOUTER_MAC.
   * Loop bodies contain only 1-byte instructions (a CFG reached inside a loop is ERR_CFG_LOOP).
   * Errors (spec 6.4) stop the core at the end of the cycle that finds them, with the RTL's
-    error code (Stats.error): the front end checks the instruction it executes (opcode, CFG
-    register, CFG in a loop, loop depth / a second LOOP_T, running past the PROG_BYTES program
-    buffer, which is NOP-padded), the stream engine checks a panel base when it loads it, and
-    the MAC unit checks a tile's C address and C_LD when its drain starts (ERR_ALIGN).
+    error code (Stats.error): the front end checks the instruction it executes (opcode and
+    reserved argument bits, CFG register and value ranges, CFG in a loop, loop depth / non-zero
+    body / inner loop within outer / a second LOOP_T, running past the PROG_BYTES program
+    buffer, which is NOP-padded), the stream engine checks a panel base when it loads it,
+    the MAC unit checks a tile's C address and C_LD when its drain starts (ERR_ALIGN), and FENCE
+    or a full MAC queue checks for leftover or starved operands (ERR_OPERAND).
   * VOUTER_MAC needs all of its operand bytes present when it starts, and pops them at the start.
   * SRAM reads are fully pipelined with a fixed latency, one W-byte read per cycle.
   * Port grants come from GrantSource: always granted by default, or seeded random OBI `gnt`
@@ -59,6 +63,10 @@ from .packing import kp, auto_shape, panel_width
 HW_CELL_ARITY = {(0, 0): 4, (0, 1): 2, (1, 0): 2, (1, 1): 1}
 
 
+class _AutoPort(int):
+    """Marker int subclass so dataclasses.replace(Params(), tile=16) recomputes port_bytes = 2*tile."""
+
+
 @dataclass
 class Params:
     tile: int = 8                # T: output tile is T x T, the array has T*T multipliers
@@ -93,16 +101,53 @@ class Params:
     chain_c: bool = False
     chain_snapshot: bool = False
 
+    def __setattr__(self, name, value):
+        super().__setattr__(name, value)
+        if name == "tile" and isinstance(getattr(self, "port_bytes", 0), _AutoPort):
+            super().__setattr__("port_bytes", _AutoPort(2 * value))
+
     def __post_init__(self):
-        if not self.port_bytes:
-            self.port_bytes = 2 * self.tile
-        assert self.tile >= 4 and self.tile & (self.tile - 1) == 0, "tile must be a power of two >= 4"
-        assert self.port_bytes >= 4 and self.port_bytes % 4 == 0, "port must hold whole int32 lanes"
-        assert 0.0 <= self.gnt_stall < 1.0, "gnt_stall must be in [0, 1)"
-        assert self.out_bytes in (1, 4) and 0 <= self.out_shift < 32 and self.drain_lanes >= 0
-        assert not self.chain_c or self.out_bytes == 1, "chain_c needs int8 output"
-        assert not self.chain_snapshot or self.chain_c, "chain_snapshot needs chain_c"
-        assert self.wr_resp_latency >= 0 and self.wr_out_max >= 1
+        if not self.port_bytes or isinstance(self.port_bytes, _AutoPort):
+            super().__setattr__("port_bytes", _AutoPort(2 * self.tile))
+        self.validate()
+
+    def validate(self):
+        if self.tile < 4 or (self.tile & (self.tile - 1)) != 0 or self.tile > 128:
+            raise ValueError("tile must be a power of two in [4, 128]")
+        if not self.port_bytes or isinstance(self.port_bytes, _AutoPort):
+            super().__setattr__("port_bytes", _AutoPort(2 * self.tile))
+        if self.port_bytes < 4 or self.port_bytes % 4 != 0:
+            raise ValueError("port must hold whole int32 lanes (multiple of 4 >= 4)")
+        if self.mem_latency < 1:
+            raise ValueError("mem_latency must be >= 1")
+        if self.fifo_depth < 2 or self.fifo_depth > 255:
+            raise ValueError("fifo_depth must be in [2, 255]")
+        if self.mac_queue_depth < 1 or self.mac_queue_depth > 15:
+            raise ValueError("mac_queue_depth must be in [1, 15]")
+        if self.stream_queue_depth < 1:
+            raise ValueError("stream_queue_depth must be >= 1")
+        if self.mac_pipe not in (1, 2):
+            raise ValueError("mac_pipe must be 1 or 2")
+        if self.cpa_latency < 0:
+            raise ValueError("cpa_latency must be >= 0")
+        if self.banks not in (1, 2):
+            raise ValueError("banks must be 1 or 2")
+        if not (0.0 <= self.gnt_stall < 1.0):
+            raise ValueError("gnt_stall must be in [0, 1)")
+        if self.wr_resp_latency < 0 or self.wr_out_max < 1:
+            raise ValueError("wr_resp_latency must be >= 0 and wr_out_max >= 1")
+        if self.prog_bytes < 50 or self.prog_bytes > 1020 or self.prog_bytes % 4 != 0:
+            raise ValueError("prog_bytes must be a multiple of 4 in [50, 1020]")
+        if self.panel_bytes < 0 or self.panel_bytes % (2 * self.tile) != 0:
+            raise ValueError("panel_bytes must be >= 0 and a multiple of 2*tile")
+        if self.panel_latency < 1:
+            raise ValueError("panel_latency must be >= 1")
+        if self.out_bytes not in (1, 4) or not (0 <= self.out_shift < 32) or self.drain_lanes < 0:
+            raise ValueError("out_bytes must be 1 or 4, 0 <= out_shift < 32, drain_lanes >= 0")
+        if self.chain_c and self.out_bytes != 1:
+            raise ValueError("chain_c needs int8 output")
+        if self.chain_snapshot and not self.chain_c:
+            raise ValueError("chain_snapshot needs chain_c")
 
 
 @dataclass
@@ -132,7 +177,7 @@ class Stats:
 
     @property
     def utilization(self):
-        return self.useful_macs / (self.peak_macs * self.cycles)
+        return 0.0 if self.cycles == 0 else self.useful_macs / (self.peak_macs * self.cycles)
 
 
 def _csa_reduce(ops):
@@ -196,10 +241,12 @@ class TriQueueCore:
     def __init__(self, mem: np.ndarray, program: bytes, params: Params | None = None, trace=None):
         """trace: None, or a list that receives one text line per event (see docs/golden-vectors.md)."""
         self.p = params or Params()
-        assert len(program) <= self.p.prog_bytes, "program larger than the program buffer"
-        # the buffer reads as NOP (0) beyond the program, and beyond PROG_BYTES (decode lookahead)
-        self.mem, self.prog = mem, bytes(program) + bytes(self.p.prog_bytes + 8 - len(program))
-        self.T, self.W = self.p.tile, self.p.port_bytes
+        self.p.validate()
+        if len(program) > self.p.prog_bytes:
+            raise ValueError("program larger than the program buffer")
+        # the buffer reads as NOP (0) beyond the program, and beyond PROG_BYTES (decode lookahead + skipped loop)
+        self.mem, self.prog = mem, bytes(program) + bytes(self.p.prog_bytes + 16 - len(program))
+        self.T, self.W = self.p.tile, int(self.p.port_bytes)
         self.h = self.T // 2
         self.trace = trace
         self.cfg = [0] * 8
@@ -227,6 +274,7 @@ class TriQueueCore:
         self.rr = "A"
         # MAC + accumulator banks
         self.cur = None
+        self.beat_ran = False
         self.active = 0
         self.sum = np.zeros((2, self.T, self.T), np.uint32)
         self.carry = np.zeros((2, self.T, self.T), np.uint32)
@@ -238,6 +286,7 @@ class TriQueueCore:
         self.wr_pend = False            # a write request held for gnt
         self.wr_out = 0                 # writes granted and not yet complete (wr_ack)
         self.wr_done_at = deque()       # completion cycles of those writes
+        self._no_progress = 0
 
     def ev(self, unit, event, **kv):
         if self.trace is not None:
@@ -252,7 +301,7 @@ class TriQueueCore:
 
     def tile_coords(self, t):
         *_, ntn = self.dims
-        return divmod(t, ntn)
+        return (0, 0) if not ntn else divmod(t, ntn)
 
     def tile_shape(self, t):
         m, n, *_ = self.dims
@@ -266,23 +315,46 @@ class TriQueueCore:
         return 0
 
     # ---- front end ------------------------------------------------------------------------
-    def _front_error(self, op, arg, size):
+    def _front_error(self, op, arg, imm, size):
         """Error code of executing the instruction at pc (RTL tq_frontend; a later check overrides
         ERR_PC, as there). A loop with a zero count is skipped before its checks."""
         err = isa.ERR_PC if self.pc + size > self.p.prog_bytes else isa.ERR_NONE
-        if op == isa.CFG:
+        l2t = self.T.bit_length() - 1
+        if op == isa.NOP:
+            if arg != 0:
+                err = isa.ERR_OPCODE
+        elif op == isa.CFG:
             if arg >= 8:
                 err = isa.ERR_CFG_REG
             elif self.loops:
                 err = isa.ERR_CFG_LOOP
+            elif (arg == isa.K and imm > ((0xFFFF_FFFF >> l2t) & ~7)) \
+                    or (arg in (isa.M, isa.N) and imm > (0xFFFF << l2t)) \
+                    or (arg == isa.MODE and (imm >> 8) != 0):
+                err = isa.ERR_CFG_VAL
+        elif op in (isa.STREAM_A, isa.STREAM_B, isa.ZERO_C, isa.FENCE):
+            if arg != 0:
+                err = isa.ERR_OPCODE
+        elif op == isa.VOUTER_MAC:
+            if (arg & isa.AUTO and (arg & 0x7) != 0) or (not (arg & isa.AUTO) and (arg & 0x4) != 0):
+                err = isa.ERR_OPCODE
+        elif op == isa.SWAP_C:
+            if arg != 0:
+                err = isa.ERR_OPCODE
+            elif not self.p.chain_c and self.cfg[isa.M] and self.cfg[isa.N]:
+                row_b = self.cfg[isa.N] * (1 if (self.cfg[isa.MODE] & isa.MODE_OUT_INT8) else 4)
+                if self.cfg[isa.C_LD] < row_b:
+                    err = isa.ERR_CFG_VAL
         elif op in (isa.LOOP_K, isa.LOOP_T):
             if op == isa.LOOP_T:
                 count = self.dims[4] * self.dims[5]
             else:
                 count = self.dims[3] // (2 * self.tile_shape(self.front_tile())[2])
-            if count and (len(self.loops) == 2 or (op == isa.LOOP_T and self.loop_t_seen)):
+            if count and (arg == 0 or len(self.loops) == 2
+                          or (op == isa.LOOP_T and self.loop_t_seen)
+                          or (len(self.loops) == 1 and self.pc + 1 + arg > self.loops[0][2])):
                 err = isa.ERR_LOOP
-        elif op > isa.FENCE:
+        else:
             err = isa.ERR_OPCODE
         return err
 
@@ -292,25 +364,50 @@ class TriQueueCore:
         self.halted = True
         self.ev("fe", "error", code=err)
 
+    def queues_idle(self):
+        return not self.macq and self.cur is None and not self.scmd["A"] and not self.scmd["B"]
+
+    def stream_idle(self):
+        return (not self.scmd["A"] and not self.scmd["B"]
+                and self.stream["A"] is None and self.stream["B"] is None
+                and not self.inflight and not self.pinflight)
+
     def all_idle(self):
-        return (not self.macq and self.cur is None and not self.scmd["A"] and not self.scmd["B"]
-                and self.stream["A"] is None and self.stream["B"] is None and not self.inflight
-                and not self.pinflight
+        return (not self.macq and self.cur is None and self.stream_idle()
                 and self.drain is None and self.wr_out == 0)
+
+    def starved(self):
+        if not (self.macq and not self.beat_ran and self.stream_idle()
+                and self.drain is None and self.wr_out == 0):
+            return False
+        cmd = self.macq[0]
+        if cmd[0] != "MAC":
+            return False
+        _, r, c, d = cmd
+        return self.fifo["A"].n < 2 * d * r or self.fifo["B"].n < 2 * d * c
 
     def step_front(self):
         if self.halted:
             return
         if self.fence:
-            if self.all_idle():
-                assert not self.fifo["A"].n and not self.fifo["B"].n, "operands left in FIFOs at FENCE"
-                self.halted = True
-                self.ev("fe", "halt")
+            if not self.macq and self.cur is None and self.drain is None and self.wr_out == 0:
+                if self.stream_idle() and not self.fifo["A"].n and not self.fifo["B"].n:
+                    self.halted = True
+                    self.ev("fe", "halt")
+                else:
+                    self.stop(isa.ERR_OPERAND)
+            elif self.starved():
+                self.stop(isa.ERR_OPERAND)
             return
         op, arg, imm, size = isa.decode(self.prog, self.pc)
 
+        if op == isa.CFG and not self.queues_idle():
+            self.stats.front_stall["cfg_wait"] += 1
+            return
         if op in (isa.VOUTER_MAC, isa.SWAP_C, isa.ZERO_C) and len(self.macq) >= self.p.mac_queue_depth:
             self.stats.front_stall["mac_queue_full"] += 1
+            if self.starved():
+                self.stop(isa.ERR_OPERAND)
             return
         if op in (isa.STREAM_A, isa.STREAM_B):
             s = "A" if op == isa.STREAM_A else "B"
@@ -318,7 +415,7 @@ class TriQueueCore:
                 self.stats.front_stall["stream_queue_full"] += 1
                 return
 
-        err = self._front_error(op, arg, size)
+        err = self._front_error(op, arg, imm, size)
         if err:
             self.stop(err)
             return
@@ -460,8 +557,10 @@ class TriQueueCore:
 
     def step_mac(self):
         self.swap_wait = False
+        self.beat_ran = False
         st = self.stats.mac_state
         if self.cur is not None:
+            self.beat_ran = True
             self.do_beat()
             st["busy"] += 1
             return
@@ -509,6 +608,7 @@ class TriQueueCore:
             self.cur = {"r": r, "c": c, "d": d, "a": a, "b": b, "beat": 0}
             self.stats.mac_ops[f"{r}x{c}x{d}"] += 1
             self.ev("mac", "start", shape=f"{r}x{c}x{d}", bank=self.active)
+            self.beat_ran = True
             self.do_beat()
             st["busy"] += 1
             return
@@ -576,6 +676,8 @@ class TriQueueCore:
     def _issue_read(self, s):
         addr = self.stream[s][0]
         nb = min(self.W, self.stream[s][1])
+        if addr < 0 or addr + nb > len(self.mem):
+            raise ValueError(f"bus error: read out of bounds at 0x{addr:x} ({nb} bytes, mem size 0x{len(self.mem):x})")
         data = self.mem[addr:addr + nb].copy()
         self.inflight.append((self.cycle + self.p.mem_latency, s, data))
         if self.stream[s][2] == "fill":                  # keep it in the panel buffer
@@ -594,6 +696,8 @@ class TriQueueCore:
 
     def _issue_write(self):
         addr, data = self.drain["writes"].popleft()
+        if addr < 0 or addr + len(data) > len(self.mem):
+            raise ValueError(f"bus error: write out of bounds at 0x{addr:x} ({len(data)} bytes, mem size 0x{len(self.mem):x})")
         self.mem[addr:addr + len(data)] = np.frombuffer(data, np.uint8)  # byte-enable masked
         self.stats.write_vectors += 1
         self.stats.write_bytes += len(data)
@@ -656,15 +760,37 @@ class TriQueueCore:
             self.fifo["A"].push(data)
 
     # ---- top level ------------------------------------------------------------------------
+    def step(self):
+        """Advance the core by one cycle (arrivals -> MAC -> port -> front end)."""
+        if self.halted:
+            return
+        prev = (self.stats.instructions, self.stats.beats, self.stats.read_vectors,
+                self.stats.write_vectors, self.stats.panel_vectors, len(self.macq),
+                len(self.scmd["A"]), len(self.scmd["B"]), self.stream["A"] is not None,
+                self.stream["B"] is not None)
+        self.arrivals()
+        self.step_mac()
+        self.step_port()
+        self.step_front()
+        if self.err_align and not self.stats.error:
+            self.stop(isa.ERR_ALIGN)
+        self.cycle += 1
+        cur = (self.stats.instructions, self.stats.beats, self.stats.read_vectors,
+               self.stats.write_vectors, self.stats.panel_vectors, len(self.macq),
+               len(self.scmd["A"]), len(self.scmd["B"]), self.stream["A"] is not None,
+               self.stream["B"] is not None)
+        if (not self.halted and cur == prev and not self.inflight and not self.pinflight
+                and self.drain is None and self.wr_out == 0 and self.cur is None
+                and self.rd_pend is None and not self.wr_pend):
+            self._no_progress += 1
+            if self._no_progress > 64:
+                raise RuntimeError("deadlock detected: no progress with no active requests or timers")
+        else:
+            self._no_progress = 0
+
     def run(self, max_cycles=50_000_000):
         while not self.halted:
-            self.arrivals()
-            self.step_mac()
-            self.step_port()
-            self.step_front()
-            if self.err_align and not self.stats.error:
-                self.stop(isa.ERR_ALIGN)
-            self.cycle += 1
+            self.step()
             if self.cycle > max_cycles:
                 raise RuntimeError("cycle limit exceeded (deadlock?)")
         self.stats.cycles = self.cycle
@@ -686,12 +812,14 @@ def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None):
     """Pack operands and build the memory image and program. Returns (mem, prog, layout)."""
     from .packing import pack_a, pack_b
     p = params or Params()
+    p.validate()
     m, k = a.shape
     k2, n = b.shape
-    assert k == k2 and m >= 1 and n >= 1 and k >= 0      # K = 0 is a valid GEMM: C = 0
+    if not (k == k2 and m >= 0 and n >= 0 and k >= 0):
+        raise ValueError(f"invalid GEMM dimensions: A={a.shape}, B={b.shape}")
     kpad = kp(k)
     pa, pb = pack_a(a, kpad, p.tile), pack_b(b, kpad, p.tile)
-    al = math.lcm(64, p.port_bytes)          # bases and C rows aligned to the port width
+    al = math.lcm(64, int(p.port_bytes))     # bases and C rows aligned to the port width
     a_base = 0
     b_base = _align(a_base + len(pa), al)
     c_base = _align(b_base + len(pb), al)
@@ -701,7 +829,7 @@ def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None):
         c_ld = kp(n)
         c_bytes = -(-m // p.tile) * p.tile * c_ld
     else:
-        c_ld = _align(n * p.out_bytes, p.port_bytes)   # C rows padded to whole port words
+        c_ld = _align(n * p.out_bytes, int(p.port_bytes))   # C rows padded to whole port words
         c_bytes = m * c_ld
     mem = np.zeros(_align(c_base + c_bytes + 64, al), np.uint8)
     mem[a_base:a_base + len(pa)] = pa
@@ -730,6 +858,8 @@ def read_c(mem: np.ndarray, L: dict) -> np.ndarray:
     """Extract the m x n result (int32, or int8 with out_bytes = 1) from a memory image. Rows are
     C_LD bytes apart, or, with the chaining layout, T rows x kp(n) bytes of A panels."""
     ob = L.get("out_bytes", 4)
+    if L["m"] == 0 or L["n"] == 0:
+        return np.zeros((L["m"], L["n"]), np.int8 if ob == 1 else np.int32)
     if L.get("chain_c"):
         t, npad = L.get("tile", 8), kp(L["n"])
         out = np.zeros((L["m"], L["n"]), np.uint8)

@@ -1,5 +1,5 @@
 {
-  "release_version": "v1.0.0",
+  "release_version": "v1.0.1",
   "orfs_commit": "d0e5b3c13",
   "rtl_commit": "cfd68f4",
   "platforms": {
@@ -35,7 +35,6 @@
   "files": {
     "flow/constraint.sdc": "36f2c684b6050b0459457fcaf20c221d2f1b23d1573bd6c51eeecf5f261c77ff",
     "flow/io_constraints.tcl": "9885f662df531415a3a4f8cb9109f6af96e6668dbfcebfe1716cc6c59b5f3676",
-    "flow/results.md": "91d0a068d58ec603e7c58c2afb16b555e375a2e3bf8a41d76200e2d18df3f97d",
     "flow/records/asap7/t16_cpa.json": "47cff8ef0f14cd957a2d9a93578d91554219e4c3b7cbefa04b6793e98f8e1c14",
     "flow/records/asap7/t8_cpa.json": "9cc97e9c34ea604a8e80162081af12582b3ee66b6aae25c8e766787fb2e5bae6",
     "flow/records/asap7/t8_cpa_nocg.json": "09f8f531213227a292199065555220b0c1ed16b09bd96e881ad7e5e351a86942",
@@ -45,9 +44,7 @@
     "flow/records/sky130hd/t8_cpa_nocg.json": "784dcc56d133069af6c368fac31cb9c5c2f9687bfa8a2457482f6bd16cb178f0",
     "flow/records/sky130hd/t8_csa.json": "05ef84c0459aea34076dac42b19e8cf8636ed09cef3e243dffc8d9b60d2eed05",
     "flow/records/sky130hd/t8_shared.json": "aa34ac1f0defb4c90ecc738b3274c2dc886113e8a20986768e9a91aad0812005",
-    "ui/data/chip_asap7.js": "e0ca36aff4f43a646937cc07310edfed32cd0c1f840e702de733271a9441b187",
-    "ui/data/chip_sky130hd.js": "c08639d4954eb7007a52b913d44269cf463eacb28c2d5f14ee244bf82ebc76ca",
-    "ui/data/ppa_records.js": "b1eb06be091537450edca01c85b189153c1bc844b2de182bdab8876c83f5e820",
-    "ui/data/traces_data.js": "b058ea8568dd3b82910163340276730c037fa770c69208c9eb3ed647114ce72b"
+    "ui/data/chip_asap7.js": "69904fd1a4718cdb68609cd12fe0c06f4401aaee4b27c2e2669c7e31ce81e1a2",
+    "ui/data/chip_sky130hd.js": "d15963fce702507e4d56d0e512029cf25b19edaf0b50cd4e4a779023dccb7074"
   }
 }

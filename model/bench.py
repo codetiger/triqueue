@@ -107,3 +107,5 @@ w("")
 text = "\n".join(out)
 Path(__file__).with_name("results.md").write_text(text + "\n")
 print(text)
+if "❌" in text:
+    sys.exit(1)

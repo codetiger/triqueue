@@ -2,29 +2,29 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [build-system]
-requires = ["setuptools>=84"]
+requires = ["setuptools>=84,<90"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "tri-queue"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Cycle-level model and host tooling for the Tri-Queue int8 matrix coprocessor"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "LICENSE-HARDWARE"]
 authors = [{ name = "Harishankar Narayanan", email = "nharishankar@gmail.com" }]
 keywords = ["matrix-multiply", "GEMM", "RISC-V", "accelerator", "int8"]
 classifiers = [
-  "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
 ]
-dependencies = ["numpy>=2.5"]
+dependencies = ["numpy>=2.5,<3"]
 
 [project.optional-dependencies]
-test = ["pytest>=9.2", "cocotb>=2.1"]
+test = ["pytest>=9.2,<10", "cocotb>=2.1,<3"]
 
 [project.urls]
 Homepage = "https://github.com/codetiger/triqueue"
@@ -33,3 +33,6 @@ Issues = "https://github.com/codetiger/triqueue/issues"
 [tool.setuptools]
 package-dir = { "" = "model" }
 packages = ["tri_queue"]
+
+[tool.setuptools.dynamic]
+version = { attr = "tri_queue.__version__" }
