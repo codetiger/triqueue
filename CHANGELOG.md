@@ -7,6 +7,20 @@ All notable changes to the Tri-Queue project. This format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- The release workflow no longer uploads the vectors tarball twice (`dist/triqueue-*.tar.gz` matched
+  it as well); v1.0.0 was completed manually from the same artifacts.
+
+### Changed
+
+- Dropped the unused `ihp-sg13g2` platform from `flow/ppa.py` and `flow/results.py`: it had no run
+  record and no documentation. A third PDK can return with a record.
+- `flow/fpga/README.md` states that the ECP5 figures are synthesis-only; `nextpnr-ecp5` place and
+  route has not been run.
+
 ## [v1.0.0] — 2026-11-11
 
 The first release of the int8 matrix coprocessor: a cycle-exact model, synthesizable RTL, formal
