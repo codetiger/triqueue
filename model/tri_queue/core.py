@@ -36,6 +36,11 @@ Modelling assumptions (stated in model/README.md):
     replayed vector is.
   * Output requantization (MODE_OUT_INT8, spec 6.1, 10.1): C as int8 =
     clip(acc >> out_shift, -128, 127), T values per drain write by default (drain_lanes overrides).
+  * A chaining output layout (chain_c, int8 output, model study, spec 10.5): C is written in the
+    next layer's A-panel order, column-major with w = panel_width(rows) bytes per column, so it is
+    already packed as the next layer's A. A tile is contiguous; padding rows and columns are zero
+    in the bank. chain_snapshot models a wide bank read (first word one cycle after the bank is
+    stable); the default drain reads one row per cycle and needs T - 1 cycles.
   * Write completion: by default a write is complete when granted (SRAM). With wr_ack (an
     interconnect such as AXI, where a write completes at its B response) each granted write
     completes wr_resp_latency cycles later, FENCE waits until none is outstanding, and no new
@@ -80,6 +85,13 @@ class Params:
     out_bytes: int = 4
     out_shift: int = 8
     drain_lanes: int = 0
+    # Chaining output layout (model study; not in the RTL): int8 C only. The drain writes each
+    # tile as contiguous bytes in the next layer's A-panel order (column-major, W/w columns per
+    # word), so C is already packed as the next layer's A. Needs out_bytes = 1. The default drain
+    # reads one bank row per cycle, so it needs T-1 cycles before its first word; chain_snapshot
+    # models a wide bank read that forms the first word one cycle after the bank is stable.
+    chain_c: bool = False
+    chain_snapshot: bool = False
 
     def __post_init__(self):
         if not self.port_bytes:
@@ -88,6 +100,8 @@ class Params:
         assert self.port_bytes >= 4 and self.port_bytes % 4 == 0, "port must hold whole int32 lanes"
         assert 0.0 <= self.gnt_stall < 1.0, "gnt_stall must be in [0, 1)"
         assert self.out_bytes in (1, 4) and 0 <= self.out_shift < 32 and self.drain_lanes >= 0
+        assert not self.chain_c or self.out_bytes == 1, "chain_c needs int8 output"
+        assert not self.chain_snapshot or self.chain_c, "chain_snapshot needs chain_c"
         assert self.wr_resp_latency >= 0 and self.wr_out_max >= 1
 
 
@@ -409,19 +423,38 @@ class TriQueueCore:
         rows, cols = min(T, m - T * ti), min(T, n - T * tj)
         vals = (self.sum[bank] + self.carry[bank]).view(np.int32)  # CPA, wraps mod 2^32
         base = self.cfg[isa.C_BASE] + T * ti * self.cfg[isa.C_LD] + ob * T * tj
-        # RTL: C_BASE and C_LD are W-aligned.
-        if self.cfg[isa.C_BASE] % self.W or self.cfg[isa.C_LD] % self.W:
+        # RTL: C_BASE and C_LD are W-aligned. The chaining layout never reads C_LD; every address
+        # it forms starts on a whole word as long as C_BASE does (npad and w are multiples of T/2).
+        if self.cfg[isa.C_BASE] % self.W or (not self.p.chain_c and self.cfg[isa.C_LD] % self.W):
             self.err_align = True                # ERR_ALIGN at the end of this cycle
         writes = deque()
-        for rr in range(rows):
-            for v in range(-(-cols // lanes_per_write)):
-                lo = lanes_per_write * v
-                lanes = min(lanes_per_write, cols - lo)
-                v = vals[rr, lo:lo + lanes]
-                data = (np.clip(v >> shift, -128, 127).astype(np.int8).tobytes() if ob == 1
-                        else v.astype("<i4").tobytes())
-                writes.append((base + rr * self.cfg[isa.C_LD] + ob * lo, data))
-        ready = max(self.cycle, self.last_write[bank]) + self.p.cpa_latency
+        if self.p.chain_c:
+            # Next layer's A panels: column-major, w = panel_width(rows) bytes per column (the
+            # same tail compaction pack_a uses), W/w columns per word. Padding rows and columns
+            # are zero in the bank, which is what pack_a writes, so a partial tile needs no
+            # special case: the final word of the last column block is simply a short write.
+            npad, w = kp(n), panel_width(rows, T)
+            cpw = self.W // w                                 # columns per W-byte word
+            tbase = self.cfg[isa.C_BASE] + T * ti * npad + T * tj * w
+            q = np.clip(vals >> shift, -128, 127).astype(np.int8)
+            for cw in range(-(-cols // cpw)):
+                lo = cw * cpw
+                chunk = b"".join(q[:w, c].tobytes() for c in range(lo, min(lo + cpw, cols)))
+                writes.append((tbase + lo * w, chunk))
+            # the whole tile must be read out of the bank before the first word exists (the
+            # default drain reads one row per cycle; a wide snapshot costs only a cycle)
+            fill = 1 if self.p.chain_snapshot else T - 1
+            ready = max(self.cycle, self.last_write[bank]) + self.p.cpa_latency + fill
+        else:
+            for rr in range(rows):
+                for v in range(-(-cols // lanes_per_write)):
+                    lo = lanes_per_write * v
+                    lanes = min(lanes_per_write, cols - lo)
+                    v = vals[rr, lo:lo + lanes]
+                    data = (np.clip(v >> shift, -128, 127).astype(np.int8).tobytes() if ob == 1
+                            else v.astype("<i4").tobytes())
+                    writes.append((base + rr * self.cfg[isa.C_LD] + ob * lo, data))
+            ready = max(self.cycle, self.last_write[bank]) + self.p.cpa_latency
         self.drain = {"bank": bank, "tile": tile, "ready": ready, "writes": writes}
         self.ev("mac", "drain_start", bank=bank, tile=tile, writes=len(writes))
 
@@ -662,8 +695,15 @@ def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None):
     a_base = 0
     b_base = _align(a_base + len(pa), al)
     c_base = _align(b_base + len(pb), al)
-    c_ld = _align(n * p.out_bytes, p.port_bytes)   # C rows padded to whole port words
-    mem = np.zeros(_align(c_base + m * c_ld + 64, al), np.uint8)
+    if p.chain_c:
+        # One tile row is T rows x kp(n) bytes of the next layer's A panels; the tile walker
+        # covers ceil(m/T) of them. C_LD is not used by the drain in this mode.
+        c_ld = kp(n)
+        c_bytes = -(-m // p.tile) * p.tile * c_ld
+    else:
+        c_ld = _align(n * p.out_bytes, p.port_bytes)   # C rows padded to whole port words
+        c_bytes = m * c_ld
+    mem = np.zeros(_align(c_base + c_bytes + 64, al), np.uint8)
     mem[a_base:a_base + len(pa)] = pa
     mem[b_base:b_base + len(pb)] = pb
     mode = (isa.MODE_A_SIGNED if a.dtype == np.int8 else 0) | (isa.MODE_B_SIGNED if b.dtype == np.int8 else 0)
@@ -672,6 +712,8 @@ def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None):
     prog = isa.gemm_config(a_base, b_base, c_base, c_ld, k, m, n, mode) + isa.gemm_kernel()
     layout = dict(m=m, n=n, k=k, a_base=a_base, b_base=b_base, c_base=c_base, c_ld=c_ld, mode=mode,
                   out_bytes=p.out_bytes)
+    if p.chain_c:                 # only the chaining layout needs these (read_c, trace consumers)
+        layout.update(tile=p.tile, chain_c=True)
     return mem, prog, layout
 
 
@@ -685,8 +727,18 @@ def run_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None, trace=N
 
 
 def read_c(mem: np.ndarray, L: dict) -> np.ndarray:
-    """Extract the m x n result (int32, or int8 with out_bytes = 1) from a memory image (rows are
-    C_LD bytes apart)."""
+    """Extract the m x n result (int32, or int8 with out_bytes = 1) from a memory image. Rows are
+    C_LD bytes apart, or, with the chaining layout, T rows x kp(n) bytes of A panels."""
     ob = L.get("out_bytes", 4)
+    if L.get("chain_c"):
+        t, npad = L.get("tile", 8), kp(L["n"])
+        out = np.zeros((L["m"], L["n"]), np.uint8)
+        for ti in range(-(-L["m"] // t)):
+            rows = min(t, L["m"] - ti * t)
+            base = L["c_base"] + ti * t * npad
+            w = panel_width(rows, t)
+            for c in range(L["n"]):
+                out[ti * t:ti * t + rows, c] = mem[base + c * w:base + c * w + rows]
+        return out.view(np.int8).copy()
     rows = mem[L["c_base"]:L["c_base"] + L["m"] * L["c_ld"]].view("<i4" if ob == 4 else "i1")
     return rows.reshape(L["m"], L["c_ld"] // ob)[:, :L["n"]].copy()

@@ -20,7 +20,13 @@ Source: `model/results.md` (`model/bench.py`). Memory latency 2, FIFO depth 8, s
 
 Further tables in the source file: shared read/write port (79.8% at 64³), drain hiding versus K, MAC command queue depth, and FIFO depth versus SRAM latency.
 
-**Int8 output** (`MODE[2]`, shift-only). The drain writes one tile row per write instead of one port word of int32, so an int8 tile takes 8 writes instead of 16 at T = 8. On a separate port it does not change 64³ (99.2%) but lifts 64×64×8 from 46.0% to 85.2% and 64×64×16 from 91.3% to 97.5%; on a shared port it lifts 64³ from 79.8% to 88.7%, 64×64×8 from 33.1% to 49.5% and 64×64×16 from 49.7% to 66.2% (`model/dse.md` §8). This is shift-only requantization, not a per-tensor scale.
+**Int8 output** (`MODE[2]`, shift-only). The drain writes one tile row per write instead of one port word of int32, so an int8 tile takes 8 writes instead of 16 at T = 8. On a separate port this takes 64³ from 99.2% to 99.4% and lifts 64×64×8 from 46.0% to 85.2% and 64×64×16 from 91.3% to 97.5%; on a shared port it lifts 64³ from 79.8% to 88.7%, 64×64×8 from 33.1% to 49.5% and 64×64×16 from 49.7% to 66.2% (`model/dse.md` §8). This is shift-only requantization, not a per-tensor scale.
+
+**Int8 layer path** (`model/dse.md` §9, tag `layerpath`). The pointwise layer 2304×16×8 runs at 46.9% with int32 C and 88.5% with int8 C: C bytes fall 4× (147,456 → 36,864) but write transactions only 2× (9,216 → 4,608), so SRAM bytes per MAC halve (0.75 → 0.375). Batched decode (4×512×512) reaches 99.1% with a 4 KiB A-panel buffer and 8×512×512 reaches 99.9% without one; a batch-1 GEMV (1×256×K) stays at the 16.6–16.7% port-limited value until the buffer holds the whole panel — 24.6% with 4 KiB for K ≤ 1024, and 16 KiB is needed at K = 4096. The model does not charge for the host packing pass.
+
+**Chaining output layout** (`model/dse.md` §10, model study only). Writing C in the next layer's A-panel order is bit-exact with the host packer and halves int8 write transactions again (4 words per tile at T = 8, against 8 for int8 rows and 16 for int32), removing activation repacking between layers. The default row-serial drain needs T−1 cycles before its first word, which is exposed at small K: 64×64×8 runs at 64.6% against 85.2% for int8 rows, and 2304×16×8 at 66.4% against 88.5%. A drain that snapshots the bank reaches 95.7% and 99.5%; at Kp ≥ 16 the layout is free either way.
+
+**Epilogue delivery** (`model/dse.md` §11). Per-tensor scale and a bias adder in the drain lane cost no cycles; a per-column bias plus 16-bit scale delivered as a per-tile stream is 3 port words per tile (+37% of the operand traffic at Kp = 8), so per-column metadata wants a table. Bias as an extra k step costs a whole 8-step padding panel when K is a multiple of 8: 64×64×8 85.2% → 54.9%, 2304×16×8 88.5% → 56.1%; it is free when K mod 8 ≠ 0.
 
 ## 2. RTL, T = 8
 

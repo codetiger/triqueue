@@ -3,7 +3,7 @@
 """Design-space sweep over tile size T (and port width W) with the cycle model.
 
 Run: python3 dse.py            (writes dse.md next to this file)
-Shapes come from bench/workloads/gemm.csv (tags `dse` and `layers`). Every run is checked bit-exact against numpy.
+Shapes come from bench/workloads/gemm.csv (tags `dse`, `layers` and `layerpath`). Every run is checked bit-exact against numpy.
 """
 import math
 import sys
@@ -243,6 +243,102 @@ for net in nets:
         c1 = sum(r["count"] * gemm(r["m"], r["n"], r["k"], Params(tile=t, out_bytes=1, drain_lanes=t)).cycles
                  for r in rs)
         w(f"| `{net}` | {t} | {pct(macs / (t * t * c0))} | {pct(macs / (t * t * c1))} |")
+w("")
+
+# 9. int8 layer-path baseline (tag `layerpath`)
+from tri_queue.packing import panel_width  # noqa: E402
+
+w("## 9. int8 layer-path baseline (tag `layerpath`)\n")
+w("The numbers the int8-inference plan is judged against: the pointwise layer that small-K CNN "
+  "inference is bound by, plus batched decode and the GEMV shapes that size the A-panel buffer. "
+  "The int8 column uses T drain lanes and a saturating shift (`MODE[2]`, §10.1). SRAM bytes count "
+  "A/B reads and C writes; the model does not charge for the host packing pass (§5.3). "
+  "T = 8, separate write port.\n")
+w("| M×N×K | Cycles, int32 → int8 | Utilization, int32 → int8 | C bytes, int32 → int8 "
+  "| Write transactions, int32 → int8 | SRAM bytes per MAC, int8 |")
+w("| --- | --- | --- | --- | --- | --- |")
+for m, n, k in shapes("layerpath"):
+    s0 = gemm(m, n, k, Params())
+    s1 = gemm(m, n, k, Params(out_bytes=1))
+    w(f"| {m}×{n}×{k} | {s0.cycles:,} → {s1.cycles:,} | {pct(s0.utilization)} → {pct(s1.utilization)} "
+      f"| {s0.write_bytes:,} → {s1.write_bytes:,} | {s0.write_vectors:,} → {s1.write_vectors:,} "
+      f"| {(s1.read_bytes + s1.write_bytes) / s1.useful_macs:.3f} |")
+w("")
+w("A-panel buffer vs K (int32 output). A panel is `panel_width(M) × Kp` bytes, so a GEMV at K = 4096 "
+  "needs 16 KiB; a panel that does not fit is streamed as before.\n")
+w("| M×N×K | Panel bytes | No buffer | 1 KiB | 4 KiB | 16 KiB |")
+w("| --- | --- | --- | --- | --- | --- |")
+for m, n, k in shapes("layerpath"):
+    pb = panel_width(m) * kp(k)
+    cells = [pct(gemm(m, n, k, Params()).utilization)]
+    fits = False
+    for cap in (1024, 4096, 16384):
+        cells.append(cells[-1] if fits else pct(gemm(m, n, k, Params(panel_bytes=cap)).utilization))
+        fits = fits or pb <= cap
+    w(f"| {m}×{n}×{k} | {pb:,} | " + " | ".join(cells) + " |")
+w("")
+
+# 10. chaining output layout (model study, not in the RTL)
+CHAIN = (
+    ("int32 rows", dict()),
+    ("int8 rows", dict(out_bytes=1)),
+    ("int8 chain", dict(out_bytes=1, chain_c=True)),
+    ("int8 chain + snapshot", dict(out_bytes=1, chain_c=True, chain_snapshot=True)),
+)
+w("## 10. Chaining output layout (model study, not in the RTL)\n")
+w("C is written in the next layer's A-panel order (column-major, `W/w` columns per word, `w = "
+  "panel_width(rows)`), so one layer's int8 C is already packed as the next layer's A: no host "
+  "repacking between chained layers. A tile is contiguous in that layout, so no cross-tile write "
+  "combining is needed; padding rows and columns are zero in the accumulator bank and in "
+  "`pack_a`, so partial tiles are written whole. The baseline drain reads one bank row per cycle, "
+  "so the first word needs T−1 cycles (`chain`); `chain + snapshot` models a wide bank read that "
+  "forms the first word one cycle after the bank is stable. `Params.chain_c` is a model study, not "
+  "in the RTL.\n")
+w("| M×N×K | " + " | ".join(name for name, _ in CHAIN)
+  + " | Write words, int8 rows → chain | Write bytes, int8 rows → chain |")
+w("| --- |" + " --- |" * (len(CHAIN) + 2))
+for m, n, k in shapes("layerpath"):
+    cells, sts = [], []
+    for _, kw in CHAIN:
+        st = gemm(m, n, k, Params(**kw))
+        sts.append(st)
+        cells.append(f"{pct(st.utilization)} ({st.cycles:,} cyc)")
+    w(f"| {m}×{n}×{k} | " + " | ".join(cells)
+      + f" | {sts[1].write_vectors:,} → {sts[2].write_vectors:,} "
+      + f"| {sts[1].write_bytes:,} → {sts[2].write_bytes:,} |")
+w("")
+w("The layout writes the next layer's padded panel, so where M ≤ T/2 the tile has T/2 padded "
+  "rows and the chaining column writes more bytes than int8 rows (the GEMV rows above); those are "
+  "bytes the next layer's stream would read anyway. Ragged M and N pay similarly at large T.\n")
+w("Drain exposure, 64×64×K (M = N = 8T, 64 tiles): utilization and `wait_drain` cycles.\n")
+w("| K | int8 rows | int8 chain | int8 chain + snapshot |")
+w("| --- | --- | --- | --- |")
+for k in (8, 16, 24, 32, 64):
+    cells = []
+    for _, kw in CHAIN[1:]:
+        st = gemm(64, 64, k, Params(**kw))
+        cells.append(f"{pct(st.utilization)}, {st.mac_state.get('wait_drain', 0)}")
+    w(f"| {k} | " + " | ".join(cells) + " |")
+w("")
+
+# 11. epilogue delivery cost (bias and per-column scale)
+w("## 11. Epilogue delivery (bias and per-column scale)\n")
+w("Both are per output column, so a tile column needs T values of each: 4T bytes of int32 bias "
+  "plus 2T bytes of 16-bit scale = 6T bytes = **3 W-byte words per tile** at T = 8, against Kp "
+  "operand words per tile (A + B panels, 2·T·Kp bytes over a 2T-byte port). That is +37% port "
+  "traffic at Kp = 8, +19% at 16 and +5% at 64; at Kp = 8 it costs as much as all of the int8 C "
+  "writes (T/2 = 4 words per tile). A per-tensor scale costs no cycles (it is a multiplier in the "
+  "drain's spare stage); a bias adder in the drain lane costs no cycles either, but still needs "
+  "the per-tile bias fetch priced above.\n")
+w("**Bias as an extra k step** (A's extra column = 1, B's extra row = bias_q) needs no delivery "
+  "path, but when K is a multiple of 8 it adds a whole 8-step padding panel: +8 cycles per tile, "
+  "and the padding is wasted work. Int8 C, T = 8.\n")
+w("| M×N×K | Cycles, K → K+1 | Utilization, K → K+1 |")
+w("| --- | --- | --- |")
+for m, n, k in [(64, 64, kk) for kk in (8, 16, 32, 64)] + [(2304, 16, 8)]:
+    s0 = gemm(m, n, k, Params(out_bytes=1))
+    s1 = gemm(m, n, k + 1, Params(out_bytes=1))
+    w(f"| {m}×{n}×{k} | {s0.cycles:,} → {s1.cycles:,} | {pct(s0.utilization)} → {pct(s1.utilization)} |")
 w("")
 
 text = "\n".join(out)

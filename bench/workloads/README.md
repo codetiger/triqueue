@@ -7,7 +7,7 @@
 | `group` | Category: `square`, `irregular`, `k_sweep`, `edge`, `gemv`, `tiny`, `amx_fit`, or the network a layer comes from (see below) |
 | `m, n, k` | C is m×n, inner dimension k |
 | `count` | How many times the shape occurs in its network (1 for synthetic shapes). Network-level figures weight each row by `count`. |
-| `tags` | `;`-separated list of the suites that run this row. `model` = `model/bench.py` size sweep, `amx` = AMX comparison table, `dse` = tile-size sweep (`model/dse.py`), `layers` = real int8 network layers (`model/dse.py` §6), `amx_hand` / `amx_sgemm` = shapes measured by `bench/reference/amx/amx_gemm.c` / `sgemm_sweep.c`. |
+| `tags` | `;`-separated list of the suites that run this row. `model` = `model/bench.py` size sweep, `amx` = AMX comparison table, `dse` = tile-size sweep (`model/dse.py`), `layers` = real int8 network layers (`model/dse.py` §6), `layerpath` = int8 layer-path baseline (`model/dse.py` §9), `amx_hand` / `amx_sgemm` = shapes measured by `bench/reference/amx/amx_gemm.c` / `sgemm_sweep.c`. |
 | `why` | What the shape stresses |
 
 Python: `from workloads import shapes; shapes("model")`, with `bench/workloads` on `sys.path`.

@@ -20,6 +20,11 @@ edge,4,64,1024,1,amx;dse;amx_sgemm,4x8x2 shape only
 edge,4,4,1024,1,amx;dse;amx_sgemm,4x4x4 shape only
 gemv,1,512,512,1,model;amx;dse;amx_sgemm,matrix-vector; port-bound
 gemv,512,1,512,1,model;amx;dse;amx_sgemm,matrix-vector; port-bound
+gemv,4,512,512,1,layerpath,batched decode: 4 concurrent requests (panel buffer)
+gemv,8,512,512,1,layerpath,batched decode: 8 concurrent requests
+gemv,1,256,512,1,layerpath,GEMV panel-buffer sizing: panel is 2 KiB
+gemv,1,256,1024,1,layerpath,GEMV panel-buffer sizing: panel is 4 KiB
+gemv,1,256,4096,1,layerpath,GEMV panel-buffer sizing: panel is 16 KiB (LLM scale)
 amx_fit,32,32,8,1,amx_hand,AMX hand-kernel timing fit (ablation.py)
 amx_fit,32,32,16,1,amx_hand,AMX hand-kernel timing fit (ablation.py)
 amx_fit,32,32,128,1,amx_hand,AMX hand-kernel timing fit (ablation.py)
@@ -36,7 +41,7 @@ kws_dscnn,125,64,40,1,layers,conv 10x4 s2 1->64 (25x5 out)
 kws_dscnn,125,64,64,4,layers,pointwise 64->64 (25x5)
 kws_dscnn,1,12,64,1,layers,fc 64->12
 vww_mbv1,2304,8,27,1,layers,conv 3x3 s2 3->8 (48x48)
-vww_mbv1,2304,16,8,1,layers,pointwise 8->16 (48x48)
+vww_mbv1,2304,16,8,1,layers;layerpath,pointwise 8->16 (48x48)
 vww_mbv1,576,32,16,1,layers,pointwise 16->32 (24x24)
 vww_mbv1,576,32,32,1,layers,pointwise 32->32 (24x24)
 vww_mbv1,144,64,32,1,layers,pointwise 32->64 (12x12)

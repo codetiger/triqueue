@@ -193,3 +193,66 @@ Real networks (tag `layers`), split port, MAC-weighted utilization:
 | `bert_tiny` | 8 | 99.9% | 100.0% |
 | `bert_tiny` | 16 | 99.7% | 99.8% |
 
+## 9. int8 layer-path baseline (tag `layerpath`)
+
+The numbers the int8-inference plan is judged against: the pointwise layer that small-K CNN inference is bound by, plus batched decode and the GEMV shapes that size the A-panel buffer. The int8 column uses T drain lanes and a saturating shift (`MODE[2]`, §10.1). SRAM bytes count A/B reads and C writes; the model does not charge for the host packing pass (§5.3). T = 8, separate write port.
+
+| M×N×K | Cycles, int32 → int8 | Utilization, int32 → int8 | C bytes, int32 → int8 | Write transactions, int32 → int8 | SRAM bytes per MAC, int8 |
+| --- | --- | --- | --- | --- | --- |
+| 4×512×512 | 24,599 → 24,595 | 66.6% → 66.6% | 8,192 → 2,048 | 512 → 256 | 0.377 |
+| 8×512×512 | 32,802 → 32,794 | 99.9% → 99.9% | 16,384 → 4,096 | 1,024 → 512 | 0.252 |
+| 1×256×512 | 12,305 → 12,304 | 16.6% → 16.6% | 1,024 → 256 | 64 → 32 | 1.502 |
+| 1×256×1024 | 24,593 → 24,592 | 16.7% → 16.7% | 1,024 → 256 | 64 → 32 | 1.501 |
+| 1×256×4096 | 98,321 → 98,320 | 16.7% → 16.7% | 1,024 → 256 | 64 → 32 | 1.500 |
+| 2304×16×8 | 9,817 → 5,209 | 46.9% → 88.5% | 147,456 → 36,864 | 9,216 → 4,608 | 0.375 |
+
+A-panel buffer vs K (int32 output). A panel is `panel_width(M) × Kp` bytes, so a GEMV at K = 4096 needs 16 KiB; a panel that does not fit is streamed as before.
+
+| M×N×K | Panel bytes | No buffer | 1 KiB | 4 KiB | 16 KiB |
+| --- | --- | --- | --- | --- | --- |
+| 4×512×512 | 2,048 | 66.6% | 66.6% | 99.1% | 99.1% |
+| 8×512×512 | 4,096 | 99.9% | 99.9% | 99.9% | 99.9% |
+| 1×256×512 | 2,048 | 16.6% | 16.6% | 24.6% | 24.6% |
+| 1×256×1024 | 4,096 | 16.7% | 16.7% | 24.6% | 24.6% |
+| 1×256×4096 | 16,384 | 16.7% | 16.7% | 16.7% | 24.6% |
+| 2304×16×8 | 64 | 46.9% | 46.9% | 46.9% | 46.9% |
+
+## 10. Chaining output layout (model study, not in the RTL)
+
+C is written in the next layer's A-panel order (column-major, `W/w` columns per word, `w = panel_width(rows)`), so one layer's int8 C is already packed as the next layer's A: no host repacking between chained layers. A tile is contiguous in that layout, so no cross-tile write combining is needed; padding rows and columns are zero in the accumulator bank and in `pack_a`, so partial tiles are written whole. The baseline drain reads one bank row per cycle, so the first word needs T−1 cycles (`chain`); `chain + snapshot` models a wide bank read that forms the first word one cycle after the bank is stable. `Params.chain_c` is a model study, not in the RTL.
+
+| M×N×K | int32 rows | int8 rows | int8 chain | int8 chain + snapshot | Write words, int8 rows → chain | Write bytes, int8 rows → chain |
+| --- | --- | --- | --- | --- | --- | --- |
+| 4×512×512 | 66.6% (24,599 cyc) | 66.6% (24,595 cyc) | 66.6% (24,600 cyc) | 66.6% (24,594 cyc) | 256 → 128 | 2,048 → 2,048 |
+| 8×512×512 | 99.9% (32,802 cyc) | 99.9% (32,794 cyc) | 99.9% (32,797 cyc) | 99.9% (32,791 cyc) | 512 → 256 | 4,096 → 4,096 |
+| 1×256×512 | 16.6% (12,305 cyc) | 16.6% (12,304 cyc) | 16.6% (12,312 cyc) | 16.6% (12,306 cyc) | 32 → 64 | 256 → 1,024 |
+| 1×256×1024 | 16.7% (24,593 cyc) | 16.7% (24,592 cyc) | 16.7% (24,600 cyc) | 16.7% (24,594 cyc) | 32 → 64 | 256 → 1,024 |
+| 1×256×4096 | 16.7% (98,321 cyc) | 16.7% (98,320 cyc) | 16.7% (98,328 cyc) | 16.7% (98,322 cyc) | 32 → 64 | 256 → 1,024 |
+| 2304×16×8 | 46.9% (9,817 cyc) | 88.5% (5,209 cyc) | 66.4% (6,937 cyc) | 99.5% (4,631 cyc) | 4,608 → 2,304 | 36,864 → 36,864 |
+
+The layout writes the next layer's padded panel, so where M ≤ T/2 the tile has T/2 padded rows and the chaining column writes more bytes than int8 rows (the GEMV rows above); those are bytes the next layer's stream would read anyway. Ragged M and N pay similarly at large T.
+
+Drain exposure, 64×64×K (M = N = 8T, 64 tiles): utilization and `wait_drain` cycles.
+
+| K | int8 rows | int8 chain | int8 chain + snapshot |
+| --- | --- | --- | --- |
+| 8 | 85.2%, 64 | 64.6%, 253 | 95.7%, 0 |
+| 16 | 97.5%, 0 | 97.2%, 0 | 97.8%, 0 |
+| 24 | 98.3%, 0 | 98.1%, 0 | 98.5%, 0 |
+| 32 | 98.7%, 0 | 98.6%, 0 | 98.9%, 0 |
+| 64 | 99.4%, 0 | 99.3%, 0 | 99.4%, 0 |
+
+## 11. Epilogue delivery (bias and per-column scale)
+
+Both are per output column, so a tile column needs T values of each: 4T bytes of int32 bias plus 2T bytes of 16-bit scale = 6T bytes = **3 W-byte words per tile** at T = 8, against Kp operand words per tile (A + B panels, 2·T·Kp bytes over a 2T-byte port). That is +37% port traffic at Kp = 8, +19% at 16 and +5% at 64; at Kp = 8 it costs as much as all of the int8 C writes (T/2 = 4 words per tile). A per-tensor scale costs no cycles (it is a multiplier in the drain's spare stage); a bias adder in the drain lane costs no cycles either, but still needs the per-tile bias fetch priced above.
+
+**Bias as an extra k step** (A's extra column = 1, B's extra row = bias_q) needs no delivery path, but when K is a multiple of 8 it adds a whole 8-step padding panel: +8 cycles per tile, and the padding is wasted work. Int8 C, T = 8.
+
+| M×N×K | Cycles, K → K+1 | Utilization, K → K+1 |
+| --- | --- | --- |
+| 64×64×8 | 601 → 1,050 | 85.2% → 54.9% |
+| 64×64×16 | 1,050 → 1,562 | 97.5% → 69.7% |
+| 64×64×32 | 2,074 → 2,586 | 98.7% → 81.7% |
+| 64×64×64 | 4,122 → 4,634 | 99.4% → 89.8% |
+| 2304×16×8 | 5,209 → 9,242 | 88.5% → 56.1% |
+

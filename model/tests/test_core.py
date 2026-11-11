@@ -8,7 +8,8 @@ import pytest
 
 from _helpers import DTYPES, rand
 from tri_queue import isa
-from tri_queue.core import run_gemm, reference, Params
+from tri_queue.core import run_gemm, reference, Params, build_gemm, TriQueueCore
+from tri_queue.packing import kp, pack_a
 
 
 EDGE_SIZES = [1, 3, 4, 5, 7, 8, 9, 12, 13, 16, 17, 31]
@@ -104,6 +105,42 @@ def test_correct_under_any_timing(p):
     a, b = rand(rng, (20, 24), np.int8), rand(rng, (24, 27), np.uint8)
     c, _ = run_gemm(a, b, p)
     np.testing.assert_array_equal(c, reference(a, b))
+
+
+@pytest.mark.parametrize("tile", [4, 8, 16, 32])
+@pytest.mark.parametrize("m,n,k", [(19, 21, 24), (13, 5, 9), (8, 8, 8)])
+@pytest.mark.parametrize("snapshot", [False, True])
+def test_chaining_output_layout(tile, m, n, k, snapshot):
+    """chain_c writes C as the next layer's A panels bit for bit, in fewer words than int8 rows."""
+    rng = np.random.default_rng(tile * 1000 + m * 10 + n)
+    a, b = rand(rng, (m, k), np.int8), rand(rng, (k, n), np.int8)
+    p = Params(tile=tile, out_bytes=1, chain_c=True, chain_snapshot=snapshot)
+    c, s = run_gemm(a, b, p)
+    ref = np.clip(reference(a, b) >> 8, -128, 127).astype(np.int8)
+    np.testing.assert_array_equal(c, ref)
+    # the whole C region is exactly what the host packer would have built for the next layer
+    mem, prog, L = build_gemm(a, b, p)
+    TriQueueCore(mem, prog, p).run()
+    packed = pack_a(ref, kp(n), tile)
+    np.testing.assert_array_equal(mem[L["c_base"]:L["c_base"] + len(packed)], packed)
+    # fewer write transactions than one int8 tile row per word; the bytes are the padded
+    # panel image (at most the packed size), not just the m x n values
+    _, s_rows = run_gemm(a, b, Params(tile=tile, out_bytes=1))
+    assert s.write_vectors < s_rows.write_vectors
+    assert s.write_bytes <= len(packed)
+    # a wide bank read only removes the fill cycles, it never changes a result or a write
+    _, s_fill = run_gemm(a, b, Params(tile=tile, out_bytes=1, chain_c=True))
+    assert s.write_vectors == s_fill.write_vectors and s.write_bytes == s_fill.write_bytes
+    if snapshot:
+        assert s.mac_state.get("wait_drain", 0) <= s_fill.mac_state.get("wait_drain", 0)
+        assert s.cycles <= s_fill.cycles
+
+
+def test_chaining_param_checks():
+    with pytest.raises(AssertionError):
+        Params(chain_c=True)                      # needs int8 output
+    with pytest.raises(AssertionError):
+        Params(out_bytes=1, chain_snapshot=True)  # needs the chaining layout
 
 
 @pytest.mark.parametrize("shared", [False, True])

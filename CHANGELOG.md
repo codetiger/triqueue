@@ -7,6 +7,19 @@ All notable changes to the Tri-Queue project. This format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **int8 layer-path baseline** (`model/dse.md` §9, tag `layerpath` in `bench/workloads/gemm.csv`): the
+  small-K pointwise layer that CNN inference is bound by, batched decode, and the GEMV shapes that size
+  the A-panel buffer, with the buffer capacity each one needs.
+- **Chaining output layout** (`model/dse.md` §10, model study only, `Params.chain_c`): the drain writes C
+  in the next layer's A-panel order, bit-exact with the host packer and half the int8 write transactions,
+  with the drain-fill cost at small K quantified.
+- **Epilogue delivery cost** (`model/dse.md` §11): per-column bias and scale, as a per-tile stream or as
+  an extra k step.
+
 ## [v1.0.0] — 2026-11-10
 
 The first release of the int8 matrix coprocessor: a cycle-exact model, synthesizable RTL, formal
