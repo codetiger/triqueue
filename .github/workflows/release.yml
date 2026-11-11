@@ -40,5 +40,4 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             dist/triqueue-*.tar.gz
-            dist/triqueue-*-vectors.tar.gz
             dist/SHA256SUMS
