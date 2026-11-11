@@ -7,26 +7,7 @@ All notable changes to the Tri-Queue project. This format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-### Added
-
-- **int8 layer-path baseline** (`model/dse.md` §9, tag `layerpath` in `bench/workloads/gemm.csv`): the
-  small-K pointwise layer that CNN inference is bound by, batched decode, and the GEMV shapes that size
-  the A-panel buffer, with the buffer capacity each one needs.
-- **Chaining output layout** (`model/dse.md` §10, model study only, `Params.chain_c`): the drain writes C
-  in the next layer's A-panel order, bit-exact with the host packer and half the int8 write transactions,
-  with the drain-fill cost at small K quantified.
-- **Epilogue delivery cost** (`model/dse.md` §11): per-column bias and scale, as a per-tile stream or as
-  an extra k step.
-
-### Changed
-
-- The spec's tile-size note now quotes the current place-and-route records: T = 16 reaches 0.448
-  MACs/cycle/kGE against 0.363 at T = 8 (+23%), though 11.70 vs 12.36 TOPS/mm² at their own clocks
-  (spec §10).
-
-## [v1.0.0] — 2026-11-10
+## [v1.0.0] — 2026-11-11
 
 The first release of the int8 matrix coprocessor: a cycle-exact model, synthesizable RTL, formal
 proofs, a physical-design flow, a bare-metal driver and the SoC integration contract.
@@ -48,6 +29,10 @@ proofs, a physical-design flow, a bare-metal driver and the SoC integration cont
 - **MAC pipeline option** (`MAC_PIPE`): 2 stages by default, 1 stage without the product register.
 - **Cycle model** (`model/`): real instruction bytes, bit-exact against numpy, packing, traces,
   golden-vector export, T/W sweeps and DSE.
+- **int8 layer-path studies** (cycle model, `model/dse.md` §9–§11, tag `layerpath`): the small-K
+  pointwise layer, batched decode and the GEMV shapes that size the A-panel buffer; a chaining output
+  layout (C written in the next layer's A-panel order, bit-exact with the host packer, model-only
+  `Params.chain_c`); and the cycle cost of per-column bias/scale delivery.
 - **Verification**: 1,709 differential cases in 25 configurations, including random back-pressure,
   illegal programs, burst AXI and CV-X-IF; SymbiYosys proofs for the FIFO, ICG, adapters and the T=4
   core.
@@ -72,6 +57,11 @@ proofs, a physical-design flow, a bare-metal driver and the SoC integration cont
 - `tq_probe` now rejects an invalid `HW_CONFIG`.
 - `make dist` builds the source tarball, a representative golden-vector set and `SHA256SUMS`;
   `.github/workflows/release.yml` publishes them on a `v*` tag.
+- The spec's tile-size note now quotes the v1 place-and-route records: T = 16 reaches 0.448
+  MACs/cycle/kGE against 0.363 at T = 8 (+23%), though 11.70 vs 12.36 TOPS/mm² at their own clocks
+  (spec §10).
+- The ECP5 resource table reports the v1 RTL (16,658 LUT4, 8,562 flip-flops, 20% of the device), and
+  the integration contract no longer claims the AXI burst parameters are unchecked.
 
 ### Known limitations
 
