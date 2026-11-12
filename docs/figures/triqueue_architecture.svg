@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Harishankar Narayanan -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1408 768" width="1408" height="768">
+  <defs>
+    <filter id="drop-shadow" x="-5%" y="-5%" width="112%" height="116%">
+      <feDropShadow dx="2" dy="3" stdDeviation="2.5" flood-color="#0f172a" flood-opacity="0.09"/>
+    </filter>
+  </defs>
+  <rect width="1408" height="768" fill="#ffffff"/>
+  <rect x="24.0" y="18.0" width="1360.0" height="58.0" rx="9.0" fill="#dfe6ee" stroke="#2c3744" stroke-width="2.3" filter="url(#drop-shadow)"/>
+  <text x="704.0" y="37.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18.5" font-weight="700" fill="#18222c">Local SRAM / SoC Memory</text>
+  <text x="704.0" y="59.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="500" fill="#3d4d5e">Packed A Column Panels (int8)   ·   Packed B Row Panels (int8)   ·   C Output Tiles (int32 / Sat-Shift int8)   ·   Native OBI or AXI4 Burst (tq_axi_mem)</text>
+  <polygon points="87.5,76.0 87.5,128.0 78.0,128.0 96.0,148.0 114.0,128.0 104.5,128.0 104.5,76.0" fill="#2c3744"/>
+  <text x="122.0" y="103.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#18222c">128-bit Read</text>
+  <text x="122.0" y="121.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#3d4d5e">(16 B / cycle)</text>
+  <polygon points="1303.5,148.0 1303.5,96.0 1294.0,96.0 1312.0,76.0 1330.0,96.0 1320.5,96.0 1320.5,148.0" fill="#2c3744"/>
+  <text x="1286.0" y="103.0" text-anchor="end" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#18222c">128-bit Write</text>
+  <text x="1286.0" y="121.0" text-anchor="end" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#3d4d5e">(16 B / cycle)</text>
+  <rect x="24.0" y="150.0" width="148.0" height="212.0" rx="10.0" fill="#dfe6ee" stroke="#2c3744" stroke-width="2.3" filter="url(#drop-shadow)"/>
+  <text x="98.0" y="187.7" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="17.5" font-weight="700" fill="#18222c">Stream</text>
+  <text x="98.0" y="208.3" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="17.5" font-weight="700" fill="#18222c">Engine</text>
+  <text x="98.0" y="238.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.0" font-weight="700" fill="#3d4d5e">(tq_stream)</text>
+  <text x="98.0" y="274.7" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#3d4d5e">A/B Panel Walkers</text>
+  <text x="98.0" y="288.9" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#3d4d5e">Round-Robin Arb</text>
+  <text x="98.0" y="303.1" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#3d4d5e">Credit-Based FIFOs</text>
+  <text x="98.0" y="317.3" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#3d4d5e">(0 Read Stalls)</text>
+  <rect x="1236.0" y="150.0" width="148.0" height="212.0" rx="10.0" fill="#dfe6ee" stroke="#2c3744" stroke-width="2.3" filter="url(#drop-shadow)"/>
+  <text x="1310.0" y="187.7" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="17.5" font-weight="700" fill="#18222c">Drain</text>
+  <text x="1310.0" y="208.3" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="17.5" font-weight="700" fill="#18222c">Controller</text>
+  <text x="1310.0" y="238.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.0" font-weight="700" fill="#3d4d5e">(tq_drain)</text>
+  <text x="1310.0" y="274.7" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#3d4d5e">Background Drain</text>
+  <text x="1310.0" y="288.9" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#3d4d5e">16 B/cyc Aligned</text>
+  <text x="1310.0" y="303.1" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#3d4d5e">int32 / Shift int8</text>
+  <text x="1310.0" y="317.3" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#3d4d5e">Auto-Clears Bank</text>
+  <rect x="436.0" y="106.0" width="536.0" height="62.0" rx="10.0" fill="#eef2f7" stroke="#2c3744" stroke-width="2.3" filter="url(#drop-shadow)"/>
+  <text x="704.0" y="126.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="15.5" font-weight="700" fill="#18222c">Instruction Fetch, Decode &amp; Hardware Loops (tq_frontend)</text>
+  <text x="704.0" y="149.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.8" font-weight="500" fill="#3d4d5e">64 B Program Buf (10-Byte Kernel)  ·  8×32b CFG Regs  ·  2-Level Loops (LOOP_T, LOOP_K)</text>
+  <text x="344.0" y="202.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.0" font-weight="700" fill="#18222c">Stream A/B Cmd Queues (2×2)</text>
+  <defs><clipPath id="clip-q-224-216"><rect x="224.0" y="216.0" width="240.0" height="38.0" rx="5.0"/></clipPath></defs>
+  <rect x="224.0" y="216.0" width="240.0" height="38.0" rx="5.0" fill="#cbf5da" filter="url(#drop-shadow)"/>
+  <g clip-path="url(#clip-q-224-216)">
+    <rect x="224.00" y="216.0" width="40.00" height="38.0" fill="#cbf5da"/>
+    <rect x="264.00" y="216.0" width="40.00" height="38.0" fill="#ddf9e7"/>
+    <line x1="264.00" y1="216.0" x2="264.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+    <rect x="304.00" y="216.0" width="40.00" height="38.0" fill="#cbf5da"/>
+    <line x1="304.00" y1="216.0" x2="304.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+    <rect x="344.00" y="216.0" width="40.00" height="38.0" fill="#ddf9e7"/>
+    <line x1="344.00" y1="216.0" x2="344.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+    <rect x="384.00" y="216.0" width="40.00" height="38.0" fill="#cbf5da"/>
+    <line x1="384.00" y1="216.0" x2="384.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+    <rect x="424.00" y="216.0" width="40.00" height="38.0" fill="#ddf9e7"/>
+    <line x1="424.00" y1="216.0" x2="424.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+  </g>
+  <rect x="224.0" y="216.0" width="240.0" height="38.0" rx="5.0" fill="none" stroke="#188f4e" stroke-width="2.0"/>
+  <text x="704.0" y="202.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.0" font-weight="700" fill="#18222c">MAC Cmd Queue (4 × 52b)</text>
+  <defs><clipPath id="clip-q-584-216"><rect x="584.0" y="216.0" width="240.0" height="38.0" rx="5.0"/></clipPath></defs>
+  <rect x="584.0" y="216.0" width="240.0" height="38.0" rx="5.0" fill="#cbf5da" filter="url(#drop-shadow)"/>
+  <g clip-path="url(#clip-q-584-216)">
+    <rect x="584.00" y="216.0" width="40.00" height="38.0" fill="#cbf5da"/>
+    <rect x="624.00" y="216.0" width="40.00" height="38.0" fill="#ddf9e7"/>
+    <line x1="624.00" y1="216.0" x2="624.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+    <rect x="664.00" y="216.0" width="40.00" height="38.0" fill="#cbf5da"/>
+    <line x1="664.00" y1="216.0" x2="664.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+    <rect x="704.00" y="216.0" width="40.00" height="38.0" fill="#ddf9e7"/>
+    <line x1="704.00" y1="216.0" x2="704.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+    <rect x="744.00" y="216.0" width="40.00" height="38.0" fill="#cbf5da"/>
+    <line x1="744.00" y1="216.0" x2="744.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+    <rect x="784.00" y="216.0" width="40.00" height="38.0" fill="#ddf9e7"/>
+    <line x1="784.00" y1="216.0" x2="784.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+  </g>
+  <rect x="584.0" y="216.0" width="240.0" height="38.0" rx="5.0" fill="none" stroke="#188f4e" stroke-width="2.0"/>
+  <text x="1064.0" y="202.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.0" font-weight="700" fill="#18222c">Tile Drain Cmd (SWAP_C)</text>
+  <defs><clipPath id="clip-q-944-216"><rect x="944.0" y="216.0" width="240.0" height="38.0" rx="5.0"/></clipPath></defs>
+  <rect x="944.0" y="216.0" width="240.0" height="38.0" rx="5.0" fill="#cbf5da" filter="url(#drop-shadow)"/>
+  <g clip-path="url(#clip-q-944-216)">
+    <rect x="944.00" y="216.0" width="40.00" height="38.0" fill="#cbf5da"/>
+    <rect x="984.00" y="216.0" width="40.00" height="38.0" fill="#ddf9e7"/>
+    <line x1="984.00" y1="216.0" x2="984.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+    <rect x="1024.00" y="216.0" width="40.00" height="38.0" fill="#cbf5da"/>
+    <line x1="1024.00" y1="216.0" x2="1024.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+    <rect x="1064.00" y="216.0" width="40.00" height="38.0" fill="#ddf9e7"/>
+    <line x1="1064.00" y1="216.0" x2="1064.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+    <rect x="1104.00" y="216.0" width="40.00" height="38.0" fill="#cbf5da"/>
+    <line x1="1104.00" y1="216.0" x2="1104.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+    <rect x="1144.00" y="216.0" width="40.00" height="38.0" fill="#ddf9e7"/>
+    <line x1="1144.00" y1="216.0" x2="1144.00" y2="254.0" stroke="#188f4e" stroke-width="1.8"/>
+  </g>
+  <rect x="944.0" y="216.0" width="240.0" height="38.0" rx="5.0" fill="none" stroke="#188f4e" stroke-width="2.0"/>
+  <path d="M 520.0 168.0 L 520.0 235.0 L 471.1 235.0" fill="none" stroke="#188f4e" stroke-width="2.6" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="464.0,235.0 475.0,229.5 475.0,240.5" fill="#188f4e"/>
+  <path d="M 224.0 235.0 L 179.2 235.0" fill="none" stroke="#188f4e" stroke-width="2.6" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="172.0,235.0 183.0,229.5 183.0,240.5" fill="#188f4e"/>
+  <path d="M 704.0 254.0 L 704.0 296.9" fill="none" stroke="#188f4e" stroke-width="2.6" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="704.0,304.0 698.5,293.0 709.5,293.0" fill="#188f4e"/>
+  <path d="M 888.0 168.0 L 888.0 235.0 L 936.9 235.0" fill="none" stroke="#188f4e" stroke-width="2.6" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="944.0,235.0 933.0,229.5 933.0,240.5" fill="#188f4e"/>
+  <path d="M 1184.0 235.0 L 1228.8 235.0" fill="none" stroke="#188f4e" stroke-width="2.6" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="1236.0,235.0 1225.0,229.5 1225.0,240.5" fill="#188f4e"/>
+  <rect x="204.0" y="304.0" width="1000.0" height="444.0" rx="14.0" fill="#f4effc" stroke="#6c38b8" stroke-width="2.5" filter="url(#drop-shadow)"/>
+  <text x="228.0" y="332.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16.5" font-weight="700" fill="#18222c">Compute Engine (tq_mac_array)</text>
+  <rect x="228.0" y="356.0" width="244.0" height="52.0" rx="6.0" fill="#f7f4cf" stroke="#2c3744" stroke-width="2.0" filter="url(#drop-shadow)"/>
+  <text x="350.0" y="373.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#18222c">No Vector RF · No Crossbar</text>
+  <text x="350.0" y="393.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.8" font-weight="500" fill="#3d4d5e">~6.5 Kbit Arch State (8,562 FFs)</text>
+  <rect x="524.0" y="332.0" width="360.0" height="54.0" rx="7.0" fill="#ffe096" stroke="#b57612" stroke-width="2.1" filter="url(#drop-shadow)"/>
+  <text x="704.0" y="350.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.0" font-weight="700" fill="#3d2604">QB Operand FIFO (u_qb · 8 × 16 B)</text>
+  <text x="704.0" y="371.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.8" font-weight="500" fill="#3d2604">B Row Slices  (8 cols × 2 k-steps / vec  →  8 B / beat)</text>
+  <polygon points="172.0,277.0 679.0,277.0 679.0,287.0 172.0,287.0" fill="#b86b00"/>
+  <polygon points="669.0,277.0 669.0,318.0 663.0,318.0 674.0,332.0 685.0,318.0 679.0,318.0 679.0,277.0" fill="#b86b00"/>
+  <rect x="228.0" y="444.0" width="224.0" height="196.0" rx="7.0" fill="#ffe096" stroke="#b57612" stroke-width="2.1" filter="url(#drop-shadow)"/>
+  <text x="340.0" y="484.3" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16.5" font-weight="700" fill="#3d2604">QA Operand</text>
+  <text x="340.0" y="503.7" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16.5" font-weight="700" fill="#3d2604">FIFO</text>
+  <text x="340.0" y="540.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.0" font-weight="700" fill="#3d2604">(u_qa · 8 × 16 B)</text>
+  <text x="340.0" y="575.7" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.8" font-weight="500" fill="#3d2604">A Column Slices</text>
+  <text x="340.0" y="590.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.8" font-weight="500" fill="#3d2604">(8 rows × 2 k-steps / vec)</text>
+  <text x="340.0" y="604.3" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.8" font-weight="500" fill="#3d2604">8 B / beat → A[0..7][k]</text>
+  <polygon points="92.0,362.0 104.0,362.0 104.0,548.0 92.0,548.0" fill="#b86b00"/>
+  <polygon points="92.0,536.0 212.0,536.0 212.0,529.0 228.0,542.0 212.0,555.0 212.0,548.0 92.0,548.0" fill="#b86b00"/>
+  <rect x="524.0" y="422.0" width="360.0" height="228.0" rx="8.0" fill="#ffffff" stroke="#6c38b8" stroke-width="2.2" filter="url(#drop-shadow)"/>
+  <text x="704.0" y="440.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#18222c">8×8 Outer-Product Array (64 × 9×9 → 17b)</text>
+  <text x="704.0" y="459.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.3" font-weight="500" fill="#2c1a4d">4 Quadrants (TL, TR, BL, BR)  ·  r × c × d = 64 MACs / beat</text>
+  <polygon points="584.0,386.0 584.0,410.0 579.0,410.0 588.0,422.0 597.0,410.0 592.0,410.0 592.0,386.0" fill="#b86b00"/>
+  <polygon points="700.0,386.0 700.0,410.0 695.0,410.0 704.0,422.0 713.0,410.0 708.0,410.0 708.0,386.0" fill="#b86b00"/>
+  <polygon points="816.0,386.0 816.0,410.0 811.0,410.0 820.0,422.0 829.0,410.0 824.0,410.0 824.0,386.0" fill="#b86b00"/>
+  <polygon points="452.0,486.0 512.0,486.0 512.0,481.0 524.0,490.0 512.0,499.0 512.0,494.0 452.0,494.0" fill="#b86b00"/>
+  <polygon points="452.0,545.0 512.0,545.0 512.0,540.0 524.0,549.0 512.0,558.0 512.0,553.0 452.0,553.0" fill="#b86b00"/>
+  <polygon points="452.0,604.0 512.0,604.0 512.0,599.0 524.0,608.0 512.0,617.0 512.0,612.0 452.0,612.0" fill="#b86b00"/>
+  <rect x="552.0" y="472.0" width="72.0" height="36.0" rx="5.0" fill="#f8f5ff" stroke="#6c38b8" stroke-width="2.0"/>
+  <text x="588.0" y="490.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#18222c">MAC</text>
+  <path d="M 624.0 490.0 L 662.1 490.0" fill="none" stroke="#6c38b8" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="668.0,490.0 659.0,485.5 659.0,494.5" fill="#6c38b8"/>
+  <path d="M 588.0 508.0 L 588.0 525.1" fill="none" stroke="#6c38b8" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="588.0,531.0 583.5,522.0 592.5,522.0" fill="#6c38b8"/>
+  <rect x="668.0" y="472.0" width="72.0" height="36.0" rx="5.0" fill="#f8f5ff" stroke="#6c38b8" stroke-width="2.0"/>
+  <text x="704.0" y="490.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#18222c">MAC</text>
+  <path d="M 740.0 490.0 L 778.1 490.0" fill="none" stroke="#6c38b8" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="784.0,490.0 775.0,485.5 775.0,494.5" fill="#6c38b8"/>
+  <path d="M 704.0 508.0 L 704.0 525.1" fill="none" stroke="#6c38b8" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="704.0,531.0 699.5,522.0 708.5,522.0" fill="#6c38b8"/>
+  <rect x="784.0" y="472.0" width="72.0" height="36.0" rx="5.0" fill="#f8f5ff" stroke="#6c38b8" stroke-width="2.0"/>
+  <text x="820.0" y="490.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#18222c">MAC</text>
+  <path d="M 820.0 508.0 L 820.0 525.1" fill="none" stroke="#6c38b8" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="820.0,531.0 815.5,522.0 824.5,522.0" fill="#6c38b8"/>
+  <rect x="552.0" y="531.0" width="72.0" height="36.0" rx="5.0" fill="#f8f5ff" stroke="#6c38b8" stroke-width="2.0"/>
+  <text x="588.0" y="549.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#18222c">MAC</text>
+  <path d="M 624.0 549.0 L 662.1 549.0" fill="none" stroke="#6c38b8" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="668.0,549.0 659.0,544.5 659.0,553.5" fill="#6c38b8"/>
+  <path d="M 588.0 567.0 L 588.0 584.1" fill="none" stroke="#6c38b8" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="588.0,590.0 583.5,581.0 592.5,581.0" fill="#6c38b8"/>
+  <rect x="668.0" y="531.0" width="72.0" height="36.0" rx="5.0" fill="#f8f5ff" stroke="#6c38b8" stroke-width="2.0"/>
+  <text x="704.0" y="549.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#18222c">MAC</text>
+  <path d="M 740.0 549.0 L 778.1 549.0" fill="none" stroke="#6c38b8" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="784.0,549.0 775.0,544.5 775.0,553.5" fill="#6c38b8"/>
+  <path d="M 704.0 567.0 L 704.0 584.1" fill="none" stroke="#6c38b8" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="704.0,590.0 699.5,581.0 708.5,581.0" fill="#6c38b8"/>
+  <rect x="784.0" y="531.0" width="72.0" height="36.0" rx="5.0" fill="#f8f5ff" stroke="#6c38b8" stroke-width="2.0"/>
+  <text x="820.0" y="549.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#18222c">MAC</text>
+  <path d="M 820.0 567.0 L 820.0 584.1" fill="none" stroke="#6c38b8" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="820.0,590.0 815.5,581.0 824.5,581.0" fill="#6c38b8"/>
+  <rect x="552.0" y="590.0" width="72.0" height="36.0" rx="5.0" fill="#f8f5ff" stroke="#6c38b8" stroke-width="2.0"/>
+  <text x="588.0" y="608.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#18222c">MAC</text>
+  <path d="M 624.0 608.0 L 662.1 608.0" fill="none" stroke="#6c38b8" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="668.0,608.0 659.0,603.5 659.0,612.5" fill="#6c38b8"/>
+  <rect x="668.0" y="590.0" width="72.0" height="36.0" rx="5.0" fill="#f8f5ff" stroke="#6c38b8" stroke-width="2.0"/>
+  <text x="704.0" y="608.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#18222c">MAC</text>
+  <path d="M 740.0 608.0 L 778.1 608.0" fill="none" stroke="#6c38b8" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="784.0,608.0 775.0,603.5 775.0,612.5" fill="#6c38b8"/>
+  <rect x="784.0" y="590.0" width="72.0" height="36.0" rx="5.0" fill="#f8f5ff" stroke="#6c38b8" stroke-width="2.0"/>
+  <text x="820.0" y="608.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#18222c">MAC</text>
+  <rect x="524.0" y="678.0" width="360.0" height="52.0" rx="7.0" fill="#e3d8fa" stroke="#6c38b8" stroke-width="2.2" filter="url(#drop-shadow)"/>
+  <text x="704.0" y="696.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#18222c">Variable-Arity Accumulate Cells (64 × int32)</text>
+  <text x="704.0" y="715.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#2c1a4d">Edge Quadrant Folding:  TL (+4)  ·  TR / BL (+2)  ·  BR (+1)</text>
+  <polygon points="585.0,626.0 585.0,667.0 580.0,667.0 588.0,678.0 596.0,667.0 591.0,667.0 591.0,626.0" fill="#6c38b8"/>
+  <polygon points="701.0,626.0 701.0,667.0 696.0,667.0 704.0,678.0 712.0,667.0 707.0,667.0 707.0,626.0" fill="#6c38b8"/>
+  <polygon points="817.0,626.0 817.0,667.0 812.0,667.0 820.0,678.0 828.0,667.0 823.0,667.0 823.0,626.0" fill="#6c38b8"/>
+  <rect x="960.0" y="622.0" width="224.0" height="108.0" rx="7.0" fill="#ffe096" stroke="#b57612" stroke-width="2.1" filter="url(#drop-shadow)"/>
+  <text x="1072.0" y="643.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#3d2604">Output Tile SC (2 × 8×8)</text>
+  <text x="1072.0" y="663.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" fill="#3d2604">Ping-Pong int32 Banks (4 Kbit)</text>
+  <rect x="972.0" y="679.0" width="94.0" height="38.0" rx="5.0" fill="#ffedb8" stroke="#b57612" stroke-width="1.6"/>
+  <text x="1019.0" y="692.2" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.0" font-weight="700" fill="#3d2604">Bank X</text>
+  <text x="1019.0" y="703.8" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.0" font-weight="700" fill="#3d2604">(Compute)</text>
+  <rect x="1078.0" y="679.0" width="94.0" height="38.0" rx="5.0" fill="#ffedb8" stroke="#b57612" stroke-width="1.6"/>
+  <text x="1125.0" y="692.2" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.0" font-weight="700" fill="#3d2604">Bank Y</text>
+  <text x="1125.0" y="703.8" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.0" font-weight="700" fill="#3d2604">(Drain)</text>
+  <polygon points="884.0,699.5 946.0,699.5 946.0,694.0 960.0,704.0 946.0,714.0 946.0,708.5 884.0,708.5" fill="#b86b00"/>
+  <polygon points="1184.0,698.0 1316.0,698.0 1316.0,710.0 1184.0,710.0" fill="#b86b00"/>
+  <polygon points="1304.0,710.0 1304.0,378.0 1297.0,378.0 1310.0,362.0 1323.0,378.0 1316.0,378.0 1316.0,710.0" fill="#b86b00"/>
+</svg>

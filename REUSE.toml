@@ -15,6 +15,7 @@ SPDX-License-Identifier = "Apache-2.0 WITH SHL-2.1"
 path = [
     "*.md",
     "docs/**/*.md",
+    "docs/figures/*",
     "rtl/README.md",
     "model/**/*.md",
     "verif/README.md",

@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Harishankar Narayanan -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1408 648" width="1408" height="648">
+  <defs>
+    <filter id="drop-shadow" x="-5%" y="-5%" width="112%" height="116%">
+      <feDropShadow dx="2" dy="3" stdDeviation="2.5" flood-color="#0f172a" flood-opacity="0.09"/>
+    </filter>
+  </defs>
+  <rect width="1408" height="648" fill="#ffffff"/>
+  <rect x="24.0" y="18.0" width="696.0" height="612.0" rx="14.0" fill="#f4effc" stroke="#6c38b8" stroke-width="2.5" filter="url(#drop-shadow)"/>
+  <text x="48.0" y="46.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16.5" font-weight="700" fill="#18222c">Variable-Arity Quadrant Folding  (r × c × d = 64 MACs / beat)</text>
+  <text x="48.0" y="69.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.8" font-weight="500" fill="#3d4d5e">Idle 4×4 multiplier quadrants work on extra k-steps and fold into active SC cells via fixed wires</text>
+  <rect x="44.0" y="88.0" width="656.0" height="162.0" rx="9.0" fill="#ffffff" stroke="#6c38b8" stroke-width="1.9" filter="url(#drop-shadow)"/>
+  <text x="176.0" y="108.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.0" font-weight="700" fill="#18222c">8×8 Multiplier Quadrants (64 × 9×9)</text>
+  <rect x="68.0" y="124.0" width="102.0" height="52.0" rx="6.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.8"/>
+  <text x="119.0" y="143.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#18222c">TL (4×4)</text>
+  <text x="119.0" y="161.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">rows 0..3, cols 0..3</text>
+  <rect x="178.0" y="124.0" width="102.0" height="52.0" rx="6.0" fill="#dcebfb" stroke="#2563eb" stroke-width="1.8"/>
+  <text x="229.0" y="143.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#18222c">TR (4×4)</text>
+  <text x="229.0" y="161.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">rows 0..3, cols 4..7</text>
+  <rect x="68.0" y="184.0" width="102.0" height="52.0" rx="6.0" fill="#ffe096" stroke="#b57612" stroke-width="1.8"/>
+  <text x="119.0" y="203.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#18222c">BL (4×4)</text>
+  <text x="119.0" y="221.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">rows 4..7, cols 0..3</text>
+  <rect x="178.0" y="184.0" width="102.0" height="52.0" rx="6.0" fill="#e3d8fa" stroke="#6c38b8" stroke-width="1.8"/>
+  <text x="229.0" y="203.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#18222c">BR (4×4)</text>
+  <text x="229.0" y="221.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">rows 4..7, cols 4..7</text>
+  <polygon points="294.0,175.0 344.0,175.0 344.0,169.0 358.0,180.0 344.0,191.0 344.0,185.0 294.0,185.0" fill="#6c38b8"/>
+  <text x="326.0" y="146.4" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.8" font-weight="700" fill="#2c1a4d">Fixed Wire</text>
+  <text x="326.0" y="157.6" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.8" font-weight="700" fill="#2c1a4d">Folding</text>
+  <text x="326.0" y="206.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="500" fill="#3d4d5e">(No Crossbar)</text>
+  <text x="524.0" y="108.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.0" font-weight="700" fill="#18222c">SC Accumulate-Cell Arity (Products / Cycle)</text>
+  <rect x="372.0" y="124.0" width="150.0" height="52.0" rx="6.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.8"/>
+  <text x="447.0" y="143.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.0" font-weight="700" fill="#18222c">TL: Arity 4 (+4 prods)</text>
+  <text x="447.0" y="161.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">TL + TR + BL + BR</text>
+  <rect x="530.0" y="124.0" width="150.0" height="52.0" rx="6.0" fill="#dcebfb" stroke="#2563eb" stroke-width="1.8"/>
+  <text x="605.0" y="143.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.0" font-weight="700" fill="#18222c">TR: Arity 2 (+2 prods)</text>
+  <text x="605.0" y="161.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">TR + BR</text>
+  <rect x="372.0" y="184.0" width="150.0" height="52.0" rx="6.0" fill="#ffe096" stroke="#b57612" stroke-width="1.8"/>
+  <text x="447.0" y="203.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.0" font-weight="700" fill="#18222c">BL: Arity 2 (+2 prods)</text>
+  <text x="447.0" y="221.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">BL + BR</text>
+  <rect x="530.0" y="184.0" width="150.0" height="52.0" rx="6.0" fill="#e3d8fa" stroke="#6c38b8" stroke-width="1.8"/>
+  <text x="605.0" y="203.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.0" font-weight="700" fill="#18222c">BR: Arity 1 (+1 prod)</text>
+  <text x="605.0" y="221.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">BR only</text>
+  <rect x="44.0" y="266.0" width="320.0" height="164.0" rx="9.0" fill="#ffffff" stroke="#2c3744" stroke-width="1.9" filter="url(#drop-shadow)"/>
+  <text x="56.0" y="286.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#18222c">8 × 8 × 1   (Interior Tile)</text>
+  <rect x="276.0" y="274.0" width="78.0" height="24.0" rx="5.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.5"/>
+  <text x="315.0" y="286.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.8" font-weight="700" fill="#18222c">100% Util</text>
+  <text x="115.0" y="306.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.6" font-weight="700" fill="#3d4d5e">MUL Quadrants</text>
+  <rect x="56.0" y="316.0" width="56.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.4"/>
+  <text x="84.0" y="329.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">TL: k</text>
+  <rect x="116.0" y="316.0" width="56.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.4"/>
+  <text x="144.0" y="329.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">TR: k</text>
+  <rect x="56.0" y="347.0" width="56.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.4"/>
+  <text x="84.0" y="360.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">BL: k</text>
+  <rect x="116.0" y="347.0" width="56.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.4"/>
+  <text x="144.0" y="360.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">BR: k</text>
+  <polygon points="180.0,343.0 202.0,343.0 202.0,339.0 212.0,346.0 202.0,353.0 202.0,349.0 180.0,349.0" fill="#188f4e"/>
+  <text x="279.0" y="306.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.6" font-weight="700" fill="#3d4d5e">Active C Tile (SC)</text>
+  <rect x="220.0" y="316.0" width="56.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.3"/>
+  <text x="248.0" y="329.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="700" fill="#18222c">SC TL (+1)</text>
+  <rect x="280.0" y="316.0" width="56.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.3"/>
+  <text x="308.0" y="329.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="700" fill="#18222c">SC TR (+1)</text>
+  <rect x="220.0" y="347.0" width="56.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.3"/>
+  <text x="248.0" y="360.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="700" fill="#18222c">SC BL (+1)</text>
+  <rect x="280.0" y="347.0" width="56.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.3"/>
+  <text x="308.0" y="360.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="700" fill="#18222c">SC BR (+1)</text>
+  <text x="204.0" y="396.1" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.3" font-weight="500" fill="#3d4d5e">All 4 quadrants active on step k  ·  1 prod/cell</text>
+  <text x="204.0" y="407.9" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.3" font-weight="500" fill="#3d4d5e">16 B/beat (8A + 8B)  ·  1.0 port cycle/beat</text>
+  <rect x="380.0" y="266.0" width="320.0" height="164.0" rx="9.0" fill="#ffffff" stroke="#2c3744" stroke-width="1.9" filter="url(#drop-shadow)"/>
+  <text x="392.0" y="286.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#18222c">8 × 4 × 2   (Right-Edge, ≤4 cols)</text>
+  <rect x="612.0" y="274.0" width="78.0" height="24.0" rx="5.0" fill="#dcebfb" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="651.0" y="286.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.8" font-weight="700" fill="#18222c">50% → 67%</text>
+  <text x="451.0" y="306.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.6" font-weight="700" fill="#3d4d5e">MUL Quadrants</text>
+  <rect x="392.0" y="316.0" width="56.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.4"/>
+  <text x="420.0" y="329.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">TL: k</text>
+  <rect x="452.0" y="316.0" width="56.0" height="27.0" rx="4.0" fill="#dcebfb" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="480.0" y="329.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">TR: k+1</text>
+  <rect x="392.0" y="347.0" width="56.0" height="27.0" rx="4.0" fill="#ffe096" stroke="#b57612" stroke-width="1.4"/>
+  <text x="420.0" y="360.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">BL: k</text>
+  <rect x="452.0" y="347.0" width="56.0" height="27.0" rx="4.0" fill="#dcebfb" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="480.0" y="360.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">BR: k+1</text>
+  <polygon points="516.0,343.0 538.0,343.0 538.0,339.0 548.0,346.0 538.0,353.0 538.0,349.0 516.0,349.0" fill="#2563eb"/>
+  <text x="615.0" y="306.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.6" font-weight="700" fill="#3d4d5e">Active C Tile (SC)</text>
+  <rect x="556.0" y="316.0" width="56.0" height="27.0" rx="4.0" fill="#dcebfb" stroke="#2563eb" stroke-width="1.3"/>
+  <text x="584.0" y="329.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="700" fill="#18222c">SC TL (+2)</text>
+  <rect x="616.0" y="316.0" width="56.0" height="27.0" rx="4.0" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.3"/>
+  <text x="644.0" y="329.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="500" fill="#94a3b8">(pad)</text>
+  <rect x="556.0" y="347.0" width="56.0" height="27.0" rx="4.0" fill="#dcebfb" stroke="#2563eb" stroke-width="1.3"/>
+  <text x="584.0" y="360.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="700" fill="#18222c">SC BL (+2)</text>
+  <rect x="616.0" y="347.0" width="56.0" height="27.0" rx="4.0" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.3"/>
+  <text x="644.0" y="360.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="500" fill="#94a3b8">(pad)</text>
+  <text x="540.0" y="396.1" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.3" font-weight="500" fill="#3d4d5e">TR &amp; BR fold into left cols on k+1  ·  2 prods/cell</text>
+  <text x="540.0" y="407.9" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.3" font-weight="500" fill="#3d4d5e">24 B/beat (16A + 8B)  ·  1.5 port cycles/beat</text>
+  <rect x="44.0" y="446.0" width="320.0" height="164.0" rx="9.0" fill="#ffffff" stroke="#2c3744" stroke-width="1.9" filter="url(#drop-shadow)"/>
+  <text x="56.0" y="466.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#18222c">4 × 8 × 2   (Bottom-Edge, ≤4 rows)</text>
+  <rect x="276.0" y="454.0" width="78.0" height="24.0" rx="5.0" fill="#ffe096" stroke="#b57612" stroke-width="1.5"/>
+  <text x="315.0" y="466.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.8" font-weight="700" fill="#18222c">50% → 67%</text>
+  <text x="115.0" y="486.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.6" font-weight="700" fill="#3d4d5e">MUL Quadrants</text>
+  <rect x="56.0" y="496.0" width="56.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.4"/>
+  <text x="84.0" y="509.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">TL: k</text>
+  <rect x="116.0" y="496.0" width="56.0" height="27.0" rx="4.0" fill="#dcebfb" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="144.0" y="509.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">TR: k</text>
+  <rect x="56.0" y="527.0" width="56.0" height="27.0" rx="4.0" fill="#ffe096" stroke="#b57612" stroke-width="1.4"/>
+  <text x="84.0" y="540.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">BL: k+1</text>
+  <rect x="116.0" y="527.0" width="56.0" height="27.0" rx="4.0" fill="#ffe096" stroke="#b57612" stroke-width="1.4"/>
+  <text x="144.0" y="540.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">BR: k+1</text>
+  <polygon points="180.0,523.0 202.0,523.0 202.0,519.0 212.0,526.0 202.0,533.0 202.0,529.0 180.0,529.0" fill="#b57612"/>
+  <text x="279.0" y="486.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.6" font-weight="700" fill="#3d4d5e">Active C Tile (SC)</text>
+  <rect x="220.0" y="496.0" width="56.0" height="27.0" rx="4.0" fill="#ffe096" stroke="#b57612" stroke-width="1.3"/>
+  <text x="248.0" y="509.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="700" fill="#18222c">SC TL (+2)</text>
+  <rect x="280.0" y="496.0" width="56.0" height="27.0" rx="4.0" fill="#ffe096" stroke="#b57612" stroke-width="1.3"/>
+  <text x="308.0" y="509.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="700" fill="#18222c">SC TR (+2)</text>
+  <rect x="220.0" y="527.0" width="56.0" height="27.0" rx="4.0" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.3"/>
+  <text x="248.0" y="540.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="500" fill="#94a3b8">(pad)</text>
+  <rect x="280.0" y="527.0" width="56.0" height="27.0" rx="4.0" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.3"/>
+  <text x="308.0" y="540.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="500" fill="#94a3b8">(pad)</text>
+  <text x="204.0" y="576.1" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.3" font-weight="500" fill="#3d4d5e">BL &amp; BR fold into top rows on k+1  ·  2 prods/cell</text>
+  <text x="204.0" y="587.9" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.3" font-weight="500" fill="#3d4d5e">24 B/beat (8A + 16B)  ·  1.5 port cycles/beat</text>
+  <rect x="380.0" y="446.0" width="320.0" height="164.0" rx="9.0" fill="#ffffff" stroke="#2c3744" stroke-width="1.9" filter="url(#drop-shadow)"/>
+  <text x="392.0" y="466.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#18222c">4 × 4 × 4   (Corner Tile, ≤4×4)</text>
+  <rect x="612.0" y="454.0" width="78.0" height="24.0" rx="5.0" fill="#e3d8fa" stroke="#6c38b8" stroke-width="1.5"/>
+  <text x="651.0" y="466.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.8" font-weight="700" fill="#18222c">25% → 50%</text>
+  <text x="451.0" y="486.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.6" font-weight="700" fill="#3d4d5e">MUL Quadrants</text>
+  <rect x="392.0" y="496.0" width="56.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.4"/>
+  <text x="420.0" y="509.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">TL: k</text>
+  <rect x="452.0" y="496.0" width="56.0" height="27.0" rx="4.0" fill="#dcebfb" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="480.0" y="509.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">TR: k+1</text>
+  <rect x="392.0" y="527.0" width="56.0" height="27.0" rx="4.0" fill="#ffe096" stroke="#b57612" stroke-width="1.4"/>
+  <text x="420.0" y="540.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">BL: k+2</text>
+  <rect x="452.0" y="527.0" width="56.0" height="27.0" rx="4.0" fill="#e3d8fa" stroke="#6c38b8" stroke-width="1.4"/>
+  <text x="480.0" y="540.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.4" font-weight="700" fill="#18222c">BR: k+3</text>
+  <polygon points="516.0,523.0 538.0,523.0 538.0,519.0 548.0,526.0 538.0,533.0 538.0,529.0 516.0,529.0" fill="#6c38b8"/>
+  <text x="615.0" y="486.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.6" font-weight="700" fill="#3d4d5e">Active C Tile (SC)</text>
+  <rect x="556.0" y="496.0" width="56.0" height="27.0" rx="4.0" fill="#e3d8fa" stroke="#6c38b8" stroke-width="1.3"/>
+  <text x="584.0" y="509.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="700" fill="#18222c">SC TL (+4)</text>
+  <rect x="616.0" y="496.0" width="56.0" height="27.0" rx="4.0" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.3"/>
+  <text x="644.0" y="509.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="500" fill="#94a3b8">(pad)</text>
+  <rect x="556.0" y="527.0" width="56.0" height="27.0" rx="4.0" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.3"/>
+  <text x="584.0" y="540.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="500" fill="#94a3b8">(pad)</text>
+  <rect x="616.0" y="527.0" width="56.0" height="27.0" rx="4.0" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.3"/>
+  <text x="644.0" y="540.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.2" font-weight="500" fill="#94a3b8">(pad)</text>
+  <text x="540.0" y="576.1" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.3" font-weight="500" fill="#3d4d5e">All 4 quadrants fold into TL (k..k+3)  ·  4 prods/cell</text>
+  <text x="540.0" y="587.9" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.3" font-weight="500" fill="#3d4d5e">32 B/beat (16A + 16B)  ·  2.0 port cycles/beat</text>
+  <rect x="740.0" y="18.0" width="644.0" height="612.0" rx="14.0" fill="#eef2f7" stroke="#2c3744" stroke-width="2.5" filter="url(#drop-shadow)"/>
+  <text x="764.0" y="46.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16.5" font-weight="700" fill="#18222c">Three-Way Decoupled Overlap &amp; Zero-Bubble Kernel</text>
+  <text x="764.0" y="69.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.8" font-weight="500" fill="#3d4d5e">Stream loads, outer-product compute, and background tile drain execute concurrently</text>
+  <rect x="760.0" y="88.0" width="604.0" height="276.0" rx="9.0" fill="#ffffff" stroke="#2c3744" stroke-width="1.9" filter="url(#drop-shadow)"/>
+  <text x="778.0" y="109.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.0" font-weight="700" fill="#18222c">Pipeline Overlap Timeline  (8×8 Tiles, K = 64  →  64 Cycles / Tile)</text>
+  <text x="904.0" y="130.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#3d4d5e">Cyc 0</text>
+  <text x="1012.0" y="130.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#3d4d5e">Cyc 64</text>
+  <path d="M 1012.0 140.0 L 1012.0 335.9" fill="none" stroke="#cbd5e1" stroke-width="1.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="1012.0,336.0 1012.0,335.9 1012.0,335.9" fill="#cbd5e1"/>
+  <text x="1120.0" y="130.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#3d4d5e">Cyc 128</text>
+  <path d="M 1120.0 140.0 L 1120.0 335.9" fill="none" stroke="#cbd5e1" stroke-width="1.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="1120.0,336.0 1120.0,335.9 1120.0,335.9" fill="#cbd5e1"/>
+  <text x="1228.0" y="130.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#3d4d5e">Cyc 192</text>
+  <path d="M 1228.0 140.0 L 1228.0 335.9" fill="none" stroke="#cbd5e1" stroke-width="1.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="1228.0,336.0 1228.0,335.9 1228.0,335.9" fill="#cbd5e1"/>
+  <text x="1336.0" y="130.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#3d4d5e">Cyc 256</text>
+  <text x="776.0" y="154.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#18222c">Read Port</text>
+  <text x="776.0" y="167.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">(16 B/cyc)</text>
+  <text x="776.0" y="192.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#18222c">MAC Array</text>
+  <text x="776.0" y="205.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">(64 MAC/c)</text>
+  <text x="776.0" y="230.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#18222c">SC Bank X</text>
+  <text x="776.0" y="243.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">(8×8 int32)</text>
+  <text x="776.0" y="268.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#18222c">SC Bank Y</text>
+  <text x="776.0" y="281.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">(8×8 int32)</text>
+  <text x="776.0" y="306.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#18222c">Write Port</text>
+  <text x="776.0" y="319.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">(16 B/cyc)</text>
+  <rect x="906.0" y="146.0" width="104.0" height="27.0" rx="4.0" fill="#ffe096" stroke="#b57612" stroke-width="1.5"/>
+  <text x="958.0" y="159.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#3d2604">Stream A0, B0</text>
+  <rect x="1014.0" y="146.0" width="104.0" height="27.0" rx="4.0" fill="#ffe096" stroke="#b57612" stroke-width="1.5"/>
+  <text x="1066.0" y="159.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#3d2604">Stream A1, B1</text>
+  <rect x="1122.0" y="146.0" width="104.0" height="27.0" rx="4.0" fill="#ffe096" stroke="#b57612" stroke-width="1.5"/>
+  <text x="1174.0" y="159.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#3d2604">Stream A2, B2</text>
+  <rect x="1230.0" y="146.0" width="104.0" height="27.0" rx="4.0" fill="#ffe096" stroke="#b57612" stroke-width="1.5"/>
+  <text x="1282.0" y="159.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#3d2604">Stream A3, B3</text>
+  <rect x="906.0" y="184.0" width="104.0" height="27.0" rx="4.0" fill="#e3d8fa" stroke="#6c38b8" stroke-width="1.5"/>
+  <text x="958.0" y="197.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#2c1a4d">Compute Tile 0</text>
+  <rect x="1014.0" y="184.0" width="104.0" height="27.0" rx="4.0" fill="#e3d8fa" stroke="#6c38b8" stroke-width="1.5"/>
+  <text x="1066.0" y="197.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#2c1a4d">Compute Tile 1</text>
+  <rect x="1122.0" y="184.0" width="104.0" height="27.0" rx="4.0" fill="#e3d8fa" stroke="#6c38b8" stroke-width="1.5"/>
+  <text x="1174.0" y="197.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#2c1a4d">Compute Tile 2</text>
+  <rect x="1230.0" y="184.0" width="104.0" height="27.0" rx="4.0" fill="#e3d8fa" stroke="#6c38b8" stroke-width="1.5"/>
+  <text x="1282.0" y="197.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#2c1a4d">Compute Tile 3</text>
+  <rect x="906.0" y="222.0" width="104.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.5"/>
+  <text x="958.0" y="235.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#18222c">Accum Tile 0</text>
+  <rect x="1014.0" y="222.0" width="32.0" height="27.0" rx="4.0" fill="#ffedb8" stroke="#b57612" stroke-width="1.4"/>
+  <text x="1030.0" y="235.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="700" fill="#3d2604">D0</text>
+  <rect x="1122.0" y="222.0" width="104.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.5"/>
+  <text x="1174.0" y="235.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#18222c">Accum Tile 2</text>
+  <rect x="1230.0" y="222.0" width="32.0" height="27.0" rx="4.0" fill="#ffedb8" stroke="#b57612" stroke-width="1.4"/>
+  <text x="1246.0" y="235.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="700" fill="#3d2604">D2</text>
+  <rect x="1014.0" y="260.0" width="104.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.5"/>
+  <text x="1066.0" y="273.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#18222c">Accum Tile 1</text>
+  <rect x="1122.0" y="260.0" width="32.0" height="27.0" rx="4.0" fill="#ffedb8" stroke="#b57612" stroke-width="1.4"/>
+  <text x="1138.0" y="273.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="700" fill="#3d2604">D1</text>
+  <rect x="1230.0" y="260.0" width="104.0" height="27.0" rx="4.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.5"/>
+  <text x="1282.0" y="273.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#18222c">Accum Tile 3</text>
+  <rect x="1014.0" y="298.0" width="32.0" height="27.0" rx="4.0" fill="#dfe6ee" stroke="#2c3744" stroke-width="1.5"/>
+  <text x="1030.0" y="311.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="700" fill="#18222c">C0</text>
+  <rect x="1122.0" y="298.0" width="32.0" height="27.0" rx="4.0" fill="#dfe6ee" stroke="#2c3744" stroke-width="1.5"/>
+  <text x="1138.0" y="311.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="700" fill="#18222c">C1</text>
+  <rect x="1230.0" y="298.0" width="32.0" height="27.0" rx="4.0" fill="#dfe6ee" stroke="#2c3744" stroke-width="1.5"/>
+  <text x="1246.0" y="311.5" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="700" fill="#18222c">C2</text>
+  <text x="1062.0" y="346.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.3" font-weight="700" fill="#3d4d5e">SWAP_C swaps banks in 0 cycles; each 16-cycle C tile drain (D0, D1, D2) hides under the next tile&#x27;s 64-cycle compute</text>
+  <rect x="760.0" y="376.0" width="286.0" height="234.0" rx="9.0" fill="#ffffff" stroke="#2c3744" stroke-width="1.9" filter="url(#drop-shadow)"/>
+  <text x="776.0" y="398.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.0" font-weight="700" fill="#18222c">10-Byte Reference Kernel (§6.2)</text>
+  <text x="778.0" y="420.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">0x00</text>
+  <text x="812.0" y="420.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#18222c">ZERO_C</text>
+  <text x="916.0" y="420.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="500" fill="#3d4d5e">Clear Bank X &amp; Y</text>
+  <text x="778.0" y="438.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">0x01</text>
+  <text x="812.0" y="438.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#18222c">STREAM_A</text>
+  <text x="916.0" y="438.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="500" fill="#3d4d5e">Prefetch tile 0 A</text>
+  <text x="778.0" y="456.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">0x02</text>
+  <text x="812.0" y="456.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#18222c">STREAM_B</text>
+  <text x="916.0" y="456.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="500" fill="#3d4d5e">Prefetch tile 0 B</text>
+  <rect x="772.0" y="466.0" width="262.0" height="16.0" rx="3.0" fill="#f8f5ff" stroke="none" stroke-width="0.0"/>
+  <text x="778.0" y="474.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">0x03</text>
+  <text x="812.0" y="474.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#2c1a4d">LOOP_T 5</text>
+  <text x="916.0" y="474.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="500" fill="#3d4d5e">For each C tile:</text>
+  <text x="778.0" y="492.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">0x04</text>
+  <text x="812.0" y="492.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#18222c">  STREAM_A</text>
+  <text x="916.0" y="492.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="500" fill="#3d4d5e">  Prefetch next A</text>
+  <text x="778.0" y="510.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">0x05</text>
+  <text x="812.0" y="510.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#18222c">  STREAM_B</text>
+  <text x="916.0" y="510.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="500" fill="#3d4d5e">  Prefetch next B</text>
+  <rect x="772.0" y="520.0" width="262.0" height="16.0" rx="3.0" fill="#f8f5ff" stroke="none" stroke-width="0.0"/>
+  <text x="778.0" y="528.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">0x06</text>
+  <text x="812.0" y="528.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#2c1a4d">  LOOP_K 1</text>
+  <text x="916.0" y="528.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="500" fill="#3d4d5e">  Repeat Kp/2d:</text>
+  <rect x="772.0" y="538.0" width="262.0" height="16.0" rx="3.0" fill="#f8f5ff" stroke="none" stroke-width="0.0"/>
+  <text x="778.0" y="546.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">0x07</text>
+  <text x="812.0" y="546.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#2c1a4d">    VOUTER_MAC</text>
+  <text x="916.0" y="546.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="500" fill="#3d4d5e">    2 outer beats</text>
+  <rect x="772.0" y="556.0" width="262.0" height="16.0" rx="3.0" fill="#f8f5ff" stroke="none" stroke-width="0.0"/>
+  <text x="778.0" y="564.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">0x08</text>
+  <text x="812.0" y="564.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#2c1a4d">  SWAP_C</text>
+  <text x="916.0" y="564.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="500" fill="#3d4d5e">  0-cyc swap+drain</text>
+  <text x="778.0" y="582.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.2" font-weight="500" fill="#3d4d5e">0x09</text>
+  <text x="812.0" y="582.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="700" fill="#18222c">FENCE</text>
+  <text x="916.0" y="582.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.0" font-weight="500" fill="#3d4d5e">Wait drain done</text>
+  <rect x="1060.0" y="376.0" width="304.0" height="234.0" rx="9.0" fill="#ffffff" stroke="#2c3744" stroke-width="1.9" filter="url(#drop-shadow)"/>
+  <text x="1076.0" y="398.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.0" font-weight="700" fill="#18222c">Measured Efficiency (T = 8)</text>
+  <rect x="1074.0" y="418.0" width="276.0" height="39.0" rx="6.0" fill="#cbf5da" stroke="#188f4e" stroke-width="1.5"/>
+  <text x="1086.0" y="431.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#18222c">99.2% Peak Util on 64³ GEMM</text>
+  <text x="1086.0" y="446.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">4,130 vs 4,096 ideal cycles (0-cycle SWAP_C)</text>
+  <rect x="1074.0" y="463.0" width="276.0" height="39.0" rx="6.0" fill="#ffe096" stroke="#b57612" stroke-width="1.5"/>
+  <text x="1086.0" y="476.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#18222c">4 MACs / Byte Loaded</text>
+  <text x="1086.0" y="491.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">64 MACs per 16 B vector (no operand RF)</text>
+  <rect x="1074.0" y="508.0" width="276.0" height="39.0" rx="6.0" fill="#dcebfb" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="1086.0" y="521.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#18222c">Drain Hidden for Kp ≥ 24</text>
+  <text x="1086.0" y="536.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">16-cycle int32 write-back (8 cyc in int8 mode)</text>
+  <rect x="1074.0" y="553.0" width="276.0" height="39.0" rx="6.0" fill="#e3d8fa" stroke="#6c38b8" stroke-width="1.5"/>
+  <text x="1086.0" y="566.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#18222c">ASAP7 7nm: 2.53 TOPS/W</text>
+  <text x="1086.0" y="581.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">992.5 MHz · 10,281 µm² (176 kGE) · 0.79 pJ/MAC</text>
+</svg>
