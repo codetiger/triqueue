@@ -12,7 +12,7 @@ The goal is a **simple, efficient open-source RTL matrix coprocessor for RISC-V*
 
 ## Current state
 
-RTL v1.0 exists and matches the model cycle for cycle. The architecture is the **Tri-Queue**: an int8 outer-product engine with a T×T int32 accumulator tile (double-banked, plain 32-bit adder by default, carry-save selectable), T² 9×9 multipliers and one 2T-byte SRAM read port. T is a parameter; the spec's design point and all spec figures are T = 8 (64 MACs, 128-bit port).
+RTL v1.0.1 exists and matches the model cycle for cycle. The architecture is the **Tri-Queue**: an int8 outer-product engine with a T×T int32 accumulator tile (double-banked, plain 32-bit adder by default, carry-save selectable), T² 9×9 multipliers and one 2T-byte SRAM read port. T is a parameter; the spec's design point and all spec figures are T = 8 (64 MACs, 128-bit port).
 
 - `docs/specification.md`: the spec (rev 5) and the source of truth, including the memory (§6.3) and host (§6.4) interfaces and the design choices (§10). `docs/golden-vectors.md` is the golden-vector and trace contract between the model and the RTL testbenches.
 - `model/`: a cycle-level Python model of the spec that runs the real instruction bytes and checks every result bit-exact against numpy. It is the golden reference for the RTL.

@@ -96,6 +96,10 @@ design lock, CI/release pipeline, and specification.
   (`flow/results.md`, `ui/data/traces_data.js`), added `--records-only` relocking, removed unused
   `ui/data/ppa_records.js` and `ihp-sg13g2`, and added `core_area_um2`, `stdcell_density_pct` and
   `row_fill_pct` to `flow/results.md`.
+- **FPGA resource note refreshed at the v1.0.1 RTL (`flow/fpga/README.md`):** ECP5-85F out-of-context
+  synthesis is 18,948 LUT4, 8,563 flip-flops, 2,341 CCU2C and 64 `MULT18X18D` at T = 8 (`t8_cpa`),
+  against 16,658 / 8,562 / 2,294 at `v1.0.0`, and now records `t8_shared` and `t8_csa` too. Still
+  synthesis only: no Fmax, utilization or board result.
 
 ## [v1.0.0] — 2026-11-11
 
