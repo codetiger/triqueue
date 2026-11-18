@@ -30,6 +30,7 @@ cmake --build tools/yosys/build --target install -j
 | --- | --- |
 | `ppa.py` | Configurations (`CONFIGS`), platforms with their target clocks, deterministic thread counts, and locked floorplan utilization (`PLATFORMS`), plus the ORFS driver (`run`, `sweep`, `sweep-util`). |
 | `constraint.sdc` | Clock on `clk_i` (period from `ppa.py`), 20% of the period as I/O delay, `rst_ni` untimed (asynchronous, synchronized in the SoC). |
+| `logo.tcl` | Layout signature (ORFS `POST_TAPCELL_TCL`): "codetiger" in 5×7-pixel letters of physical-only cells, placed `FIRM` (never moved by the placers) right after the tap cells at the bottom centre of the core, where the south edge carries only the register readback pins. Decap cells draw the letters and filler cells the background, around the platform's tap cells. The netlist is unchanged; the box takes about 0.2% of the core. `ppa.py` (`LOGO`) sets the pixel size and cells per platform, and `results.py collect` keeps logo cells out of the cell area and count (sky130hd counts its decaps as cells). |
 | `io_constraints.tcl` | Deterministic 4-edge perimeter pin assignment (`rd_*` West, `wr_*` East, host write/ctrl North, host readback South). |
 | `activity.py` | Runs one workload in Verilator through the cocotb testbench (checked against the cycle model) and dumps SAIF. |
 | `results.py` | `collect` condenses a finished native run and its power results into `records/<platform>/<config>.json` (committed); without arguments it writes `results.md` from the records. CI checks that `results.md` matches them. |

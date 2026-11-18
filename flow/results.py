@@ -203,6 +203,12 @@ def collect(platform, config, force=False):
             time_s = p["cycles"] * period * unit_ps * 1e-12
             e = ((reads + writes) * sram["access_pj"] * 1e-12 + sram["leakage_w"] * time_s) * sram["macros_per_port_word"]
             p["sram"] = dict(reads=reads, writes=writes, energy_j=e)
+    # layout signature (flow/logo.tcl): its decaps are physical cells, but a platform whose decaps
+    # are not filler class (sky130hd) counts them in the cell area and count; keep them out
+    logo_f = run / "results" / base / "tq_logo.json"
+    logo = json.loads(logo_f.read_text()) if logo_f.exists() else None
+    logo_area = logo["logic_area_um2"] if logo else 0.0
+    logo_cells = logo.get("logic_cells", 0) if logo else 0
     openroad, yosys = tool_versions(run, base)
     verilator_ver, cocotb_ver = sim_versions()
     rec = dict(
@@ -215,10 +221,10 @@ def collect(platform, config, force=False):
         jobs=PLATFORMS[platform]["jobs"],
         platform=platform, config=config, params=CONFIGS[config],
         clock_period_ps=period * unit_ps, core_utilization_pct=util,
-        cell_area_um2=m["finish__design__instance__area__stdcell"], area_split_um2=area_split,
+        cell_area_um2=round(m["finish__design__instance__area__stdcell"] - logo_area, 3), area_split_um2=area_split,
         core_area_um2=m["finish__design__core__area"],
         placement_density=m["finish__design__instance__utilization"],
-        cells=m["finish__design__instance__count__stdcell"],               # without fill cells
+        cells=m["finish__design__instance__count__stdcell"] - logo_cells,  # without fill or logo cells
         flops=m.get("finish__design__instance__count__class:sequential_cell", 0),
         nand2_cell=NAND2_UM2[platform][0], nand2_um2=NAND2_UM2[platform][1],
         setup_ws_ps=m["finish__timing__setup__ws"] * unit_ps,
@@ -229,6 +235,8 @@ def collect(platform, config, force=False):
         power=power,
         sram=sram,
     )
+    if logo:
+        rec["logo"] = logo
     if missing_wl:
         rec["missing_workloads"] = missing_wl
     dst = RECORDS / platform / f"{config}.json"

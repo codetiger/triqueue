@@ -65,6 +65,19 @@ PLATFORMS = {
     "asap7":    dict(period=1000, unit="ps", util=70, jobs=4, max_jobs=3, extra={}),
 }
 
+# Layout signature (flow/logo.tcl): the text in 5x7-pixel letters of physical-only cells, placed
+# FIXED after the tap cells at the bottom centre of the core. Square pixels: one row high, this many
+# sites wide. Decap cells draw the letters, filler cells the background.
+LOGO_TEXT = "codetiger"
+LOGO = {
+    "sky130hd": dict(pixel_sites=6, row0=2,
+                     decaps=[f"sky130_fd_sc_hd__decap_{w}" for w in (12, 8, 6, 4, 3)],
+                     fillers=[f"sky130_fd_sc_hd__fill_{w}" for w in (8, 4, 2, 1)]),
+    "asap7":    dict(pixel_sites=5, row0=4,
+                     decaps=["DECAPx1_ASAP7_75t_R"],
+                     fillers=["FILLER_ASAP7_75t_R", "FILLERxp5_ASAP7_75t_R"]),
+}
+
 STAGES = ("synth", "floorplan", "place", "cts", "route", "finish")
 
 
@@ -97,6 +110,15 @@ def config_mk(platform, config, period, util=None, native=False, nick=None):
         "export SYNTH_REPEATABLE_BUILD = 1",
         "export GPL_RANDOM_SEED        = 1",
         "export OR_SEED                = 1",
+    ]
+    logo = LOGO[platform]
+    lines += [
+        f"export POST_TAPCELL_TCL       = {WORK}/flow/logo.tcl",
+        f"export TQ_LOGO_TEXT           = {LOGO_TEXT}",
+        f"export TQ_LOGO_PIXEL_SITES    = {logo['pixel_sites']}",
+        f"export TQ_LOGO_ROW0           = {logo['row0']}",
+        f"export TQ_LOGO_DECAPS         = {' '.join(logo['decaps'])}",
+        f"export TQ_LOGO_FILLERS        = {' '.join(logo['fillers'])}",
     ]
     lines += [f"export {k} = {v}" for k, v in p["extra"].items()]
     return "\n".join(lines) + "\n"

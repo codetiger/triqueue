@@ -119,8 +119,11 @@ def classify_cell_class(inst_clean: str, cell: str) -> int:
       2 = Clock Tree Buffer / Inverter
       3 = Combinational Logic (Multipliers, Adders, Muxes, Tie/Buffers)
       4 = Physical-Only Fill / Decap / Well-Tap / Antenna Diode
+      5 = Layout signature: the decap "on" pixels of flow/logo.tcl (its filler pixels stay 4)
     """
     cell_up = cell.upper()
+    if inst_clean.startswith("TQ_LOGO_") and "DECAP" in cell_up:
+        return 5
     if any(k in inst_clean for k in ("FILLER_", "TAPCELL_", "PHY_", "ANTENNA_")) or any(
         k in cell_up for k in ("FILLER", "FILL_", "DECAP", "TAP", "DIODE", "ANTENNA")
     ):
@@ -415,6 +418,13 @@ def extract_exact_layout(
             fill_w = 0
 
     for y_dbu, x_dbu, w_dbu, h_dbu, inst_clean, cell, mod, cclass, quad in raw_components:
+        if cclass == 5:
+            # physical area like the fill, but kept as individual cells so the letters show
+            flush_fill_span()
+            phys_cell_count += 1
+            fill_area_dbu2 += w_dbu * h_dbu
+            cells_packed.append([x_dbu, y_dbu, w_dbu, h_dbu, 11, 5, 0, 5])
+            continue
         if cclass == 4:
             phys_cell_count += 1
             fill_area_dbu2 += w_dbu * h_dbu

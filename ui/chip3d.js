@@ -31,6 +31,7 @@
     { id: 2, short: "CTS",   name: "CTS Clock Tree Buffers", rgb: [0.99, 0.84, 0.39], hex: "#fdd663" },
     { id: 3, short: "Logic", name: "Combinational Logic (9×9 MUL / CPA)", rgb: [0.68, 0.56, 0.88], hex: "#ad8fe0" },
     { id: 4, short: "Fill",  name: "Physical Decap / Well Tap / Tie", rgb: [0.22, 0.25, 0.31], hex: "#38404f" },
+    { id: 5, short: "Logo",  name: "Layout Signature (codetiger)", rgb: [1.0, 0.78, 0.25], hex: "#ffc740" },
   ];
 
   const LAYER_MAT_COLORS = [
@@ -564,7 +565,10 @@
           const sy = Math.max(0.05, hu * k * 0.955);
 
           let r = 0.3, g = 0.5, b = 0.8, a = 0.97;
-          if (this.colorMode === "module") {
+          if (cclass === 5) {
+            // the layout signature reads the same in every colour mode
+            r = CLASS_META[5].rgb[0]; g = CLASS_META[5].rgb[1]; b = CLASS_META[5].rgb[2];
+          } else if (this.colorMode === "module") {
             if (cclass === 4) {
               r = 0.14; g = 0.18; b = 0.25; a = 0.94;
             } else {
@@ -596,7 +600,7 @@
             else { r = 0.10; g = 0.14; b = 0.22; a = 0.32; }
           }
 
-          pushBox(cx, cy, 0.0, sx, sy, cellH, r, g, b, a, 0, cclass === 4 ? -1 : mod);
+          pushBox(cx, cy, 0.0, sx, sy, cellH, r, g, b, a, 0, cclass >= 4 ? -1 : mod);
         }
       }
 
