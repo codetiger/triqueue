@@ -102,7 +102,12 @@ module tq_drain #(
   logic [W*8-1:0]  data32, data8, data;
   logic [W-1:0]    be32, be8, be;
 
-  assign half_val = phalf ? rd_val_i[H*32 +: H*32] : rd_val_i[0 +: H*32];
+  // Output-mode isolation: only the selected output path sees the bank values, so the other
+  // path's shifters, clamps and lane muxes hold still. out_int8 is constant for a run, so the
+  // gating adds no transitions, and `data` below selects the same path as before.
+  logic [T*32-1:0] val8;
+  assign val8     = rd_val_i & {(T*32){out_int8}};
+  assign half_val = (phalf ? rd_val_i[H*32 +: H*32] : rd_val_i[0 +: H*32]) & {(H*32){!out_int8}};
 
   for (genvar l = 0; l < H; l++) begin : g_w32
     logic en;
@@ -115,7 +120,7 @@ module tq_drain #(
     logic signed [31:0] sh;
     logic [7:0]         q8;
     logic               en;
-    assign sh                 = $signed(rd_val_i[l*32 +: 32]) >>> out_shift;
+    assign sh                 = $signed(val8[l*32 +: 32]) >>> out_shift;
     assign q8                 = (sh[31:7] == {25{sh[31]}}) ? sh[7:0] : (sh[31] ? 8'h80 : 8'h7f);
     assign en                 = RCW'(l) < cols;
     assign be_int8[l]         = en;
@@ -186,7 +191,9 @@ module tq_drain #(
   assign wr_valid_o       = stg_v_q;
   assign wr_addr_o        = stg_v_q ? stg_addr_q : 32'd0;
   assign wr_be_o          = stg_v_q ? stg_be_q   : '0;
-  assign wr_data_o        = stg_v_q ? stg_data_q : '0;
+  // The data holds the last staged word between writes (it is valid only with wr_req, spec 6.3),
+  // so the W-byte bus and the SRAM's data inputs do not swing to zero and back between writes.
+  assign wr_data_o        = stg_data_q;
   assign clear_bank_o     = wr_fire_i && stg_last_q;
   assign clear_bank_sel_o = bank_q;
   assign active_o         = act_q;

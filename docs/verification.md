@@ -31,7 +31,8 @@ queueing and error timing, for the tested configurations.
 
 | Proof | Scope | When |
 | --- | --- | --- |
-| `tq_cg.sby` + `check_cg_pattern.py` | Every gated register uses the `tq_cg` template; the ICG latch model equals an enable flop, with and without async reset; the gated clock never rises without the clock | `make formal` |
+| `tq_cg.sby` + `check_cg_pattern.py` | Every gated register uses the `tq_cg` template; the ICG latch model equals an enable flop, with and without async reset, and so does a two-level gate whose enable implies its parent's; no gated clock rises without the clock | `make formal` |
+| `tq_mac_array.sby cpa2/cpa1/csa2` (`csa1` nightly) | T = 4 array, any inputs: the lazy accumulator clear is the eager clear (every quadrant holds the eager value or is zero-flagged with an eager value of zero, and the drain read returns the eager value), both accumulator forms and both `MAC_PIPE` values | `make formal` / `make formal-nightly` |
 | `tq_fifo.sby` | Occupancy invariant, no overflow/underflow under legal use, in-order data, depths 2/3/4/8/16 | `make formal` |
 | `tq_axil_regs.sby` | AXI4-Lite slave: handshake rules, response stability, one open transaction, OBI request stability | `make formal` |
 | `tq_xif_regs.sby` | CV-X-IF adapter: commit-gated register access, one result per committed instruction, killed/speculative instructions have no effect | `make formal` |

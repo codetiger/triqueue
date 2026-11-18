@@ -24,9 +24,10 @@
 //   tq_pkg::ACC_CSA  carry-save (sum, carry), 3:2 compressors in the loop, CPA lanes at the drain
 //
 // CLK_GATE (tq_cg): the product register is clocked only on a beat, one gate per quadrant. Each
-// bank has one gate per quadrant, open for a clear or for an accumulate that can reach the
-// quadrant: in the reduced-depth shapes only TL (4x4x4) or the top / left half (4xT, Tx4)
-// receives products, so the other cells keep their value instead of adding zero.
+// bank has one gate per quadrant, open only for an accumulate that can reach the quadrant (a
+// clear sets the quadrant's zero flag instead, see the lazy clear below): in the reduced-depth
+// shapes only TL (4x4x4) or the top / left half (4xT, Tx4) receives products, so the other cells
+// keep their value instead of adding zero.
 
 module tq_mac_array #(
     parameter int T        = 8,
@@ -174,19 +175,48 @@ module tq_mac_array #(
   // is of a beat issued before the ZERO_C, which the clear drops (model: the beat's sums are
   // cleared). With MAC_PIPE = 1 it is of a beat issued in the ZERO_C's cycle, after it (the MAC
   // unit takes ZERO_C, then VOUTER_MAC): the products land on a zero bank.
-  logic zbase;
-  assign zbase = (MAC_PIPE == 1) && (pbank_q ? clr1 : clr0);
-  logic [3:0] dst, keep0, keep1, we0, we1, gclk0, gclk1;
+  //
+  // Lazy clear: a clear does not write the bank. It sets the bank's four quadrant zero flags
+  // (zf0_q / zf1_q). A flagged quadrant reads as zero, both as an accumulate's base and at the
+  // drain read port, and the next accumulate into it writes base 0 + products over the stale
+  // values and drops its flag. The banks then take one write per beat and none per clear, and
+  // the stored values never pass through zero between tiles. Observably the same as writing
+  // zeros (proved in verif/formal/tq_mac_array.sby).
+  logic [3:0] dst, we0, we1, zb0, zb1, zf0_q, zf1_q, gclk0, gclk1;
   for (genvar q = 0; q < 4; q++) begin : g_bank_cg
     // some source quadrant writes this one
-    assign dst[q]   = (prf_q || q / 2 == 0) && (pcf_q || q % 2 == 0);
-    assign keep0[q] = (MAC_PIPE == 1) && acc0 && dst[q];
-    assign keep1[q] = (MAC_PIPE == 1) && acc1 && dst[q];
-    assign we0[q]   = clr0 || (acc0 && dst[q]);
-    assign we1[q]   = clr1 || (acc1 && dst[q]);
+    assign dst[q] = (prf_q || q / 2 == 0) && (pcf_q || q % 2 == 0);
+    assign we0[q] = acc0 && dst[q] && (MAC_PIPE == 1 || !clr0);
+    assign we1[q] = acc1 && dst[q] && (MAC_PIPE == 1 || !clr1);
+    // the quadrant's accumulate base is zero: flagged, or cleared this cycle (MAC_PIPE = 1)
+    assign zb0[q] = zf0_q[q] || (MAC_PIPE == 1 && clr0);
+    assign zb1[q] = zf1_q[q] || (MAC_PIPE == 1 && clr1);
     tq_cg #(.EN(CLK_GATE)) u_cg0 (.clk_i, .en_i(we0[q]), .gclk_o(gclk0[q]));
     tq_cg #(.EN(CLK_GATE)) u_cg1 (.clk_i, .en_i(we1[q]), .gclk_o(gclk1[q]));
   end
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      zf0_q <= '1;
+      zf1_q <= '1;
+    end else begin
+      zf0_q <= (zf0_q | {4{clr0}}) & ~we0;
+      zf1_q <= (zf1_q | {4{clr1}}) & ~we1;
+    end
+  end
+`ifdef TQ_FORMAL_ARRAY
+  // The reference is the eager clear of v1.0.1: banks written to zero by every clear. The
+  // invariant is checked once both banks have been cleared after reset (the core's START does).
+  logic f_init_q = 1'b0;
+  always_ff @(posedge clk_i) f_init_q <= rst_ni && (f_init_q || clear_all_i);
+  logic [3:0] f_ewe0, f_ewe1, f_eclr0, f_eclr1;    // eager writes, and whether they write zero
+  for (genvar q = 0; q < 4; q++) begin : g_f_eager
+    assign f_ewe0[q]  = clr0 || (acc0 && dst[q]);
+    assign f_ewe1[q]  = clr1 || (acc1 && dst[q]);
+    assign f_eclr0[q] = clr0 && !(MAC_PIPE == 1 && acc0 && dst[q]);
+    assign f_eclr1[q] = clr1 && !(MAC_PIPE == 1 && acc1 && dst[q]);
+  end
+  logic [T*T*32-1:0] f_esum0, f_ecar0, f_esum1, f_ecar1;
+`endif
 
   for (genvar I = 0; I < H; I++) begin : g_i_acc
     for (genvar J = 0; J < H; J++) begin : g_j_acc
@@ -203,8 +233,8 @@ module tq_mac_array #(
             localparam int R = QR * H + I, C = QC * H + J;
             logic [31:0] s0_q, c0_q, s1_q, c1_q, s_cur, c_cur;
             logic [63:0] x_out;
-            assign s_cur = zbase ? '0 : pbank_q ? s1_q : s0_q;
-            assign c_cur = zbase ? '0 : pbank_q ? c1_q : c0_q;
+            assign s_cur = pbank_q ? (zb1[Q] ? '0 : s1_q) : (zb0[Q] ? '0 : s0_q);
+            assign c_cur = pbank_q ? (zb1[Q] ? '0 : c1_q) : (zb0[Q] ? '0 : c0_q);
             if (Q == 0) begin : g_q0
               logic [63:0] x0, x1, x2;
               assign x0    = csa(s_cur, c_cur, 32'(p0));
@@ -224,20 +254,45 @@ module tq_mac_array #(
             end
             always_ff @(posedge gclk0[Q]) begin
               if (we0[Q] || CLK_GATE) begin
-                s0_q <= clr0 && !keep0[Q] ? '0 : x_out[63:32];
-                c0_q <= clr0 && !keep0[Q] ? '0 : x_out[31:0];
+                s0_q <= x_out[63:32];
+                c0_q <= x_out[31:0];
               end
             end
             always_ff @(posedge gclk1[Q]) begin
               if (we1[Q] || CLK_GATE) begin
-                s1_q <= clr1 && !keep1[Q] ? '0 : x_out[63:32];
-                c1_q <= clr1 && !keep1[Q] ? '0 : x_out[31:0];
+                s1_q <= x_out[63:32];
+                c1_q <= x_out[31:0];
               end
             end
             assign sum0[(R*T + C)*32 +: 32] = s0_q;
             assign car0[(R*T + C)*32 +: 32] = c0_q;
             assign sum1[(R*T + C)*32 +: 32] = s1_q;
             assign car1[(R*T + C)*32 +: 32] = c1_q;
+`ifdef TQ_FORMAL_ARRAY
+            // eager reference cell; its accumulate reuses x_out, which equals the eager sum
+            // while the invariant holds (equal bases), so a first divergence is still caught
+            logic [31:0] es0_q, ec0_q, es1_q, ec1_q;
+            always_ff @(posedge clk_i) begin
+              if (f_ewe0[Q]) begin
+                es0_q <= f_eclr0[Q] ? '0 : x_out[63:32];
+                ec0_q <= f_eclr0[Q] ? '0 : x_out[31:0];
+              end
+              if (f_ewe1[Q]) begin
+                es1_q <= f_eclr1[Q] ? '0 : x_out[63:32];
+                ec1_q <= f_eclr1[Q] ? '0 : x_out[31:0];
+              end
+            end
+            always_comb begin
+              if (rst_ni && f_init_q) begin
+                assert (zf0_q[Q] ? (es0_q == '0 && ec0_q == '0) : (s0_q == es0_q && c0_q == ec0_q));
+                assert (zf1_q[Q] ? (es1_q == '0 && ec1_q == '0) : (s1_q == es1_q && c1_q == ec1_q));
+              end
+            end
+            assign f_esum0[(R*T + C)*32 +: 32] = es0_q;
+            assign f_ecar0[(R*T + C)*32 +: 32] = ec0_q;
+            assign f_esum1[(R*T + C)*32 +: 32] = es1_q;
+            assign f_ecar1[(R*T + C)*32 +: 32] = ec1_q;
+`endif
           end
         end
       end else begin : g_cpa
@@ -258,17 +313,35 @@ module tq_mac_array #(
             else if (Q == 1) begin : g_p1 assign p_ext = 32'(s13);   end
             else if (Q == 2) begin : g_p2 assign p_ext = 32'(s23);   end
             else             begin : g_p3 assign p_ext = 32'(p3);    end
-            assign v_nxt = (zbase ? '0 : pbank_q ? v1_q : v0_q) + p_ext;
+            assign v_nxt = (pbank_q ? (zb1[Q] ? '0 : v1_q) : (zb0[Q] ? '0 : v0_q)) + p_ext;
             always_ff @(posedge gclk0[Q]) begin
-              if (we0[Q] || CLK_GATE) v0_q <= clr0 && !keep0[Q] ? '0 : v_nxt;
+              if (we0[Q] || CLK_GATE) v0_q <= v_nxt;
             end
             always_ff @(posedge gclk1[Q]) begin
-              if (we1[Q] || CLK_GATE) v1_q <= clr1 && !keep1[Q] ? '0 : v_nxt;
+              if (we1[Q] || CLK_GATE) v1_q <= v_nxt;
             end
             assign sum0[(R*T + C)*32 +: 32] = v0_q;
             assign sum1[(R*T + C)*32 +: 32] = v1_q;
             assign car0[(R*T + C)*32 +: 32] = 32'd0;
             assign car1[(R*T + C)*32 +: 32] = 32'd0;
+`ifdef TQ_FORMAL_ARRAY
+            // eager reference cell (see the carry-save form)
+            logic [31:0] e0_q, e1_q;
+            always_ff @(posedge clk_i) begin
+              if (f_ewe0[Q]) e0_q <= f_eclr0[Q] ? '0 : v_nxt;
+              if (f_ewe1[Q]) e1_q <= f_eclr1[Q] ? '0 : v_nxt;
+            end
+            always_comb begin
+              if (rst_ni && f_init_q) begin
+                assert (zf0_q[Q] ? e0_q == '0 : v0_q == e0_q);
+                assert (zf1_q[Q] ? e1_q == '0 : v1_q == e1_q);
+              end
+            end
+            assign f_esum0[(R*T + C)*32 +: 32] = e0_q;
+            assign f_esum1[(R*T + C)*32 +: 32] = e1_q;
+            assign f_ecar0[(R*T + C)*32 +: 32] = 32'd0;
+            assign f_ecar1[(R*T + C)*32 +: 32] = 32'd0;
+`endif
           end
         end
       end
@@ -277,13 +350,30 @@ module tq_mac_array #(
 
   // ---------------------------------------------------------------- drain read port
   // Select one T-value tile row of (sum, carry), then T carry-propagate adders in ACC_CSA mode.
-  // In the CPA form the lanes are the stored values themselves.
+  // In the CPA form the lanes are the stored values themselves. A lane in a zero-flagged
+  // quadrant reads as zero (lazy clear): a bank cleared and not yet accumulated (K = 0), or the
+  // quadrants a reduced-depth shape never writes.
   localparam int BW = $clog2(T * T * 32);
   logic [BW-1:0]   base;
-  logic [T*32-1:0] rs, rc;
+  logic [3:0]      rzf;
+  logic [T*32-1:0] rs, rc, rmask;
   assign base = BW'(32'(rd_row_i) * T * 32);
-  assign rs   = rd_bank_i ? sum1[base +: T * 32] : sum0[base +: T * 32];
-  assign rc   = rd_bank_i ? car1[base +: T * 32] : car0[base +: T * 32];
+  assign rzf  = rd_bank_i ? zf1_q : zf0_q;
+  for (genvar l = 0; l < T; l++) begin : g_rmask
+    assign rmask[l*32 +: 32] = {32{!rzf[{rd_row_i[L2T-1], 1'(l / H)}]}};
+  end
+  assign rs   = (rd_bank_i ? sum1[base +: T * 32] : sum0[base +: T * 32]) & rmask;
+  assign rc   = (rd_bank_i ? car1[base +: T * 32] : car0[base +: T * 32]) & rmask;
+`ifdef TQ_FORMAL_ARRAY
+  // the drain reads exactly what the eager-clear array would hold
+  logic [T*32-1:0] f_ers, f_erc, f_erd;
+  assign f_ers = rd_bank_i ? f_esum1[base +: T * 32] : f_esum0[base +: T * 32];
+  assign f_erc = rd_bank_i ? f_ecar1[base +: T * 32] : f_ecar0[base +: T * 32];
+  for (genvar l = 0; l < T; l++) begin : g_f_rd
+    assign f_erd[l*32 +: 32] = f_ers[l*32 +: 32] + f_erc[l*32 +: 32];
+  end
+  always_comb if (rst_ni && f_init_q) assert (rd_val_o == f_erd);
+`endif
   if (ACC_FORM == tq_pkg::ACC_CSA) begin : g_drain_cpa
     for (genvar l = 0; l < T; l++) begin : g_lane
       assign rd_val_o[l*32 +: 32] = rs[l*32 +: 32] + rc[l*32 +: 32];

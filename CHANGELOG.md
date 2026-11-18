@@ -7,6 +7,34 @@ All notable changes to the Tri-Queue project. This format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Idle-logic power: activity measurements showed the multiplier inputs already change only when a
+beat consumes operands, so operand isolation in the array has nothing to remove. These changes
+target the idle switching that is left. No cycle count, result or register changes; the model is
+untouched, and the PPA records still describe the `cfd68f4` datapath until the next re-spin.
+
+### Changed
+
+- **Drain output-mode isolation (`tq_drain`):** only the selected output path sees the bank
+  values (the int32 lane select, or the int8 shift and clamp), gated by the run-constant
+  `MODE[2]`; `wr_wdata_o` holds the last staged word between writes instead of returning to zero
+  (it is defined only with `wr_req_o`, spec §6.3).
+- **Lazy accumulator clear (`tq_mac_array`):** a clear sets one zero flag per bank and quadrant
+  (eight flops at any T) instead of writing the bank; a flagged quadrant reads as zero as the
+  accumulate base and at the drain read port. The bank clock gates now open only for accumulates.
+- **Two-level clock gating (`tq_regs`, `tq_frontend`):** the 64 program-buffer byte gates and the
+  eight `CFG` gates sit behind one parent gate per group, so their clock pins no longer toggle
+  every cycle.
+
+### Added
+
+- `verif/formal/tq_mac_array.sby`: the lazy clear is the eager clear (T = 4, any inputs, both
+  accumulator forms and both `MAC_PIPE` values; `csa1` runs nightly). `tq_cg.sby` also proves the
+  two-level gate.
+- `flow/census.py`, `flow/blocks.py`: toggles per functional block and per beat from an activity
+  SAIF; `flow/power.py` adds power per block (`power_blocks_w`) to new records.
+
 ## [v1.0.1] — 2026-11-11
 
 A comprehensive robustness, verification, driver, build/flow and documentation release resolving 110

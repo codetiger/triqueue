@@ -116,11 +116,16 @@ module tq_regs #(
   logic prog_wr;
   // ignored while BUSY: the loop buffer runs from here (spec 6.4)
   assign prog_wr = wr && !busy_i;
+  // Two-level gating: the per-byte gates hang off one gate that opens only for a register write
+  // while idle, so their clock pins leave the always-running clock tree (each byte's enable
+  // implies prog_wr, so a byte still sees exactly its own writes; verif/formal/tq_cg.sby).
+  logic gclk_prog;
+  tq_cg #(.EN(CLK_GATE)) u_cg_prog (.clk_i, .en_i(prog_wr), .gclk_o(gclk_prog));
   for (genvar i = 0; i < PROG_BYTES; i++) begin : g_prog
     logic       we, gclk;
     logic [7:0] q;
     assign we = prog_wr && 32'(reg_addr_i[11:2]) == 32'h40 + i / 4 && reg_be_i[i % 4];
-    tq_cg #(.EN(CLK_GATE)) u_cg (.clk_i, .en_i(we), .gclk_o(gclk));
+    tq_cg #(.EN(CLK_GATE)) u_cg (.clk_i(gclk_prog), .en_i(we), .gclk_o(gclk));
     always_ff @(posedge gclk or negedge rst_ni) begin
       if (!rst_ni)              q <= '0;
       else if (we || CLK_GATE)  q <= reg_wdata_i[(i % 4) * 8 +: 8];

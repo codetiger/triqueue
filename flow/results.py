@@ -186,6 +186,8 @@ def collect(platform, config, force=False):
                          utilization=p["utilization"], power_w=p["power_w"],
                          power_groups_w=power_groups(f.with_suffix(".rpt").read_text()), energy_j=p["energy_j"],
                          pj_per_mac=p["pj_per_mac"], tops_per_w=p["tops_per_w"])
+        if "power_blocks_w" in p:                     # flow/blocks.py split; absent in older records
+            power[wl]["power_blocks_w"] = p["power_blocks_w"]
     if missing_wl:
         problems.append(f"missing power workloads: {', '.join(missing_wl)}")
     if problems and not force:
@@ -414,7 +416,10 @@ def write_results():
            "`cfd68f4`. Subsequent `v1.0.1` RTL changes are control-plane and elaboration fixes only (`PCW` "
            "`+16` lookahead, `CFG` pipeline serialization, `IRQ_STATUS` W1C priority, `STATUS.PENDING`, "
            "error checks, and reset/adapter hygiene); the multiplier array, accumulator cells, FIFOs, and "
-           "GEMM cycle counts are unchanged.", ""]
+           "GEMM cycle counts are unchanged. Later RTL changes the datapath without changing any cycle "
+           "count: the drain isolates the unused output path, the accumulator clear is lazy (zero flags), "
+           "and the program-buffer and `CFG` clock gates sit behind parent gates. The records predate them "
+           "and give the power of the `cfd68f4` datapath.", ""]
     prov = sorted({(r["flow"], r["orfs_commit"], r["openroad"], r["yosys"], r["host"]) for r in recs})
     out += ["| Flow | ORFS | OpenROAD | Yosys | Host | Runs (RTL commit) |", "| --- | --- | --- | --- | --- | --- |"]
     for p in prov:

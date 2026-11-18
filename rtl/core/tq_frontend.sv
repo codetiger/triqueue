@@ -393,12 +393,16 @@ module tq_frontend #(
     end
   end
 
-  // CFG registers: written by CFG, cleared by START; static during the GEMM, so each is gated
+  // CFG registers: written by CFG, cleared by START; static during the GEMM, so each is gated.
+  // The eight gates hang off one gate open for any CFG write or clear (each enable implies it),
+  // so their clock pins see only those cycles.
+  logic gclk_cfg;
+  tq_cg #(.EN(CLK_GATE)) u_cg_cfg (.clk_i, .en_i(cfg_clear_i || cfg_we), .gclk_o(gclk_cfg));
   for (genvar i = 0; i < 8; i++) begin : g_cfg
     logic        we, gclk;
     logic [31:0] q;
     assign we = cfg_clear_i || (cfg_we && 32'(arg[2:0]) == i);
-    tq_cg #(.EN(CLK_GATE)) u_cg (.clk_i, .en_i(we), .gclk_o(gclk));
+    tq_cg #(.EN(CLK_GATE)) u_cg (.clk_i(gclk_cfg), .en_i(we), .gclk_o(gclk));
     always_ff @(posedge gclk or negedge rst_ni) begin
       if (!rst_ni)              q <= '0;
       else if (we || CLK_GATE)  q <= cfg_clear_i ? '0 : imm;

@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+#
+# Unbounded proof (k-induction) that the lazy accumulator clear of tq_mac_array is observably
+# the eager clear (banks written to zero): for any inputs (beats, shapes, banks, operands, clears
+# and drain reads in any combination and order), once both banks have been cleared after reset,
+# every quadrant holds the eager value or is zero-flagged with an eager value of zero, and the
+# drain read port returns the eager value. T = 4, both accumulator forms, both MAC_PIPE values,
+# clock gating off (CLK_GATE = 0, see tq_cg). Run: sby -f tq_mac_array.sby
+
+[tasks]
+cpa2
+cpa1
+csa2
+csa1
+
+[options]
+mode prove
+depth 4
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -sv -formal -DTQ_FORMAL_ARRAY tq_pkg.sv tq_icg.sv tq_cg.sv tq_mac_array.sv
+cpa2: chparam -set T 4 -set ACC_FORM 1 -set MAC_PIPE 2 -set CLK_GATE 0 tq_mac_array
+cpa1: chparam -set T 4 -set ACC_FORM 1 -set MAC_PIPE 1 -set CLK_GATE 0 tq_mac_array
+csa2: chparam -set T 4 -set ACC_FORM 0 -set MAC_PIPE 2 -set CLK_GATE 0 tq_mac_array
+csa1: chparam -set T 4 -set ACC_FORM 0 -set MAC_PIPE 1 -set CLK_GATE 0 tq_mac_array
+prep -top tq_mac_array
+flatten
+opt_clean
+
+[files]
+../../rtl/core/tq_pkg.sv
+../../rtl/common/tq_icg.sv
+../../rtl/common/tq_cg.sv
+../../rtl/core/tq_mac_array.sv

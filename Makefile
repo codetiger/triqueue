@@ -67,13 +67,13 @@ rtl-lint:
 rtl-test:
 	$(PYTHON) -m pytest verif -q
 
-# formal: clock-gating template (pattern check + tq_cg.sby), FIFO, AXI4-Lite and CV-X-IF adapters, AXI master covers, core proof (split port). formal-nightly: core proof, shared port (1-80 min, varies widely).
+# formal: clock-gating template (pattern check + tq_cg.sby), FIFO, AXI4-Lite and CV-X-IF adapters, AXI master covers, lazy accumulator clear (tq_mac_array.sby), core proof (split port). formal-nightly: core proof, shared port (1-80 min, varies widely).
 formal:
 	$(PYTHON) verif/formal/check_cg_pattern.py
-	cd verif/formal && $(SBY) -f tq_cg.sby && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_xif_regs.sby && $(SBY) -f tq_axi_mem.sby cover burst && $(SBY) -f tq_core.sby split
+	cd verif/formal && $(SBY) -f tq_cg.sby && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_xif_regs.sby && $(SBY) -f tq_axi_mem.sby cover burst && $(SBY) -f tq_mac_array.sby cpa2 cpa1 csa2 && $(SBY) -f tq_core.sby split
 
 formal-nightly:
-	cd verif/formal && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_core.sby ack_split && $(SBY) -f tq_core.sby panel && $(SBY) -f tq_axi_mem.sby prove && $(SBY) -f tq_axi_mem.sby burst_prove
+	cd verif/formal && $(SBY) -f tq_mac_array.sby csa1 && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_core.sby ack_split && $(SBY) -f tq_core.sby panel && $(SBY) -f tq_axi_mem.sby prove && $(SBY) -f tq_axi_mem.sby burst_prove
 
 # Synthesizability check with generic Yosys cells: no latches, no loops, no undriven nets.
 # The clock-gating cell (tq_icg, a latch by design) is kept as its own module and is the only

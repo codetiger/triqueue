@@ -95,7 +95,9 @@ for dir in \
   verif/formal/tq_axi_mem/ \
   verif/formal/tq_axi_mem_*/ \
   verif/formal/tq_cg/ \
-  verif/formal/tq_cg_*/
+  verif/formal/tq_cg_*/ \
+  verif/formal/tq_mac_array/ \
+  verif/formal/tq_mac_array_*/
 do
   [ -d "$dir" ] && add_target "$dir"
 done
