@@ -75,3 +75,38 @@ report_activity_annotation
 set rpt $::env(TQ_POWER_RPT)
 report_power -digits 6 > $rpt
 puts "TQ: power report $rpt"
+
+# Per-block split (flow/blocks.py): the power of every cell, and once per routed design the
+# netlist's connectivity (cell, kind, cells driven by its outputs), from which power.py assigns
+# each unnamed combinational cell to the block of the register or clock gate it drives.
+if { [info exists ::env(TQ_POWER_CELLS)] } {
+  report_power -instances [get_cells *] -format json -digits 6 > $::env(TQ_POWER_CELLS)
+  puts "TQ: cell power $::env(TQ_POWER_CELLS)"
+}
+if { [info exists ::env(TQ_CELL_CONN)] && ![file exists $::env(TQ_CELL_CONN)] } {
+  set tmp "$::env(TQ_CELL_CONN).tmp"
+  set fh [open $tmp w]
+  foreach inst [[ord::get_db_block] getInsts] {
+    set name [$inst getName]
+    if { [string match {*.u_icg.u_cell*} $name] } {
+      set kind icg
+    } elseif { [[$inst getMaster] isSequential] } {
+      set kind reg
+    } else {
+      set kind comb
+    }
+    set loads {}
+    foreach it [$inst getITerms] {
+      if { ![$it isOutputSignal] } { continue }
+      set net [$it getNet]
+      if { $net eq "NULL" } { continue }
+      foreach lt [$net getITerms] {
+        if { [$lt isInputSignal] } { lappend loads [[$lt getInst] getName] }
+      }
+    }
+    puts $fh "$name\t$kind\t[join $loads { }]"
+  }
+  close $fh
+  file rename -force $tmp $::env(TQ_CELL_CONN)
+  puts "TQ: cell connectivity $::env(TQ_CELL_CONN)"
+}

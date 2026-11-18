@@ -117,6 +117,31 @@ def parse_total_power(rpt: str):
     raise ValueError("no Total row in the power report")
 
 
+_CELL = re.compile(r'"name":\s*"((?:[^"\\]|\\.)*)",\s*"internal":\s*(\S+?),\s*"switching":\s*(\S+?),'
+                   r'\s*"leakage":\s*(\S+?),\s*"total":\s*([^\s}]+)')
+
+
+def block_power(cells_json: str, conn: str):
+    """Power (W) per block (flow/blocks.py) and cell kind: {block: {reg, icg, comb}}.
+
+    The cell report is parsed with a regex: OpenSTA writes escaped netlist names (`\\[`) that are
+    not valid JSON escapes.
+    """
+    from blocks import BLOCK_NAMES, attribute
+    key = lambda n: n.replace("\\", "")                       # noqa: E731
+    kinds, loads = {}, {}
+    for line in conn.splitlines():
+        name, kind, rest = (line.split("\t") + ["", ""])[:3]
+        kinds[key(name)] = kind
+        loads[key(name)] = [key(n) for n in rest.split()]
+    block = attribute(kinds, loads)
+    out = {b: dict(reg=0.0, icg=0.0, comb=0.0) for b in BLOCK_NAMES}
+    for m in _CELL.finditer(cells_json):
+        n = key(m.group(1))
+        out[block.get(n, "io")][kinds.get(n, "comb")] += float(m.group(5))
+    return {b: v for b, v in out.items() if any(v.values())}
+
+
 def _saif_fresh(saif: Path, config: str, workload: str) -> bool:
     meta = saif.with_suffix(".saif.meta.json")
     if not saif.exists() or not meta.exists():
@@ -140,10 +165,17 @@ def run_one(platform, config, workload, native):
     scaled = ROOT / rel / "power" / f"{workload}.saif"
     cycles = rescale_saif(saif, scaled, period_ps)
     rpt = ROOT / rel / "power" / f"{workload}.rpt"
+    cells = ROOT / rel / "power" / f"{workload}.cells.json"
+    conn = ROOT / rel / "power" / "cells.conn"                # per routed design, shared by workloads
+    odb = ROOT / rel / "results" / platform / f"tq_{config}" / "base" / "6_final.odb"
+    if conn.exists() and odb.exists() and conn.stat().st_mtime < odb.stat().st_mtime:
+        conn.unlink()                                         # from an earlier layout
     rc = orfs_make(platform, config, "run", 4, f"power/{workload}.log", env=dict(
         RUN_SCRIPT=f"{WORK}/flow/power.tcl", RUN_LOG_NAME_STEM=f"power_{workload}",
         TQ_SAIF=f"{WORK}/{rel}/power/{workload}.saif",
-        TQ_REGS=f"{WORK}/{rel}/power/{workload}.regs.tcl", TQ_POWER_RPT=f"{WORK}/{rel}/power/{workload}.rpt"),
+        TQ_REGS=f"{WORK}/{rel}/power/{workload}.regs.tcl", TQ_POWER_RPT=f"{WORK}/{rel}/power/{workload}.rpt",
+        TQ_POWER_CELLS=f"{WORK}/{rel}/power/{workload}.cells.json",
+        TQ_CELL_CONN=f"{WORK}/{rel}/power/cells.conn"),
         native=native)
     if rc or not rpt.exists():
         print(f"[power] {platform} {config} {workload}: failed, see {rel}/power/{workload}.log")
@@ -165,6 +197,14 @@ def run_one(platform, config, workload, native):
                cycles=cycles, useful_macs=macs, utilization=macs / (t * t * cycles),
                power_w=p, energy_j=energy, pj_per_mac=energy / macs * 1e12,
                tops_per_w=2 * macs / energy / 1e12)
+    if cells.exists() and conn.exists():
+        blocks = block_power(cells.read_text(), conn.read_text())
+        split = sum(sum(v.values()) for v in blocks.values())
+        if abs(split - p["total"]) > 1e-3 * p["total"]:
+            print(f"[power] {platform} {config} {workload}: block split {split * 1e3:.3f} mW does not add up "
+                  f"to the total {p['total'] * 1e3:.3f} mW; not recorded")
+        else:
+            out["power_blocks_w"] = blocks
     (ROOT / rel / "power" / f"{workload}.json").write_text(json.dumps(out, indent=2) + "\n")
     print(f"[power] {platform} {config} {workload}: {p['total'] * 1e3:.2f} mW at "
           f"{1e6 / period_ps:.0f} MHz, {cycles} cycles, {out['pj_per_mac']:.3f} pJ/MAC, "
