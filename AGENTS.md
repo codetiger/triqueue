@@ -50,7 +50,7 @@ make formal-nightly   # core proofs, shared port, WR_ACK and panel buffer (tq_co
 make flow-results     # rewrite flow/results.md from flow/records/ (no flow run)
 make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets (stats in build/synth/)
 make fpga             # ECP5 out-of-context synth + nextpnr (flow/fpga/; needs nextpnr-ecp5, not part of make)
-make clean            # removes build/ and SymbiYosys work dirs
+make clean            # removes build/, dist/, SymbiYosys work dirs, and temporary caches (tools/clean.sh)
 ```
 
 RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_axi_burst`, `t8_xif`, `t8_write_ack`, `t8_write_ack_shared`, `t8_edge_cases`, `t8_edge_shared`, `t8_mcu_custom`, `t8_panel`, `t8_panel_shared`, `t16_panel`, `t4_panel`, `t8_mac1`, `t8_mac1_csa_shared`, `t32`, `t16`, `t4` (26 configurations, 1,742 cases, plus `test_vectors_readmemh`). CI (`.github/workflows/ci.yml`) runs four jobs on every push: model tests on Python 3.12/3.13, SPDX headers, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/release.yml` publishes the source/vector tarballs on a `v*` tag; `.github/workflows/nightly.yml` runs `make formal-nightly` daily.

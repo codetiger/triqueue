@@ -113,4 +113,4 @@ dist:
 	cd dist && $(PYTHON) -c "import hashlib,glob,os; files=sorted(f for f in glob.glob('*') if os.path.isfile(f)); open('SHA256SUMS','w').write(''.join(hashlib.sha256(open(f,'rb').read()).hexdigest()+'  '+f+'\n' for f in files))"
 
 clean:
-	rm -rf build dist verif/formal/tq_fifo verif/formal/tq_fifo_* verif/formal/tq_core verif/formal/tq_core_*/ verif/formal/tq_axil_regs verif/formal/tq_axil_regs_*/ verif/formal/tq_xif_regs verif/formal/tq_xif_regs_*/ verif/formal/tq_axi_mem verif/formal/tq_axi_mem_*/ verif/formal/tq_cg verif/formal/tq_cg_*/
+	./tools/clean.sh
