@@ -12,7 +12,7 @@ description = "Cycle-level model and host tooling for the Tri-Queue int8 matrix 
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
-license-files = ["LICENSE", "LICENSE-HARDWARE"]
+license-files = ["LICENSE", "LICENSE.hardware"]
 authors = [{ name = "Harishankar Narayanan", email = "nharishankar@gmail.com" }]
 keywords = ["matrix-multiply", "GEMM", "RISC-V", "accelerator", "int8"]
 classifiers = [
