@@ -188,7 +188,7 @@ These are starting points, not measured v1 results. The reference PPA is the `t8
 | --- | --- | --- | --- |
 | MCU / tightly coupled SRAM | smallest area, low latency | `T=8`, `FIFO_DEPTH=4`, `MACQ_DEPTH=3`, `SHARED_PORT=1` if the SRAM has one port, `PANEL_BYTES=0`, `PERF=0` if counters are not needed | Reference PPA is close to this; shared port costs drain cycles. |
 | SoC / AXI, latency-tolerant | hide bus latency | `T=8`, `FIFO_DEPTH=16`, `MACQ_DEPTH=4`, `BURST_BEATS=4` or `8`, `PANEL_BYTES=0`, `MAX_OUT=16` | No measured PPA yet. Measure the memory system before quoting a utilization. |
-| Throughput / area | fewer bytes per MAC | `T=16` with a 256-bit port, `MAC_PIPE=2`, `ACC_FORM=ACC_CPA` | T=16 closes at 762 MHz on ASAP7 (741 MHz run), not 1 GHz; mobile/narrow shapes lose utilization. |
+| Throughput / area | fewer bytes per MAC | `T=16` with a 256-bit port, `MAC_PIPE=2`, `ACC_FORM=ACC_CPA` | T=16 closes at 741 MHz on ASAP7 (747 MHz post-route), not 1 GHz; mobile/narrow shapes lose utilization. |
 | Panel-buffer experiment | GEMV / A-reuse | add `PANEL_BYTES=1024` or `4096` | Experimental: flops today, no PPA; verify your SRAM macro plan first. |
 
 For every profile, regenerate the model results and record the PPA with `flow/ppa.py`; do not quote a
@@ -224,7 +224,7 @@ profile's energy or area from a different configuration.
 - `AxUSER` is not exposed on `tq_top_axi`; tie it off in a wrapper if required.
 - Cached-DRAM performance is not a v1 use case; the Chipyard result is 10.6% (measured on pre-v1 RTL
   `65815f3`).
-- T=16 closes at 762 MHz on ASAP7 (741 MHz run); T=32 has no PPA record.
+- T=16 closes at 741 MHz on ASAP7 (747 MHz post-route); T=32 has no PPA record.
 - CV-X-IF (`tq_xif_regs`, `core-v-xif` `8a46f9a` subset) has not been validated on a real
   CVA6/CV32E40X pipeline.
 - APB and RoCC adapters are not included.

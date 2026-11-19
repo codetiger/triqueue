@@ -84,21 +84,26 @@ Source: `flow/results.md` (`flow/results.py`, from runs of `flow/ppa.py` and `fl
 
 | | sky130hd, T = 8 (100 MHz, 55% util) | ASAP7, T = 8 (1 GHz, 70% util) | ASAP7, T = 16 (741 MHz, 70% util) |
 | --- | --- | --- | --- |
-| Cell area / core area | 0.693 mm² / 1.110 mm² (184.6 kGE) | 10,281 µm² / 13,820 µm² (176.3 kGE) | 33,340 µm² / 45,785 µm² (571.7 kGE) |
-| Post-route stdcell density | 62.4% (100.0% row fill) | 74.4% (100.0% row fill) | 72.8% |
-| Flip-flops | 8,562 (134 per MAC) | 8,562 (134 per MAC) | 25,544 (100 per MAC) |
-| Fmax (post-route) | 99.9 MHz (-14 ps slack) | 992.5 MHz (-8 ps slack) | 762.2 MHz (closes 741 MHz) |
-| Peak MACs/cycle per kGE | 0.347 | 0.363 | 0.448 |
-| Energy per MAC, 64×64×64 (98.6% / 93.1% util) | 16.9 pJ (0.119 TOPS/W) | 0.69 pJ (2.91 TOPS/W) | 0.67 pJ (2.98 TOPS/W) |
-| Energy per MAC, ResNet-8 conv 256×32×288 (99.8% / 99.2%) | 16.4 pJ (0.122 TOPS/W) | 0.67 pJ (3.00 TOPS/W) | 0.64 pJ (3.14 TOPS/W) |
-| Energy per MAC, MobileNetV1 pointwise 2304×16×8 (46.8% / 24.0%) | 25.3 pJ (0.079 TOPS/W) | 1.08 pJ (1.85 TOPS/W) | 1.28 pJ (1.57 TOPS/W) |
-| Geometric mean of the three | 19.1 pJ (0.105 TOPS/W) | 0.79 pJ (2.53 TOPS/W) | 0.82 pJ (2.45 TOPS/W) |
-| ResNet-8 conv with ReLU-like operands (synthetic, half-zero activations) | 13.9 pJ (0.144 TOPS/W) | 0.58 pJ (3.47 TOPS/W) | 0.54 pJ (3.70 TOPS/W) |
-| Engine + operand SRAM, geometric mean (OpenRAM macro, sky130 only) | 23.7 pJ (0.084 TOPS/W) | – | – |
+| Cell area / core area | 0.677 mm² / 1.060 mm² (180.4 kGE) | 10,062 µm² / 13,385 µm² (172.5 kGE) | 31,102 µm² / 42,462 µm² (533.3 kGE) |
+| Post-route stdcell density | 64.0% (100.0% row fill) | 75.2% (100.0% row fill) | 73.2% |
+| Flip-flops | 8,571 (134 per MAC) | 8,571 (134 per MAC) | 25,553 (100 per MAC) |
+| Fmax (post-route, all setup checks) | 99.2 MHz (-85 ps slack) | 1,001.9 MHz (+2 ps slack) | 747.4 MHz (closes 741 MHz, +12 ps) |
+| Peak MACs/cycle per kGE | 0.355 | 0.371 | 0.480 |
+| Energy per MAC, 64×64×64 (96.8% / 87.2% util) | 16.0 pJ (0.125 TOPS/W) | 0.63 pJ (3.17 TOPS/W) | 0.62 pJ (3.25 TOPS/W) |
+| Energy per MAC, ResNet-8 conv 256×32×288 (99.6% / 98.4%) | 15.5 pJ (0.129 TOPS/W) | 0.61 pJ (3.28 TOPS/W) | 0.58 pJ (3.45 TOPS/W) |
+| Energy per MAC, MobileNetV1 pointwise 2304×16×8 (46.5% / 23.6%) | 23.5 pJ (0.085 TOPS/W) | 0.97 pJ (2.06 TOPS/W) | 1.11 pJ (1.80 TOPS/W) |
+| Energy per MAC, FC-autoencoder GEMV 1×128×640 (16.4% / 8.1%) | 43.7 pJ (0.046 TOPS/W) | 1.99 pJ (1.00 TOPS/W) | 3.11 pJ (0.64 TOPS/W) |
+| Geometric mean of the four | 22.5 pJ (0.089 TOPS/W) | 0.93 pJ (2.15 TOPS/W) | 1.05 pJ (1.90 TOPS/W) |
+| ResNet-8 conv with ReLU-like operands (synthetic, half-zero activations) | 13.1 pJ (0.152 TOPS/W) | 0.52 pJ (3.85 TOPS/W) | 0.48 pJ (4.14 TOPS/W) |
+| Engine + operand SRAM, geometric mean (OpenRAM macro, sky130 only) | 28.9 pJ (0.069 TOPS/W) | – | – |
 
-- **Clock gating** (`CLK_GATE = 0` for comparison) cuts power by 24–40%, cell area by 8.5% and energy per MAC by 29.9% (sky130hd; ASAP7: 21–34%, 6.7% and 25.7%), at essentially the same clock. The relative power saving is larger at lower utilization because the gated clock trees and registers stop switching. What remains is mostly the multiplier array's switching, which follows the operand data. The multiplier inputs already change only when a beat consumes operands, so operand isolation has nothing to remove there; the drain's output-mode isolation, the lazy accumulator clear and the two-level program/`CFG` gates (spec §10.8) target the idle switching that is left, and are newer than these records.
-- **Accumulator form:** against carry-save, the plain adder uses 23.4% less cell area, has 31.7% fewer flip-flops and uses 21.6% less energy per MAC on sky130hd (ASAP7: 18.4%, 31.7%, 18.0%), at a slightly higher clock (spec §10.2).
-- **SRAM line:** each workload's reads and writes times the access energy of ORFS's OpenRAM macro `sky130_sram_1rw1r_128x256_8` (179 pJ per access from its liberty, which charges every clock edge the same), plus leakage; it adds 3.0–8.4 pJ per MAC. ASAP7 has only placeholder SRAM models, so it has no SRAM line.
+- **Geometric means** cover four workloads: the three dense and pointwise shapes and the port-bound GEMV, which is what pulls them up. Over the three of the earlier records alone they are 18.0 pJ, 0.72 pJ and 0.74 pJ (the earlier records: 19.1, 0.79 and 0.82 pJ). The simulated window includes about 100 setup cycles (reset, program load, the regression's register-port checks, counter reads), which only overstates energy per MAC: 2.4% of the T = 8 `gemm64` window, about 8% at T = 16.
+- **Idle-logic power:** the drain's output-mode isolation, the lazy accumulator clear and the two-level program/`CFG` clock gates (spec §10.8) lower energy per MAC by 4.9–7.2% on sky130hd and 8.2–12.8% on ASAP7 (T = 8 and T = 16) against the earlier records of the same workloads, with no cycle count change. The multiplier inputs already change only when a beat consumes operands, so operand isolation has nothing to remove there.
+- **Clock gating** (`CLK_GATE = 0` for comparison) cuts power by 25–54%, cell area by 10.3% and energy per MAC by 38.2% (sky130hd; ASAP7: 26–49%, 9.0% and 35.8%), at essentially the same clock. The relative power saving is larger at lower utilization because the gated clock trees and registers stop switching. What remains is mostly the multiplier array's switching, which follows the operand data.
+- **Accumulator form:** against carry-save, the plain adder uses 20.9% less cell area, has 31.6% fewer flip-flops and uses 21.9% less energy per MAC on sky130hd (ASAP7: 16.9%, 31.6%, 19.6%), at a slightly higher clock (spec §10.2).
+- **Fmax** counts every setup check, clock-gating and I/O checks included: 1 ÷ (period − worst slack). OpenROAD's register-to-register figure, which skips the clock-gating checks, is higher (102.6 MHz, 1,053 MHz and 843 MHz) and is kept in the records as `fmax_reg2reg_hz`.
+- **SRAM line:** each workload's reads and writes times the access energy of ORFS's OpenRAM macro `sky130_sram_1rw1r_128x256_8` (179 pJ per access from its liberty, which charges every clock edge the same), plus leakage; it adds 3.0–8.4 pJ per MAC to the GEMMs and 16.9 pJ to the GEMV, which has the least operand reuse. ASAP7 has only placeholder SRAM models, so it has no SRAM line.
+- **Layout signature:** each layout carries "codetiger.in" in physical-only cells at the bottom of the core (`flow/logo.tcl`, `NOTICE`); the netlist is unchanged and the cells are left out of the cell area and count.
 
 ## 6. SoC integration (Chipyard Rocket)
 

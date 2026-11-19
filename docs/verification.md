@@ -63,11 +63,11 @@ user wrapper or larger `BURST_BEATS` values (which are covered by simulation).
 
 `flow/results.md` is generated from committed records in `flow/records/`. Each record names the RTL
 commit, ORFS commit, platform, utilization, clock, and that it was collected from a post-route run
-with activity-based power. `flow/check_lock.py` verifies the records and the locked 3D layouts. For
-v1, all nine records name the same RTL commit (`cfd68f4`) and the bundle is locked as `v1.0.1`
-(`rtl_Functional_equiv: true` for post-record control-path fixes in `tq_core`, `tq_frontend`,
-`tq_stream`, and `tq_regs`); the gating and accumulator deltas are therefore same-RTL comparisons.
-T = 16 is recorded at 741 MHz (762 MHz post-route); T = 32 has no PPA record.
+with activity-based power. `flow/check_lock.py` verifies the records and the locked 3D layouts. All
+nine records name the same RTL commit (`8d850ba`, the current RTL) and a clean checkout, and the
+bundle is locked as `v1.0.2`; the gating and accumulator deltas are therefore same-RTL comparisons.
+Fmax counts every setup check, clock-gating checks included. T = 16 is recorded at 741 MHz (747 MHz
+post-route); T = 32 has no PPA record.
 
 ## 5. What is not covered yet
 

@@ -450,7 +450,7 @@ The model and the RTL take T as a parameter (`model/dse.md`). The RTL is verifie
 - **FIFO depth doesn't depend on T.** In W-byte vectors, depth 8 hides 8 cycles of latency at every size.
 - **Drain hiding needs Kp ≥ 2T + 8** for int32 output and **Kp ≥ T + 8** for int8 output, because an int32 tile drains 2T W-byte words (T rows × 4T bytes ÷ W) and an int8 tile drains T writes (one T-byte row per W-byte word).
 - **Large tiles lose on small and narrow problems.** The half-width shapes recover only up to 50% of the array, so a 1-row remainder or a GEMV wastes more as T grows.
-- **The T = 16 record closes at 762 MHz** (run at 741 MHz) against a 1 GHz target (`flow/results.md`); quote its energy at that clock until a T = 16 clock sweep is recorded.
+- **The T = 16 record closes 741 MHz** (747 MHz post-route) against a 1 GHz target (`flow/results.md`); quote its energy at that clock until a T = 16 clock sweep is recorded.
 
 ---
 
@@ -499,7 +499,7 @@ At a high level, the Tri-Queue takes the **outer-product tile dataflow of Apple'
 
    The RTL implements `PANEL_BYTES` today as flip-flops, so the default is 0 and the option is not part of the reference configuration. A 1 KiB buffer is about 8 K flip-flops, which is not competitive with an SRAM macro. The buffer adds T × Kp bytes of storage (4 KiB, 32 Kbit at T = 8 for K ≤ 512), and whether it pays for itself in energy per MAC needs place and route with the SRAM energy line. Until that record exists, treat the panel buffer as experimental.
 
-Tile size is a parameter rather than a choice (§7.3): larger T reads fewer bytes per MAC and improves dense area efficiency per kGE (`T = 16` on ASAP7 reaches 0.448 MACs/cycle/kGE vs. 0.363 at `T = 8`, +23%, `flow/results.md`), though not per mm² at its own clock (11.70 vs 12.36 TOPS/mm², because T = 16 closes at 762 MHz against 992.5 MHz at T = 8), and it uses the array less well on small and irregular shapes, so the right T depends on the SoC's workloads and clock target.
+Tile size is a parameter rather than a choice (§7.3): larger T reads fewer bytes per MAC and improves dense area efficiency per kGE (`T = 16` on ASAP7 reaches 0.480 MACs/cycle/kGE vs. 0.371 at `T = 8`, +29%, `flow/results.md`), though not per mm² at its own clock (12.30 vs 12.75 TOPS/mm², because T = 16 closes at 747 MHz against 1,002 MHz at T = 8), and it uses the array less well on small and irregular shapes, so the right T depends on the SoC's workloads and clock target.
 
 ---
 
@@ -512,7 +512,7 @@ The full SoC integration contract and the canonical **Known limitations** list a
 - **DFT.** `tq_icg` is a simulation/generic-synthesis model with no test enable. An SoC with scan must replace it with the library ICG cell and connect the test enable to scan mode (`rtl/README.md`).
 - **Int8 output is shift-only.** Always present in `tq_top` (`MODE[2]`, `MODE[7:3]`), with no per-tensor/per-channel scale, bias or activation.
 - **Panel buffer is experimental.** `PANEL_BYTES > 0` works and is verified, but uses flip-flops and has no PPA record.
-- **T = 16 closes at 762 MHz** (741 MHz run), not 1 GHz; quote its energy at the recorded clock.
+- **T = 16 closes at 741 MHz** (747 MHz post-route), not 1 GHz; quote its energy at the recorded clock.
 - **Cached-DRAM integration is not a v1 use case.** On the Chipyard Rocket SoC (pre-v1 RTL) the 8-word FIFOs do not hide DRAM latency and 64³ runs at 10.6% (`docs/benchmarks.md` §6). Use tightly coupled SRAM, or a deeper FIFO/burst profile once it is measured.
 - **Build-time options are not discoverable through `HW_CONFIG`.** `PERF`, `MAC_PIPE`, `ACC_FORM`, `PANEL_BYTES` and `WR_ACK` are synthesis parameters; software or the SoC ROM/device tree must record the profile the hardware was built with ([`docs/integration.md`](integration.md) §3).
 - **Host control semantics.** `START` while `BUSY` or `drop_busy` is ignored; `ABORT` clears `BUSY` (and wins over a same-cycle `START`) but does not set `DONE`; after an error or abort, poll `STATUS.PENDING = 0` before reusing A, B or C. `BUS_ERR` lets the run continue, so C must be treated as invalid.

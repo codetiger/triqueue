@@ -415,24 +415,20 @@ def write_results():
            "standard-cell area (logic, flops, clock tree, buffers, taps) without fill; Density is post-route "
            "standard-cell placement density (Cell area ÷ Core area). Adding physical decap/filler/tap cells "
            "brings row fill to 100.0%. kGE = cell area ÷ the PDK's NAND2 area.",
-           "- **Fmax** is from post-route STA at the target clock (1 ÷ (period − worst slack)). Peak TOPS/mm² "
-           "= 2 × T² × Fmax ÷ cell area. Energy is measured at the target clock, "
-           "including where post-route timing misses it by a few percent (negative slack).",
+           "- **Fmax** is from post-route STA at the target clock: 1 ÷ (period − worst setup slack), over every "
+           "setup check, clock-gating and I/O checks included (the records keep ORFS's register-to-register "
+           "figure as `fmax_reg2reg_hz`). Peak TOPS/mm² = 2 × T² × Fmax ÷ cell area. Energy is measured at "
+           "the target clock, including where post-route timing misses it by a few percent (negative slack).",
            "- **Workloads** (`ppa` tag in `bench/workloads/gemm.csv`) run in Verilator against the cycle model; "
            "operands are uniform random int8, more switching than real data. Energy and utilization cover the "
-           "whole simulated window (the run plus about 20 setup cycles), and energy is charged to the useful "
-           "MACs (M × N × K). `*_relu` workloads repeat a shape with synthetic inference-like operands "
-           "(post-ReLU uint8 activations, about half zeros, and Gaussian int8 weights; not data from a real "
-           "network) and are left out of the geometric means. The port-bound GEMV shape `fcae_fc640_128` "
-           "(1×128×640) is omitted from the `cfd68f4` records.",
-           "- **Post-record RTL control-logic deltas**: All nine records were placed and routed at RTL commit "
-           "`cfd68f4`. Subsequent `v1.0.1` RTL changes are control-plane and elaboration fixes only (`PCW` "
-           "`+16` lookahead, `CFG` pipeline serialization, `IRQ_STATUS` W1C priority, `STATUS.PENDING`, "
-           "error checks, and reset/adapter hygiene); the multiplier array, accumulator cells, FIFOs, and "
-           "GEMM cycle counts are unchanged. Later RTL changes the datapath without changing any cycle "
-           "count: the drain isolates the unused output path, the accumulator clear is lazy (zero flags), "
-           "and the program-buffer and `CFG` clock gates sit behind parent gates. The records predate them "
-           "and give the power of the `cfd68f4` datapath.", ""]
+           "whole simulated window: the run plus about 100 cycles of reset, program load, the register-port "
+           "checks the RTL regression makes first, and the counter reads (2.4% of the T = 8 `gemm64` window, "
+           "about 8% of the T = 16 one). Energy is charged to the useful MACs (M × N × K), so the window can "
+           "only overstate energy per MAC. `*_relu` workloads repeat a shape with synthetic inference-like "
+           "operands (post-ReLU uint8 activations, about half zeros, and Gaussian int8 weights; not data from "
+           "a real network) and are left out of the geometric means; the port-bound GEMV `fcae_fc640_128` "
+           "(1×128×640) is in them.",
+           "- **RTL**: each record names the RTL commit it was placed and routed at (table below).", ""]
     prov = sorted({(r["flow"], r["orfs_commit"], r["openroad"], r["yosys"], r["host"]) for r in recs})
     out += ["| Flow | ORFS | OpenROAD | Yosys | Host | Runs (RTL commit) |", "| --- | --- | --- | --- | --- | --- |"]
     for p in prov:

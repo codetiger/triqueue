@@ -253,6 +253,6 @@
   <text x="1086.0" y="521.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#18222c">Drain Hidden for Kp ≥ 24</text>
   <text x="1086.0" y="536.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">16-cycle int32 write-back (8 cyc in int8 mode)</text>
   <rect x="1074.0" y="553.0" width="276.0" height="39.0" rx="6.0" fill="#e3d8fa" stroke="#6c38b8" stroke-width="1.5"/>
-  <text x="1086.0" y="566.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#18222c">ASAP7 7nm: 2.53 TOPS/W</text>
-  <text x="1086.0" y="581.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">992.5 MHz · 10,281 µm² (176 kGE) · 0.79 pJ/MAC</text>
+  <text x="1086.0" y="566.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#18222c">ASAP7 7nm: 2.15 TOPS/W</text>
+  <text x="1086.0" y="581.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8.8" font-weight="500" fill="#3d4d5e">1,002 MHz · 10,062 µm² (173 kGE) · 0.93 pJ/MAC</text>
 </svg>

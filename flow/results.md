@@ -6,13 +6,13 @@ Post-route results of `tq_top` from OpenROAD-flow-scripts (`flow/ppa.py`), with 
 
 - **Engine only** unless a table says otherwise. The operand SRAM is outside `tq_top`; where an open macro with characterized power exists (sky130hd), a separate table adds its access energy.
 - **Core area and density**: Core area is the floorplan core bounding box; Cell area is the placed standard-cell area (logic, flops, clock tree, buffers, taps) without fill; Density is post-route standard-cell placement density (Cell area ÷ Core area). Adding physical decap/filler/tap cells brings row fill to 100.0%. kGE = cell area ÷ the PDK's NAND2 area.
-- **Fmax** is from post-route STA at the target clock (1 ÷ (period − worst slack)). Peak TOPS/mm² = 2 × T² × Fmax ÷ cell area. Energy is measured at the target clock, including where post-route timing misses it by a few percent (negative slack).
-- **Workloads** (`ppa` tag in `bench/workloads/gemm.csv`) run in Verilator against the cycle model; operands are uniform random int8, more switching than real data. Energy and utilization cover the whole simulated window (the run plus about 20 setup cycles), and energy is charged to the useful MACs (M × N × K). `*_relu` workloads repeat a shape with synthetic inference-like operands (post-ReLU uint8 activations, about half zeros, and Gaussian int8 weights; not data from a real network) and are left out of the geometric means. The port-bound GEMV shape `fcae_fc640_128` (1×128×640) is omitted from the `cfd68f4` records.
-- **Post-record RTL control-logic deltas**: All nine records were placed and routed at RTL commit `cfd68f4`. Subsequent `v1.0.1` RTL changes are control-plane and elaboration fixes only (`PCW` `+16` lookahead, `CFG` pipeline serialization, `IRQ_STATUS` W1C priority, `STATUS.PENDING`, error checks, and reset/adapter hygiene); the multiplier array, accumulator cells, FIFOs, and GEMM cycle counts are unchanged. Later RTL changes the datapath without changing any cycle count: the drain isolates the unused output path, the accumulator clear is lazy (zero flags), and the program-buffer and `CFG` clock gates sit behind parent gates. The records predate them and give the power of the `cfd68f4` datapath.
+- **Fmax** is from post-route STA at the target clock: 1 ÷ (period − worst setup slack), over every setup check, clock-gating and I/O checks included (the records keep ORFS's register-to-register figure as `fmax_reg2reg_hz`). Peak TOPS/mm² = 2 × T² × Fmax ÷ cell area. Energy is measured at the target clock, including where post-route timing misses it by a few percent (negative slack).
+- **Workloads** (`ppa` tag in `bench/workloads/gemm.csv`) run in Verilator against the cycle model; operands are uniform random int8, more switching than real data. Energy and utilization cover the whole simulated window: the run plus about 100 cycles of reset, program load, the register-port checks the RTL regression makes first, and the counter reads (2.4% of the T = 8 `gemm64` window, about 8% of the T = 16 one). Energy is charged to the useful MACs (M × N × K), so the window can only overstate energy per MAC. `*_relu` workloads repeat a shape with synthetic inference-like operands (post-ReLU uint8 activations, about half zeros, and Gaussian int8 weights; not data from a real network) and are left out of the geometric means; the port-bound GEMV `fcae_fc640_128` (1×128×640) is in them.
+- **RTL**: each record names the RTL commit it was placed and routed at (table below).
 
 | Flow | ORFS | OpenROAD | Yosys | Host | Runs (RTL commit) |
 | --- | --- | --- | --- | --- | --- |
-| native | d0e5b3c13 | f131605 | 0.68+ a5af9d690 | macOS 27.0.1 arm64 | sky130hd t8_cpa (cfd68f4), sky130hd t8_cpa_nocg (cfd68f4), sky130hd t8_csa (cfd68f4), sky130hd t8_shared (cfd68f4), asap7 t8_cpa (cfd68f4), asap7 t8_cpa_nocg (cfd68f4), asap7 t8_csa (cfd68f4), asap7 t8_shared (cfd68f4), asap7 t16_cpa (cfd68f4) |
+| native | d0e5b3c13 | f131605 | 0.68+ a5af9d690 | macOS 27.2.1 arm64 | sky130hd t8_cpa (8d850ba), sky130hd t8_cpa_nocg (8d850ba), sky130hd t8_csa (8d850ba), sky130hd t8_shared (8d850ba), asap7 t8_cpa (8d850ba), asap7 t8_cpa_nocg (8d850ba), asap7 t8_csa (8d850ba), asap7 t8_shared (8d850ba), asap7 t16_cpa (8d850ba) |
 
 ## sky130hd
 
@@ -22,44 +22,48 @@ Target clock 100 MHz (10000 ps), core utilization 55%, typical corner of the pla
 
 | Config | Parameters | Core area | Cell area | Density | kGE | Flops | Flops per MAC | MACs/cycle per kGE | Fmax (post-route) | Worst setup slack | Peak TOPS/mm² at Fmax | DRC |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| t8_cpa | T=8, ACC_FORM=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1.110 mm² | 0.693 mm² | 62.4% | 184.6 | 8,562 | 134 | 0.347 | 99.9 MHz | -14 ps | 0.018 | 0 |
-| t8_cpa_nocg | T=8, ACC_FORM=1, CLK_GATE=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1.239 mm² | 0.757 mm² | 61.1% | 201.7 | 8,562 | 134 | 0.317 | 99.6 MHz | -40 ps | 0.017 | 0 |
-| t8_csa | T=8, ACC_FORM=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1.384 mm² | 0.905 mm² | 65.4% | 241.1 | 12,530 | 196 | 0.265 | 97.9 MHz | -216 ps | 0.014 | 0 |
-| t8_shared | T=8, ACC_FORM=1, SHARED_PORT=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1.089 mm² | 0.686 mm² | 63.0% | 182.7 | 8,563 | 134 | 0.350 | 98.2 MHz | -178 ps | 0.018 | 0 |
+| t8_cpa | T=8, ACC_FORM=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1.060 mm² | 0.677 mm² | 64.0% | 180.4 | 8,571 | 134 | 0.355 | 99.2 MHz | -85 ps | 0.019 | 0 |
+| t8_cpa_nocg | T=8, ACC_FORM=1, CLK_GATE=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1.210 mm² | 0.755 mm² | 62.5% | 201.1 | 8,571 | 134 | 0.318 | 99.0 MHz | -103 ps | 0.017 | 0 |
+| t8_csa | T=8, ACC_FORM=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1.285 mm² | 0.856 mm² | 66.7% | 228.0 | 12,539 | 196 | 0.281 | 98.2 MHz | -183 ps | 0.015 | 0 |
+| t8_shared | T=8, ACC_FORM=1, SHARED_PORT=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1.066 mm² | 0.681 mm² | 64.0% | 181.5 | 8,572 | 134 | 0.353 | 99.7 MHz | -26 ps | 0.019 | 0 |
 
 ### Cell area by class
 
 | Config | sequential | logic | clock tree | timing buffers | other |
 | --- | --- | --- | --- | --- | --- |
-| t8_cpa | 25.9% | 60.9% | 6.5% | 3.2% | 3.3% |
-| t8_cpa_nocg | 33.0% | 56.1% | 4.1% | 3.7% | 3.0% |
-| t8_csa | 28.6% | 54.1% | 7.7% | 6.5% | 2.9% |
-| t8_shared | 26.2% | 60.0% | 6.8% | 3.6% | 3.1% |
+| t8_cpa | 26.5% | 58.6% | 6.7% | 4.7% | 3.3% |
+| t8_cpa_nocg | 33.1% | 54.5% | 4.2% | 5.6% | 2.8% |
+| t8_csa | 30.3% | 51.1% | 8.1% | 7.7% | 2.7% |
+| t8_shared | 26.3% | 58.9% | 6.9% | 4.8% | 2.9% |
 
 ### Energy, engine only, at 100 MHz
 
 | Config | Workload | M×N×K | Utilization (simulated window) | Power | Clock tree | Registers | Logic | pJ/MAC | TOPS/W |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| t8_cpa | gemm64 | 64×64×64 | 98.6% | 106.37 mW | 25.1% | 22.5% | 52.4% | 16.864 | 0.119 |
-| t8_cpa | resnet8_conv32 | 256×32×288 | 99.8% | 104.61 mW | 25.5% | 22.7% | 51.7% | 16.372 | 0.122 |
-| t8_cpa | mbv1_pw8_16 | 2304×16×8 | 46.8% | 75.72 mW | 22.4% | 19.6% | 58.0% | 25.269 | 0.079 |
-| t8_cpa | resnet8_conv32_relu | 256×32×288 | 99.8% | 88.81 mW | 30.1% | 24.3% | 45.6% | 13.899 | 0.144 |
-| t8_cpa | geometric mean | | | | | | | 19.108 | 0.105 |
-| t8_cpa_nocg | gemm64 | 64×64×64 | 98.6% | 140.24 mW | 25.5% | 33.7% | 40.8% | 22.234 | 0.090 |
-| t8_cpa_nocg | resnet8_conv32 | 256×32×288 | 99.8% | 138.45 mW | 25.9% | 34.0% | 40.1% | 21.669 | 0.092 |
-| t8_cpa_nocg | mbv1_pw8_16 | 2304×16×8 | 46.8% | 125.93 mW | 28.4% | 34.9% | 36.7% | 42.027 | 0.048 |
-| t8_cpa_nocg | resnet8_conv32_relu | 256×32×288 | 99.8% | 121.94 mW | 29.4% | 36.5% | 34.1% | 19.084 | 0.105 |
-| t8_cpa_nocg | geometric mean | | | | | | | 27.256 | 0.073 |
-| t8_csa | gemm64 | 64×64×64 | 98.6% | 135.24 mW | 31.1% | 25.5% | 43.4% | 21.441 | 0.093 |
-| t8_csa | resnet8_conv32 | 256×32×288 | 99.8% | 132.71 mW | 31.7% | 26.0% | 42.3% | 20.769 | 0.096 |
-| t8_csa | mbv1_pw8_16 | 2304×16×8 | 46.8% | 97.33 mW | 25.9% | 20.7% | 53.4% | 32.480 | 0.062 |
-| t8_csa | resnet8_conv32_relu | 256×32×288 | 99.8% | 115.26 mW | 36.5% | 27.3% | 36.2% | 18.038 | 0.111 |
-| t8_csa | geometric mean | | | | | | | 24.365 | 0.082 |
-| t8_shared | gemm64 | 64×64×64 | 79.4% | 91.94 mW | 25.4% | 21.9% | 52.8% | 18.084 | 0.111 |
-| t8_shared | resnet8_conv32 | 256×32×288 | 94.6% | 101.24 mW | 26.1% | 22.6% | 51.3% | 16.713 | 0.120 |
-| t8_shared | mbv1_pw8_16 | 2304×16×8 | 33.2% | 60.21 mW | 23.1% | 19.1% | 57.7% | 28.299 | 0.071 |
-| t8_shared | resnet8_conv32_relu | 256×32×288 | 94.6% | 86.39 mW | 30.6% | 24.0% | 45.4% | 14.262 | 0.140 |
-| t8_shared | geometric mean | | | | | | | 20.451 | 0.098 |
+| t8_cpa | gemm64 | 64×64×64 | 96.8% | 99.44 mW | 26.3% | 23.6% | 50.2% | 16.046 | 0.125 |
+| t8_cpa | resnet8_conv32 | 256×32×288 | 99.6% | 99.04 mW | 26.8% | 23.9% | 49.3% | 15.532 | 0.129 |
+| t8_cpa | mbv1_pw8_16 | 2304×16×8 | 46.5% | 69.78 mW | 22.5% | 20.1% | 57.4% | 23.461 | 0.085 |
+| t8_cpa | fcae_fc640_128 | 1×128×640 | 16.4% | 45.92 mW | 32.8% | 24.0% | 43.2% | 43.696 | 0.046 |
+| t8_cpa | resnet8_conv32_relu | 256×32×288 | 99.6% | 83.72 mW | 31.7% | 25.5% | 42.8% | 13.129 | 0.152 |
+| t8_cpa | geometric mean | | | | | | | 22.483 | 0.089 |
+| t8_cpa_nocg | gemm64 | 64×64×64 | 96.8% | 134.14 mW | 27.1% | 34.4% | 38.5% | 21.645 | 0.092 |
+| t8_cpa_nocg | resnet8_conv32 | 256×32×288 | 99.6% | 132.95 mW | 27.4% | 34.7% | 37.9% | 20.848 | 0.096 |
+| t8_cpa_nocg | mbv1_pw8_16 | 2304×16×8 | 46.5% | 121.24 mW | 30.0% | 35.3% | 34.7% | 40.764 | 0.049 |
+| t8_cpa_nocg | fcae_fc640_128 | 1×128×640 | 16.4% | 99.95 mW | 36.4% | 41.0% | 22.6% | 95.115 | 0.021 |
+| t8_cpa_nocg | resnet8_conv32_relu | 256×32×288 | 99.6% | 117.18 mW | 31.1% | 37.1% | 31.9% | 18.376 | 0.109 |
+| t8_cpa_nocg | geometric mean | | | | | | | 36.369 | 0.055 |
+| t8_csa | gemm64 | 64×64×64 | 96.8% | 127.47 mW | 31.3% | 26.0% | 42.6% | 20.568 | 0.097 |
+| t8_csa | resnet8_conv32 | 256×32×288 | 99.6% | 127.37 mW | 32.0% | 26.6% | 41.4% | 19.973 | 0.100 |
+| t8_csa | mbv1_pw8_16 | 2304×16×8 | 46.5% | 89.98 mW | 25.0% | 20.9% | 54.1% | 30.255 | 0.066 |
+| t8_csa | fcae_fc640_128 | 1×128×640 | 16.4% | 58.07 mW | 35.4% | 23.9% | 40.7% | 55.266 | 0.036 |
+| t8_csa | resnet8_conv32_relu | 256×32×288 | 99.6% | 111.50 mW | 36.6% | 27.9% | 35.5% | 17.484 | 0.114 |
+| t8_csa | geometric mean | | | | | | | 28.789 | 0.069 |
+| t8_shared | gemm64 | 64×64×64 | 78.3% | 88.07 mW | 26.1% | 21.7% | 52.2% | 17.571 | 0.114 |
+| t8_shared | resnet8_conv32 | 256×32×288 | 94.5% | 98.57 mW | 26.9% | 22.4% | 50.7% | 16.303 | 0.123 |
+| t8_shared | mbv1_pw8_16 | 2304×16×8 | 33.1% | 56.77 mW | 23.3% | 18.8% | 57.9% | 26.822 | 0.075 |
+| t8_shared | fcae_fc640_128 | 1×128×640 | 16.4% | 47.62 mW | 33.4% | 22.9% | 43.7% | 45.484 | 0.044 |
+| t8_shared | resnet8_conv32_relu | 256×32×288 | 94.5% | 83.50 mW | 31.8% | 24.0% | 44.3% | 13.810 | 0.145 |
+| t8_shared | geometric mean | | | | | | | 24.313 | 0.082 |
 
 ### Energy, engine + operand SRAM, at 100 MHz
 
@@ -67,38 +71,42 @@ SRAM: `sky130_sram_1rw1r_128x256_8` (128-bit word, 4 KB, one read-write and one 
 
 | Config | Workload | SRAM reads | SRAM writes | SRAM pJ/MAC | Engine pJ/MAC | Engine + SRAM pJ/MAC | TOPS/W |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| t8_cpa | gemm64 | 4,096 | 1,024 | 3.504 | 16.864 | 20.369 | 0.098 |
-| t8_cpa | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 16.372 | 19.332 | 0.103 |
-| t8_cpa | mbv1_pw8_16 | 4,608 | 9,216 | 8.408 | 25.269 | 33.678 | 0.059 |
-| t8_cpa | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 13.899 | 16.859 | 0.119 |
-| t8_cpa | geometric mean | | | | | 23.670 | 0.084 |
-| t8_cpa_nocg | gemm64 | 4,096 | 1,024 | 3.504 | 22.234 | 25.738 | 0.078 |
-| t8_cpa_nocg | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 21.669 | 24.629 | 0.081 |
-| t8_cpa_nocg | mbv1_pw8_16 | 4,608 | 9,216 | 8.408 | 42.027 | 50.436 | 0.040 |
-| t8_cpa_nocg | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 19.084 | 22.044 | 0.091 |
-| t8_cpa_nocg | geometric mean | | | | | 31.739 | 0.063 |
-| t8_csa | gemm64 | 4,096 | 1,024 | 3.504 | 21.441 | 24.945 | 0.080 |
-| t8_csa | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 20.769 | 23.729 | 0.084 |
-| t8_csa | mbv1_pw8_16 | 4,608 | 9,216 | 8.408 | 32.480 | 40.889 | 0.049 |
-| t8_csa | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 18.038 | 20.998 | 0.095 |
-| t8_csa | geometric mean | | | | | 28.926 | 0.069 |
-| t8_shared | gemm64 | 4,096 | 1,024 | 3.506 | 18.084 | 21.590 | 0.093 |
-| t8_shared | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 16.713 | 19.673 | 0.102 |
-| t8_shared | mbv1_pw8_16 | 4,608 | 9,216 | 8.414 | 28.299 | 36.713 | 0.054 |
-| t8_shared | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 14.262 | 17.222 | 0.116 |
-| t8_shared | geometric mean | | | | | 24.983 | 0.080 |
+| t8_cpa | gemm64 | 4,096 | 1,024 | 3.504 | 16.046 | 19.550 | 0.102 |
+| t8_cpa | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 15.532 | 18.492 | 0.108 |
+| t8_cpa | mbv1_pw8_16 | 4,608 | 9,216 | 8.409 | 23.461 | 31.870 | 0.063 |
+| t8_cpa | fcae_fc640_128 | 7,680 | 32 | 16.898 | 43.696 | 60.594 | 0.033 |
+| t8_cpa | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 13.129 | 16.089 | 0.124 |
+| t8_cpa | geometric mean | | | | | 28.906 | 0.069 |
+| t8_cpa_nocg | gemm64 | 4,096 | 1,024 | 3.504 | 21.645 | 25.149 | 0.080 |
+| t8_cpa_nocg | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 20.848 | 23.808 | 0.084 |
+| t8_cpa_nocg | mbv1_pw8_16 | 4,608 | 9,216 | 8.409 | 40.764 | 49.173 | 0.041 |
+| t8_cpa_nocg | fcae_fc640_128 | 7,680 | 32 | 16.898 | 95.115 | 112.013 | 0.018 |
+| t8_cpa_nocg | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 18.376 | 21.336 | 0.094 |
+| t8_cpa_nocg | geometric mean | | | | | 42.615 | 0.047 |
+| t8_csa | gemm64 | 4,096 | 1,024 | 3.504 | 20.568 | 24.073 | 0.083 |
+| t8_csa | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 19.973 | 22.933 | 0.087 |
+| t8_csa | mbv1_pw8_16 | 4,608 | 9,216 | 8.409 | 30.255 | 38.663 | 0.052 |
+| t8_csa | fcae_fc640_128 | 7,680 | 32 | 16.898 | 55.266 | 72.164 | 0.028 |
+| t8_csa | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 17.484 | 20.445 | 0.098 |
+| t8_csa | geometric mean | | | | | 35.229 | 0.057 |
+| t8_shared | gemm64 | 4,096 | 1,024 | 3.506 | 17.571 | 21.076 | 0.095 |
+| t8_shared | resnet8_conv32 | 36,864 | 2,048 | 2.960 | 16.303 | 19.263 | 0.104 |
+| t8_shared | mbv1_pw8_16 | 4,608 | 9,216 | 8.414 | 26.822 | 35.236 | 0.057 |
+| t8_shared | fcae_fc640_128 | 7,680 | 32 | 16.898 | 45.484 | 62.383 | 0.032 |
+| t8_shared | resnet8_conv32_relu | 36,864 | 2,048 | 2.960 | 13.810 | 16.770 | 0.119 |
+| t8_shared | geometric mean | | | | | 30.736 | 0.065 |
 
 ### Clock gating: gated against ungated (CLK_GATE = 0)
 
-| Config | Cell area | Flops | Fmax | Power, gemm64 | Power, resnet8_conv32 | Power, mbv1_pw8_16 | Power, resnet8_conv32_relu | Energy per MAC (geometric mean) |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| t8_cpa | -8.5% | +0.0% | +0.3% | -24.2% | -24.4% | -39.9% | -27.2% | -29.9% |
+| Config | Cell area | Flops | Fmax | Power, gemm64 | Power, resnet8_conv32 | Power, mbv1_pw8_16 | Power, fcae_fc640_128 | Power, resnet8_conv32_relu | Energy per MAC (geometric mean) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| t8_cpa | -10.3% | +0.0% | +0.2% | -25.9% | -25.5% | -42.4% | -54.1% | -28.6% | -38.2% |
 
 ### Accumulator form: plain adder (cpa) against carry-save (csa)
 
 | T | Cell area | Flops | Fmax | Energy per MAC (geometric mean) |
 | --- | --- | --- | --- | --- |
-| 8 | -23.4% | -31.7% | +2.0% | -21.6% |
+| 8 | -20.9% | -31.6% | +1.0% | -21.9% |
 
 ## asap7
 
@@ -108,60 +116,65 @@ Target clock per config (column *Clock*; a config that cannot close the platform
 
 | Config | Parameters | Clock | Core area | Cell area | Density | kGE | Flops | Flops per MAC | MACs/cycle per kGE | Fmax (post-route) | Worst setup slack | Peak TOPS/mm² at Fmax | DRC |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| t8_cpa | T=8, ACC_FORM=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1,000 MHz | 13,820 µm² | 10,281 µm² | 74.4% | 176.3 | 8,562 | 134 | 0.363 | 992.5 MHz | -8 ps | 12.356 | 0 |
-| t8_cpa_nocg | T=8, ACC_FORM=1, CLK_GATE=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1,000 MHz | 15,325 µm² | 11,015 µm² | 71.9% | 188.9 | 8,562 | 134 | 0.339 | 974.7 MHz | -26 ps | 11.327 | 0 |
-| t8_csa | T=8, ACC_FORM=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1,000 MHz | 16,824 µm² | 12,602 µm² | 74.9% | 216.1 | 12,530 | 196 | 0.296 | 983.1 MHz | -17 ps | 9.985 | 0 |
-| t8_shared | T=8, ACC_FORM=1, SHARED_PORT=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1,000 MHz | 13,814 µm² | 10,259 µm² | 74.3% | 175.9 | 8,563 | 134 | 0.364 | 988.0 MHz | -12 ps | 12.328 | 0 |
-| t16_cpa | T=16, ACC_FORM=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 741 MHz | 45,785 µm² | 33,340 µm² | 72.8% | 571.7 | 25,544 | 100 | 0.448 | 762.2 MHz | 38 ps | 11.704 | 0 |
+| t8_cpa | T=8, ACC_FORM=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1,000 MHz | 13,385 µm² | 10,062 µm² | 75.2% | 172.5 | 8,571 | 134 | 0.371 | 1,001.9 MHz | 2 ps | 12.745 | 0 |
+| t8_cpa_nocg | T=8, ACC_FORM=1, CLK_GATE=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1,000 MHz | 15,305 µm² | 11,057 µm² | 72.2% | 189.6 | 8,571 | 134 | 0.338 | 1,001.0 MHz | 1 ps | 11.588 | 0 |
+| t8_csa | T=8, ACC_FORM=0, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1,000 MHz | 15,776 µm² | 12,113 µm² | 76.8% | 207.7 | 12,539 | 196 | 0.308 | 968.4 MHz | -33 ps | 10.233 | 0 |
+| t8_shared | T=8, ACC_FORM=1, SHARED_PORT=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 1,000 MHz | 13,423 µm² | 10,082 µm² | 75.1% | 172.9 | 8,572 | 134 | 0.370 | 1,002.0 MHz | 2 ps | 12.721 | 0 |
+| t16_cpa | T=16, ACC_FORM=1, FIFO_DEPTH=4, MACQ_DEPTH=3 | 741 MHz | 42,462 µm² | 31,102 µm² | 73.2% | 533.3 | 25,553 | 100 | 0.480 | 747.4 MHz | 12 ps | 12.303 | 0 |
 
 ### Cell area by class
 
 | Config | sequential | logic | clock tree | timing buffers | other |
 | --- | --- | --- | --- | --- | --- |
-| t8_cpa | 25.5% | 65.6% | 5.1% | 2.4% | 1.1% |
-| t8_cpa_nocg | 23.8% | 70.1% | 2.5% | 2.6% | 1.1% |
-| t8_csa | 30.0% | 60.1% | 5.7% | 2.9% | 1.0% |
-| t8_shared | 25.6% | 65.6% | 5.2% | 2.3% | 1.2% |
-| t16_cpa | 22.7% | 70.3% | 4.2% | 2.1% | 0.6% |
+| t8_cpa | 26.1% | 64.1% | 5.2% | 3.2% | 1.2% |
+| t8_cpa_nocg | 23.8% | 69.6% | 2.5% | 3.0% | 1.1% |
+| t8_csa | 31.3% | 56.9% | 5.6% | 5.0% | 1.1% |
+| t8_shared | 26.1% | 64.2% | 5.1% | 3.2% | 1.2% |
+| t16_cpa | 24.4% | 68.6% | 4.3% | 2.0% | 0.7% |
 
 ### Energy, engine only, at each config's target clock
 
 | Config | Workload | M×N×K | Utilization (simulated window) | Power | Clock tree | Registers | Logic | pJ/MAC | TOPS/W |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| t8_cpa | gemm64 | 64×64×64 | 98.6% | 43.40 mW | 20.8% | 21.5% | 57.8% | 0.688 | 2.907 |
-| t8_cpa | resnet8_conv32 | 256×32×288 | 99.8% | 42.58 mW | 21.0% | 21.6% | 57.4% | 0.666 | 3.001 |
-| t8_cpa | mbv1_pw8_16 | 2304×16×8 | 46.8% | 32.47 mW | 18.8% | 19.2% | 62.0% | 1.084 | 1.845 |
-| t8_cpa | resnet8_conv32_relu | 256×32×288 | 99.8% | 36.85 mW | 24.3% | 22.4% | 53.3% | 0.577 | 3.468 |
-| t8_cpa | geometric mean | | | | | | | 0.792 | 2.525 |
-| t8_cpa_nocg | gemm64 | 64×64×64 | 98.6% | 55.07 mW | 22.7% | 27.2% | 50.1% | 0.873 | 2.291 |
-| t8_cpa_nocg | resnet8_conv32 | 256×32×288 | 99.8% | 54.22 mW | 23.1% | 27.4% | 49.5% | 0.849 | 2.357 |
-| t8_cpa_nocg | mbv1_pw8_16 | 2304×16×8 | 46.8% | 49.03 mW | 25.5% | 28.5% | 45.9% | 1.636 | 1.222 |
-| t8_cpa_nocg | resnet8_conv32_relu | 256×32×288 | 99.8% | 48.46 mW | 25.8% | 28.7% | 45.5% | 0.758 | 2.637 |
-| t8_cpa_nocg | geometric mean | | | | | | | 1.066 | 1.876 |
-| t8_csa | gemm64 | 64×64×64 | 98.6% | 53.23 mW | 25.2% | 25.9% | 48.9% | 0.844 | 2.370 |
-| t8_csa | resnet8_conv32 | 256×32×288 | 99.8% | 52.63 mW | 25.4% | 26.2% | 48.4% | 0.824 | 2.428 |
-| t8_csa | mbv1_pw8_16 | 2304×16×8 | 46.8% | 38.79 mW | 21.9% | 21.9% | 56.2% | 1.294 | 1.545 |
-| t8_csa | resnet8_conv32_relu | 256×32×288 | 99.8% | 46.66 mW | 28.6% | 26.8% | 44.6% | 0.730 | 2.739 |
-| t8_csa | geometric mean | | | | | | | 0.965 | 2.072 |
-| t8_shared | gemm64 | 64×64×64 | 79.4% | 38.07 mW | 20.7% | 21.1% | 58.2% | 0.749 | 2.671 |
-| t8_shared | resnet8_conv32 | 256×32×288 | 94.6% | 41.31 mW | 21.2% | 21.6% | 57.1% | 0.682 | 2.933 |
-| t8_shared | mbv1_pw8_16 | 2304×16×8 | 33.2% | 26.21 mW | 19.6% | 18.8% | 61.6% | 1.232 | 1.624 |
-| t8_shared | resnet8_conv32_relu | 256×32×288 | 94.6% | 36.00 mW | 24.4% | 22.3% | 53.3% | 0.594 | 3.366 |
-| t8_shared | geometric mean | | | | | | | 0.857 | 2.334 |
-| t16_cpa | gemm64 | 64×64×64 | 93.1% | 118.51 mW | 19.2% | 19.5% | 61.3% | 0.671 | 2.979 |
-| t16_cpa | resnet8_conv32 | 256×32×288 | 99.2% | 119.76 mW | 19.8% | 19.9% | 60.3% | 0.637 | 3.141 |
-| t16_cpa | mbv1_pw8_16 | 2304×16×8 | 24.0% | 58.05 mW | 14.3% | 15.1% | 70.6% | 1.276 | 1.567 |
-| t16_cpa | resnet8_conv32_relu | 256×32×288 | 99.2% | 101.61 mW | 23.3% | 20.5% | 56.1% | 0.540 | 3.702 |
-| t16_cpa | geometric mean | | | | | | | 0.817 | 2.448 |
+| t8_cpa | gemm64 | 64×64×64 | 96.8% | 39.15 mW | 21.4% | 22.9% | 55.8% | 0.632 | 3.166 |
+| t8_cpa | resnet8_conv32 | 256×32×288 | 99.6% | 38.84 mW | 21.8% | 23.1% | 55.1% | 0.609 | 3.283 |
+| t8_cpa | mbv1_pw8_16 | 2304×16×8 | 46.5% | 28.81 mW | 18.6% | 19.5% | 61.9% | 0.969 | 2.065 |
+| t8_cpa | fcae_fc640_128 | 1×128×640 | 16.4% | 20.92 mW | 24.6% | 21.4% | 53.9% | 1.991 | 1.005 |
+| t8_cpa | resnet8_conv32_relu | 256×32×288 | 99.6% | 33.12 mW | 25.6% | 23.8% | 50.7% | 0.519 | 3.851 |
+| t8_cpa | geometric mean | | | | | | | 0.928 | 2.155 |
+| t8_cpa_nocg | gemm64 | 64×64×64 | 96.8% | 53.08 mW | 23.7% | 27.9% | 48.4% | 0.856 | 2.335 |
+| t8_cpa_nocg | resnet8_conv32 | 256×32×288 | 99.6% | 52.69 mW | 23.9% | 28.0% | 48.1% | 0.826 | 2.420 |
+| t8_cpa_nocg | mbv1_pw8_16 | 2304×16×8 | 46.5% | 47.25 mW | 26.7% | 29.2% | 44.2% | 1.589 | 1.259 |
+| t8_cpa_nocg | fcae_fc640_128 | 1×128×640 | 16.4% | 40.95 mW | 30.8% | 32.6% | 36.6% | 3.897 | 0.513 |
+| t8_cpa_nocg | resnet8_conv32_relu | 256×32×288 | 99.6% | 47.14 mW | 26.7% | 29.3% | 44.0% | 0.739 | 2.705 |
+| t8_cpa_nocg | geometric mean | | | | | | | 1.447 | 1.382 |
+| t8_csa | gemm64 | 64×64×64 | 96.8% | 49.78 mW | 24.4% | 27.2% | 48.4% | 0.803 | 2.490 |
+| t8_csa | resnet8_conv32 | 256×32×288 | 99.6% | 49.81 mW | 24.8% | 27.7% | 47.5% | 0.781 | 2.560 |
+| t8_csa | mbv1_pw8_16 | 2304×16×8 | 46.5% | 35.79 mW | 20.1% | 22.3% | 57.5% | 1.203 | 1.662 |
+| t8_csa | fcae_fc640_128 | 1×128×640 | 16.4% | 24.69 mW | 26.4% | 23.1% | 50.5% | 2.349 | 0.851 |
+| t8_csa | resnet8_conv32_relu | 256×32×288 | 99.6% | 44.12 mW | 28.0% | 28.3% | 43.7% | 0.692 | 2.891 |
+| t8_csa | geometric mean | | | | | | | 1.154 | 1.733 |
+| t8_shared | gemm64 | 64×64×64 | 78.3% | 34.73 mW | 21.2% | 21.5% | 57.3% | 0.693 | 2.886 |
+| t8_shared | resnet8_conv32 | 256×32×288 | 94.5% | 38.34 mW | 21.8% | 22.2% | 56.0% | 0.634 | 3.154 |
+| t8_shared | mbv1_pw8_16 | 2304×16×8 | 33.1% | 23.51 mW | 19.8% | 18.5% | 61.7% | 1.111 | 1.800 |
+| t8_shared | fcae_fc640_128 | 1×128×640 | 16.4% | 21.05 mW | 25.4% | 21.2% | 53.4% | 2.011 | 0.995 |
+| t8_shared | resnet8_conv32_relu | 256×32×288 | 94.5% | 32.74 mW | 25.5% | 22.9% | 51.6% | 0.542 | 3.693 |
+| t8_shared | geometric mean | | | | | | | 0.995 | 2.009 |
+| t16_cpa | gemm64 | 64×64×64 | 87.2% | 101.85 mW | 20.0% | 20.5% | 59.5% | 0.616 | 3.248 |
+| t16_cpa | resnet8_conv32 | 256×32×288 | 98.4% | 108.22 mW | 20.8% | 21.1% | 58.2% | 0.580 | 3.448 |
+| t16_cpa | mbv1_pw8_16 | 2304×16×8 | 23.6% | 49.84 mW | 15.1% | 14.7% | 70.2% | 1.112 | 1.798 |
+| t16_cpa | fcae_fc640_128 | 1×128×640 | 8.1% | 47.67 mW | 24.0% | 18.2% | 57.8% | 3.108 | 0.644 |
+| t16_cpa | resnet8_conv32_relu | 256×32×288 | 98.4% | 90.07 mW | 25.0% | 21.6% | 53.4% | 0.483 | 4.143 |
+| t16_cpa | geometric mean | | | | | | | 1.054 | 1.897 |
 
 ### Clock gating: gated against ungated (CLK_GATE = 0)
 
-| Config | Cell area | Flops | Fmax | Power, gemm64 | Power, resnet8_conv32 | Power, mbv1_pw8_16 | Power, resnet8_conv32_relu | Energy per MAC (geometric mean) |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| t8_cpa | -6.7% | +0.0% | +1.8% | -21.2% | -21.5% | -33.8% | -23.9% | -25.7% |
+| Config | Cell area | Flops | Fmax | Power, gemm64 | Power, resnet8_conv32 | Power, mbv1_pw8_16 | Power, fcae_fc640_128 | Power, resnet8_conv32_relu | Energy per MAC (geometric mean) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| t8_cpa | -9.0% | +0.0% | +0.1% | -26.2% | -26.3% | -39.0% | -48.9% | -29.7% | -35.8% |
 
 ### Accumulator form: plain adder (cpa) against carry-save (csa)
 
 | T | Cell area | Flops | Fmax | Energy per MAC (geometric mean) |
 | --- | --- | --- | --- | --- |
-| 8 | -18.4% | -31.7% | +1.0% | -18.0% |
+| 8 | -16.9% | -31.6% | +3.5% | -19.6% |

@@ -9,10 +9,14 @@ All notable changes to the Tri-Queue project. This format follows
 
 ## [Unreleased]
 
-Idle-logic power: activity measurements showed the multiplier inputs already change only when a
-beat consumes operands, so operand isolation in the array has nothing to remove. These changes
-target the idle switching that is left. No cycle count, result or register changes; the model is
-untouched, and the PPA records still describe the `cfd68f4` datapath until the next re-spin.
+## [v1.0.2] — 2026-11-19
+
+Idle-logic power and a new silicon layout release. Activity measurements showed the multiplier
+inputs already change only when a beat consumes operands, so operand isolation in the array has
+nothing to remove; these changes target the idle switching that is left. No cycle count, result or
+register changes; the model is untouched. All nine PPA records are re-run at the new RTL (`8d850ba`)
+and the 3D layouts are locked as `v1.0.2`. Against the earlier records of the same workloads, energy
+per MAC is 4.9–7.2% lower on sky130hd and 8.2–12.8% lower on ASAP7.
 
 ### Changed
 
@@ -38,6 +42,24 @@ untouched, and the PPA records still describe the `cfd68f4` datapath until the n
   decap and filler cells at the bottom centre of the core (`NOTICE`). The netlist is unchanged;
   `results.py` keeps the logo cells out of the recorded cell area and count. The 3D viewer draws
   them gold.
+
+### Physical design
+
+- **Records re-run at `8d850ba`** (all nine, native ORFS `d0e5b3c13`, clean checkout) with the
+  layout signature, and the GEMV `fcae_fc640_128` in every record and in the geometric means. ASAP7
+  T = 8: 10,062 µm², 1,001.9 MHz, 0.93 pJ/MAC geometric mean over four workloads (0.72 pJ over the
+  three of the earlier records, was 0.79). sky130hd T = 8: 0.677 mm², 99.2 MHz, 22.5 pJ/MAC (18.0 pJ
+  over the earlier three, was 19.1). T = 16 now closes its 741 MHz clock (747 MHz post-route).
+- **Fmax counts every setup check:** `results.py collect` records 1 ÷ (period − worst setup slack),
+  as `flow/results.md` defines it. OpenROAD's register-to-register `fmax`, which skips clock-gating
+  checks and read 2–13% high on the new runs, is kept as `fmax_reg2reg_hz`.
+- `ppa.py` writes an integer clock period in one form (10, not 10.0), so `collect` matches a run's
+  `config.mk` to the reference settings; `collect` no longer counts its own outputs (other records,
+  `results.md`) as a dirty checkout.
+- `flow/results.md` notes the simulated window (the run plus about 100 setup cycles since the v1.0.1
+  regression added register-port checks), which can only overstate energy per MAC.
+- Docs (`README.md`, `docs/benchmarks.md` §5, `docs/verification.md` §4, spec §7.3, §10 and §11,
+  `docs/integration.md`) and the silicon PPA figure quote the new records.
 
 ## [v1.0.1] — 2026-11-11
 
@@ -186,5 +208,7 @@ locked as `v1.0.0`. T = 16 is recorded at 741 MHz (762 MHz post-route); T = 32 h
 `make dist` and `.github/workflows/release.yml` produce and publish the source tarball, a
 representative golden-vector set and `SHA256SUMS`.
 
+[Unreleased]: https://github.com/codetiger/triqueue/compare/v1.0.2...HEAD
+[v1.0.2]: https://github.com/codetiger/triqueue/compare/v1.0.1...v1.0.2
 [v1.0.1]: https://github.com/codetiger/triqueue/compare/v1.0.0...v1.0.1
 [v1.0.0]: https://github.com/codetiger/triqueue/releases/tag/v1.0.0

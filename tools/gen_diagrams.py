@@ -1326,7 +1326,7 @@ def generate_arity_overlap_diagram() -> None:
         ("99.2% Peak Util on 64³ GEMM", "4,130 vs 4,096 ideal cycles (0-cycle SWAP_C)", C_GREEN_FILL, C_GREEN_BORDER),
         ("4 MACs / Byte Loaded", "64 MACs per 16 B vector (no operand RF)", C_GOLD_FILL, C_GOLD_BORDER),
         ("Drain Hidden for Kp ≥ 24", "16-cycle int32 write-back (8 cyc in int8 mode)", "#dcebfb", "#2563eb"),
-        ("ASAP7 7nm: 2.53 TOPS/W", "992.5 MHz · 10,281 µm² (176 kGE) · 0.79 pJ/MAC", C_PURPLE_UNIT, C_PURPLE_BORDER),
+        ("ASAP7 7nm: 2.15 TOPS/W", "1,002 MHz · 10,062 µm² (173 kGE) · 0.93 pJ/MAC", C_PURPLE_UNIT, C_PURPLE_BORDER),
     ]
     for idx, (ktitle, ksub, kfc, kec) in enumerate(kpis):
         ky = 418 + idx * 45
@@ -1440,30 +1440,30 @@ def generate_silicon_ppa_diagram() -> None:
             24,
             18,
             "ASAP7 7nm FinFET  ·  tq_top (T = 8)",
-            "119.7 × 119.7 µm Die  ·  992.5 MHz Post-Route  ·  0 DRC",
+            "117.9 × 117.9 µm Die  ·  1,001.9 MHz Post-Route  ·  0 DRC",
             ROOT / "ui" / "data" / "chip_asap7.js",
             C_PURPLE_BG,
             C_PURPLE_BORDER,
             [
-                ("Cell / Core Area", "10,281 / 13,820 µm²  (74.4% density)"),
-                ("Gate Count & State", "176.3 kGE  ·  8,562 Flip-Flops (134 / MAC)"),
-                ("Energy / MAC", "0.67–1.08 pJ  (0.79 pJ geomean)"),
-                ("Efficiency & Peak", "2.53 TOPS/W geomean  ·  12.36 TOPS/mm²"),
+                ("Cell / Core Area", "10,062 / 13,385 µm²  (75.2% density)"),
+                ("Gate Count & State", "172.5 kGE  ·  8,571 Flip-Flops (134 / MAC)"),
+                ("Energy / MAC", "0.61–1.99 pJ  (0.93 pJ geomean)"),
+                ("Efficiency & Peak", "2.15 TOPS/W geomean  ·  12.75 TOPS/mm²"),
             ],
         ),
         (
             496,
             18,
             "Sky130HD 130nm  ·  tq_top (T = 8)",
-            "1,057 × 1,057 µm Die  ·  99.9 MHz Post-Route  ·  0 DRC",
+            "1,033.9 × 1,033.9 µm Die  ·  99.2 MHz Post-Route  ·  0 DRC",
             ROOT / "ui" / "data" / "chip_sky130hd.js",
             C_DEC_FILL,
             C_SLATE_BORDER,
             [
-                ("Cell / Core Area", "0.693 / 1.110 mm²  (62.4% density)"),
-                ("Gate Count & State", "184.6 kGE  ·  8,562 Flip-Flops (134 / MAC)"),
-                ("Energy (Engine Only)", "16.4–25.3 pJ/MAC  (19.1 pJ geomean)"),
-                ("Energy (+ OpenRAM)", "23.7 pJ/MAC geomean  (0.105 TOPS/W)"),
+                ("Cell / Core Area", "0.677 / 1.060 mm²  (64.0% density)"),
+                ("Gate Count & State", "180.4 kGE  ·  8,571 Flip-Flops (134 / MAC)"),
+                ("Energy (Engine Only)", "15.5–43.7 pJ/MAC  (22.5 pJ geomean)"),
+                ("Energy (+ OpenRAM)", "28.9 pJ/MAC geomean  (0.069 TOPS/W)"),
             ],
         ),
     ]
@@ -1637,13 +1637,13 @@ def generate_silicon_ppa_diagram() -> None:
     ablations = [
         (
             "Clock Gating (tq_cg vs CLK_GATE = 0)",
-            "−29.9% energy/MAC  ·  −8.5% cell area (sky130hd)",
+            "−38.2% energy/MAC  ·  −10.3% cell area (sky130hd)",
             C_GREEN_FILL,
             C_GREEN_BORDER,
         ),
         (
             "Plain 32b Adder (CPA) vs Carry-Save (CSA)",
-            "−21.6% energy/MAC  ·  −23.4% area  ·  −31.7% FFs",
+            "−21.9% energy/MAC  ·  −20.9% area  ·  −31.6% FFs",
             C_GOLD_FILL,
             C_GOLD_BORDER,
         ),
@@ -1655,7 +1655,7 @@ def generate_silicon_ppa_diagram() -> None:
         ),
         (
             "Scale-Up Tile (T = 16, 256 MACs on ASAP7)",
-            "762 MHz  ·  33,340 µm²  ·  0.448 MAC/cyc/kGE",
+            "747 MHz  ·  31,102 µm²  ·  0.480 MAC/cyc/kGE",
             C_PURPLE_UNIT,
             C_PURPLE_BORDER,
         ),
