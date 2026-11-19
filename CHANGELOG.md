@@ -34,7 +34,7 @@ untouched, and the PPA records still describe the `cfd68f4` datapath until the n
   two-level gate.
 - `flow/census.py`, `flow/blocks.py`: toggles per functional block and per beat from an activity
   SAIF; `flow/power.py` adds power per block (`power_blocks_w`) to new records.
-- `flow/logo.tcl`: layouts carry the author's signature, "codetiger", in 5×7-pixel letters of
+- `flow/logo.tcl`: layouts carry the author's signature, "codetiger.in", in 5×7-pixel letters of
   decap and filler cells at the bottom centre of the core (`NOTICE`). The netlist is unchanged;
   `results.py` keeps the logo cells out of the recorded cell area and count. The 3D viewer draws
   them gold.

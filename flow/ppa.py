@@ -68,7 +68,7 @@ PLATFORMS = {
 # Layout signature (flow/logo.tcl): the text in 5x7-pixel letters of physical-only cells, placed
 # FIXED after the tap cells at the bottom centre of the core. Square pixels: one row high, this many
 # sites wide. Decap cells draw the letters, filler cells the background.
-LOGO_TEXT = "codetiger"
+LOGO_TEXT = "codetiger.in"
 LOGO = {
     "sky130hd": dict(pixel_sites=6, row0=2,
                      decaps=[f"sky130_fd_sc_hd__decap_{w}" for w in (12, 8, 6, 4, 3)],
@@ -89,6 +89,8 @@ def base(native):
 def config_mk(platform, config, period, util=None, native=False, nick=None):
     WORK = base(native)
     p = PLATFORMS[platform]
+    if isinstance(period, float) and period.is_integer():
+        period = int(period)            # one spelling (10, not 10.0) for runs and results.py checks
     use_util = util if util is not None else reference_util(platform, config)
     files = [f"{WORK}/{line}" for line in (ROOT / "rtl" / "files.f").read_text().split()]
     params = " ".join(f"{k} {v}" for k, v in CONFIGS[config].items())

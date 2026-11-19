@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 #
-# Layout signature: "codetiger" drawn in physical-only cells, placed FIRM (the placers never move
+# Layout signature: "codetiger.in" drawn in physical-only cells, placed FIRM (the placers never move
 # them) right after the platform's tap cells (ORFS POST_TAPCELL_TCL, before any logic is placed).
 # Every pixel is one row high and PIXEL_SITES sites wide, at the bottom centre of the core: the
 # south edge carries only the low-activity register readback pins (io_constraints.tcl). "On"
@@ -14,7 +14,7 @@
 # Environment (from ppa.py): TQ_LOGO_TEXT, TQ_LOGO_PIXEL_SITES, TQ_LOGO_ROW0 (rows above the core
 # bottom), TQ_LOGO_DECAPS / TQ_LOGO_FILLERS (masters, widest first).
 
-# 5x7 glyphs, top row first; '#' is on
+# 5x7 glyphs (the dot is 2 wide), top row first; '#' is on
 array set ::tq_glyph {
   c {..... .###. #.... #.... #.... .###. .....}
   o {..... .###. #...# #...# #...# .###. .....}
@@ -24,6 +24,8 @@ array set ::tq_glyph {
   i {..#.. ..... .##.. ..#.. ..#.. .###. .....}
   g {..... .#### #...# #...# .#### ....# .###.}
   r {..... #.##. ##..# #.... #.... #.... .....}
+  n {..... #.##. ##..# #...# #...# #...# .....}
+  . {.. .. .. .. ## ## ..}
 }
 
 proc tq_logo_bitmap { text } {

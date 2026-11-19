@@ -216,7 +216,9 @@ def collect(platform, config, force=False):
         verilator=verilator_ver, cocotb=cocotb_ver, host=host(),
         rtl_commit=sh("git", "-C", str(ROOT), "log", "-1", "--format=%h", "--", "rtl"),
         repo_head=sh("git", "-C", str(ROOT), "rev-parse", "--short=7", "HEAD"),
-        repo_dirty=bool(sh("git", "-C", str(ROOT), "status", "--porcelain")),
+        # collect's own outputs (other records, results.md) do not make the checkout dirty
+        repo_dirty=bool(sh("git", "-C", str(ROOT), "status", "--porcelain", "--", ".",
+                           ":!flow/records", ":!flow/results.md")),
         config_mk_sha256=hashlib.sha256(mk.encode()).hexdigest(),
         jobs=PLATFORMS[platform]["jobs"],
         platform=platform, config=config, params=CONFIGS[config],
@@ -230,7 +232,10 @@ def collect(platform, config, force=False):
         setup_ws_ps=m["finish__timing__setup__ws"] * unit_ps,
         setup_tns_ps=m["finish__timing__setup__tns"] * unit_ps,
         hold_ws_ps=m["finish__timing__hold__ws"] * unit_ps,
-        fmax_hz=m["finish__timing__fmax"],
+        # Fmax over every setup check (I/O and clock-gating checks too): 1 / (period - worst slack).
+        # ORFS's own fmax is register-to-register only and can exceed what the clock closes at.
+        fmax_hz=round(1e12 / (period * unit_ps - m["finish__timing__setup__ws"] * unit_ps), 1),
+        fmax_reg2reg_hz=m["finish__timing__fmax"],
         drc_errors=route["detailedroute__route__drc_errors"],
         power=power,
         sram=sram,

@@ -5,6 +5,6 @@ Hardware (rtl/, verif/, flow/) is licensed under the Solderpad Hardware License 
 (LICENSE.hardware). Everything else is licensed under the Apache License 2.0 (LICENSE).
 
 Layouts produced by this repository's physical design flow (flow/) carry the author's signature,
-"codetiger", drawn in physical-only cells at the bottom centre of the core (flow/logo.tcl). It is
+"codetiger.in", drawn in physical-only cells at the bottom centre of the core (flow/logo.tcl). It is
 part of the attribution of those layouts: redistributions and derived layouts should keep it, or
 keep this notice.
