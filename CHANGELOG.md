@@ -67,6 +67,9 @@ All notable changes to the Tri-Queue project. This format follows
   cycles (23.8%) with the shim's 4-beat read bursts, and 38,686 cycles (10.5%) with single-beat
   reads (was 38,295 on pre-v1 RTL). README, `docs/benchmarks.md` §6, `docs/integration.md` and spec
   §11 quote the new run; `docs/integration.md` §8 notes the input port defaults.
+- First cached-memory profile (`docs/benchmarks.md` §6): with 4-beat bursts, `FIFO_DEPTH = 16` / `32`
+  change nothing (17,181 / 17,168 cycles) and a 1 KiB panel buffer gives 14,075 cycles (29.1%,
+  44% fewer reads). The SoC's TileLink path, not the core or adapter, sets the rate.
 
 ### Fixed (testbench)
 

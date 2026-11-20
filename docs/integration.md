@@ -145,7 +145,10 @@ L + 1` includes the 1-cycle operand FIFO write); depth 4 hides up to `L = 3`, de
 the adapter's latency. The 64³ GEMM on the Chipyard Rocket SoC passes bit-exact but runs at 23.8% with
 4-beat read bursts (`BURST_BEATS = 4`) and 10.5% with single-beat reads, because the 8-word FIFOs do
 not hide the TileLink/L2/DRAM latency; that is a memory-system result, not a core limit
-(`docs/benchmarks.md` §6, v1.0.2 RTL). For a cached-memory SoC, use read bursts of a cache line.
+(`docs/benchmarks.md` §6, v1.0.2 RTL). For a cached-memory SoC, use read bursts of a cache line and,
+if A is reused across a tile row, the panel buffer (29.1% there); a deeper FIFO did not help there
+(`FIFO_DEPTH = 16` and `32` gave the same cycles as 8), because that SoC's memory path, not the
+number of reads the core keeps in flight, sets the rate.
 
 ## 5. AXI4 master (`tq_top_axi`)
 

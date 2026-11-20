@@ -114,7 +114,10 @@ It passes with 0 mismatches and the same 4,096 beats, 4,096 reads and 1,024 writ
 | Memory master | Cycles | Utilization |
 | --- | --- | --- |
 | `BURST_BEATS = 4` (the shim's setting: one 64-byte line per AR) | **17,187** | **23.8%** |
+| `BURST_BEATS = 4`, `FIFO_DEPTH = 16` | 17,181 | 23.8% |
+| `BURST_BEATS = 4`, `FIFO_DEPTH = 32` | 17,168 | 23.8% |
+| `BURST_BEATS = 4`, `PANEL_BYTES = 1024` (2,304 reads instead of 4,096) | 14,075 | 29.1% |
 | `BURST_BEATS = 1` (one 16-byte word per AR) | 38,686 | 10.5% |
 | Fixed-latency SRAM, 2 cycles (cycle model and RTL) | 4,130 | 99.2% |
 
-The 8-word operand FIFOs are meant for tightly coupled SRAM and do not hide the latency of the TileLink-to-AXI bridge, L2 cache and DRAM. Read bursts take one round trip per line instead of per word and cut the cycles 2.25×. This is a memory-latency result, not a core limit: the supported v1 integration is a low-latency SRAM or TCM. A deeper FIFO and the optional panel buffer are the other levers for a cached-memory SoC and have not been measured in the SoC (`docs/integration.md`). The single-beat run matches the pre-v1 result (38,295 cycles, 2026-11-08, `65815f3`).
+Read bursts take one round trip per line instead of per word and cut the cycles 2.25×; the panel buffer removes 44% of the reads and another 18% of the cycles. Deeper operand FIFOs change nothing, and neither did doubling the adapter's burst-buffer slots (an RTL experiment, not a parameter): the core and the adapter can keep more reads in flight than this SoC's TileLink path serves, about one 64-byte burst per 16.8 cycles (one word per 9.4 cycles without bursts). This is a memory-system result, not a core limit: the supported v1 integration is a low-latency SRAM or TCM. The single-beat run matches the pre-v1 result (38,295 cycles, 2026-11-08, `65815f3`).
