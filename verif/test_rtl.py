@@ -227,6 +227,8 @@ CONFIGS = {
            dict(case(64, 64, 64, lat=8), wr_lat=2),
            dict(case(20, 24, 27, lat=4, stall=0.3), wr_lat=3, shift=6),
            dict(case(64, 64, 8, lat=2), wr_lat=1, shift=5),
+           dict(case(12, 12, 24, lat=3), wr_lat=1), dict(case(36, 4, 8, lat=3), wr_lat=1),
+           dict(case(28, 28, 24, lat=5, stall=0.3), wr_lat=2), dict(case(5, 64, 40, lat=2), wr_lat=1),
            dict(case(20, 24, 27, lat=2), wr_lat=2, bus_err=1),
            dict(case(20, 24, 27, lat=2), wr_lat=2, rresp_err=1),
            dict(case(9, 9, 9, lat=2), wr_lat=1)],

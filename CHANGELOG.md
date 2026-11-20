@@ -45,7 +45,11 @@ All notable changes to the Tri-Queue project. This format follows
 - `t8_axil_prot`: `tq_top_axil` with `CHECK_PROT = 1`. The AXI4-Lite testbench now issues privileged,
   secure accesses (`AxPROT = 0b001`) and checks that unprivileged or non-secure writes and reads get
   `SLVERR` and leave the registers unchanged; no configuration exercised `CHECK_PROT` before. Line
-  coverage 97.2%; the regression is 1,749 cases in 27 configurations.
+  coverage 97.2%.
+- `t8_axi_burst`: four shapes with half-width edge panels and odd `Kp / 8` (12×12×24, 36×4×8,
+  28×28×24, 5×64×40) leave partly read lines in the read burst buffer, so it has to evict a
+  still-valid line, which no case did before. `tq_axi_mem` line coverage 100%, total 97.5%; the
+  regression is 1,753 cases in 27 configurations.
 
 ### Fixed (SoC bench)
 

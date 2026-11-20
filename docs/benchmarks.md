@@ -30,7 +30,7 @@ Further tables in the source file: shared read/write port (79.8% at 64³), drain
 
 ## 2. RTL, T = 8
 
-Source: `verif/` (`make rtl-test`). The SystemVerilog core gives the same cycle count as the model for every one of **1,749 regression cases in 27 configurations** (T = 4, 8, 16, 32; shared port; minimal and reference queues; both accumulator forms; panel buffer; single-beat and burst AXI; CV-X-IF; and random memory back-pressure of 10–80%), including **4,130 cycles for 64³**. Results are bit-exact, and every memory transaction and MAC start happens on the same cycle as in the model. See [`docs/verification.md`](verification.md) for the matrix and the known coverage gaps.
+Source: `verif/` (`make rtl-test`). The SystemVerilog core gives the same cycle count as the model for every one of **1,753 regression cases in 27 configurations** (T = 4, 8, 16, 32; shared port; minimal and reference queues; both accumulator forms; panel buffer; single-beat and burst AXI; CV-X-IF; and random memory back-pressure of 10–80%), including **4,130 cycles for 64³**. Results are bit-exact, and every memory transaction and MAC start happens on the same cycle as in the model. See [`docs/verification.md`](verification.md) for the matrix and the known coverage gaps.
 
 ## 3. Tile size (cycle model)
 
