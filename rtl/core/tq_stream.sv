@@ -24,6 +24,13 @@
 // vectors in order: a replay waits until no A read is in flight, and an A read until no
 // replayed vector is.
 
+// TQ_FORMAL_NO_EPI (formal only): MODE[9] is reserved, so no parameter read is ever issued and the
+// in-flight bound is the A/B one (a smaller tag FIFO keeps those core proofs tractable).
+`ifdef TQ_FORMAL_NO_EPI
+`define TQ_EPI_INF 0
+`else
+`define TQ_EPI_INF tq_pkg::EPI_WORDS
+`endif
 module tq_stream #(
     parameter int T           = 8,
     parameter int FIFO_DEPTH  = 8,
@@ -35,7 +42,12 @@ module tq_stream #(
     localparam int VB  = W * 8,
     localparam int L2T = $clog2(T),
     localparam int CRW = $clog2(FIFO_DEPTH + 1),
-    localparam int IFW = $clog2(2 * FIFO_DEPTH + 1),
+    // reads in flight: A/B are capped by the FIFO credits (2 x FIFO_DEPTH); epilogue parameter
+    // reads come on top, at most EPI_WORDS (a new fetch needs a new drain, which needs the last
+    // fetch's words)
+    localparam int EPI_INF = `TQ_EPI_INF,
+    localparam int MAXINF = 2 * FIFO_DEPTH + EPI_INF,
+    localparam int IFW = $clog2(MAXINF + 1),
     localparam bit PB  = PANEL_BYTES > 0,
     localparam int PV  = PB ? PANEL_BYTES / W : 1,     // buffer entries (W-byte vectors)
     localparam int PIW = $clog2(PV + 1)
@@ -47,6 +59,11 @@ module tq_stream #(
     // MODE[8] (column walk): tq_core feeds B on this module's A side (the buffered stream) and A on
     // its B side; the round-robin order and the panel key stay in terms of the real operands
     input  logic          swap_i,
+    // epilogue parameter reads (MODE[9]): ahead of A/B reads, after a read already held for gnt
+    input  logic          epi_req_i,
+    input  logic [31:0]   epi_addr_i,
+    output logic          epi_fire_o,
+    output logic          epi_rvalid_o,    // a parameter word on rd_rdata_i this cycle
     // stream commands from the front end
     input  logic          scmd_a_push_i,
     input  tq_pkg::scmd_t scmd_a_i,
@@ -110,7 +127,7 @@ module tq_stream #(
   logic [IFW-1:0] infl_q, drop_q;                   // reads in flight; stale reads to discard
   logic           drop;
   assign drop = rd_rvalid_i && (drop_q != 0);
-  logic           rd_hold_q, rd_hold_b_q;            // read request held for gnt, and its stream
+  logic           rd_hold_q, rd_hold_b_q, rd_hold_e_q; // read request held for gnt, and its stream
   /* verilator lint_off UNUSEDSIGNAL */
   logic           wr_hold_q;                         // write request held for gnt (shared port only)
   /* verilator lint_on UNUSEDSIGNAL */
@@ -142,13 +159,16 @@ module tq_stream #(
   assign cand_b  = avail_b && space_b && (drop_q == 0);
 
   // the first stream in round-robin order is always evaluated; the second only if the first
-  // is not a candidate (model: the loop in _read_candidate returns early)
-  logic sel_valid, sel_b, cand_first;
+  // is not a candidate (model: the loop in _read_candidate returns early). A pending epilogue
+  // parameter read takes the port instead, and then no panel is loaded (model: step_port).
+  logic sel_valid, sel_b, sel_e, cand_first, e_take;
+  assign e_take     = !rd_hold_q && epi_req_i && (drop_q == 0);
   assign cand_first = rr ? cand_b : cand_a;
-  assign sel_valid  = rd_hold_q || cand_a || cand_b;
-  assign sel_b      = rd_hold_q ? rd_hold_b_q : rr ? cand_b : !cand_a;
-  assign load_a     = !rd_hold_q && !act_a_q && (cnt_a != 0) && (!rr || !cand_first);
-  assign load_b     = !rd_hold_q && !act_b_q && (cnt_b != 0) && ( rr || !cand_first);
+  assign sel_valid  = rd_hold_q || e_take || (!epi_req_i && (cand_a || cand_b));
+  assign sel_e      = rd_hold_q ? rd_hold_e_q : e_take;
+  assign sel_b      = rd_hold_q ? rd_hold_b_q : !e_take && (rr ? cand_b : !cand_a);
+  assign load_a     = !rd_hold_q && !epi_req_i && !act_a_q && (cnt_a != 0) && (!rr || !cand_first);
+  assign load_b     = !rd_hold_q && !epi_req_i && !act_b_q && (cnt_b != 0) && ( rr || !cand_first);
 
   logic [31:0] cur_addr_a, cur_addr_b, cur_vecs_a, cur_vecs_b;
   assign cur_addr_a = act_a_q ? addr_a_q : ha.addr;
@@ -168,34 +188,35 @@ module tq_stream #(
   end
   assign wr_fire_o = wr_req_o && wr_gnt_i;
   assign rd_req_o  = rd_want;
-  assign rd_addr_o = rd_want ? (sel_b ? cur_addr_b : cur_addr_a) : 32'd0;
+  assign rd_addr_o = rd_want ? (sel_e ? epi_addr_i : sel_b ? cur_addr_b : cur_addr_a) : 32'd0;
   assign rd_fire_o = rd_want && rd_gnt_i;
 
   logic fire_a, fire_b;
-  assign fire_a = rd_fire_o && !sel_b;
+  assign fire_a = rd_fire_o && !sel_b && !sel_e;
   assign fire_b = rd_fire_o && sel_b;
+  assign epi_fire_o = rd_fire_o && sel_e;
 
   // ---------------------------------------------------------------- response routing
   // A zero-latency memory answers in the request cycle: the response then bypasses the tag FIFO.
   // With a buffer the tag also says whether an A response belongs to a fill, and whether it is
   // the fill's first vector (later responses of an earlier panel can still be in flight).
-  localparam int TGW = PB ? 3 : 1;
+  localparam int TGW = PB ? 4 : 2;                      // [0] B, [TGW-1] epilogue, PB: [2:1] fill
   logic [TGW-1:0] tag_in, tag_v, tag_head, unused_tag1;
   logic tag, bypass;
   /* verilator lint_off UNUSEDSIGNAL */
   logic fill_first;                                      // (used only with a buffer)
   /* verilator lint_on UNUSEDSIGNAL */
-  logic [$clog2(2*FIFO_DEPTH+1)-1:0] tag_cnt;
+  logic [$clog2(MAXINF+1)-1:0] tag_cnt;
   assign fill_first = act_a_q ? a_first_q : 1'b1;        // this read is the fill's first
   if (PB) begin : g_tag3
-    assign tag_in = {fire_a && a_fill && fill_first, fire_a && a_fill, sel_b};
+    assign tag_in = {sel_e, fire_a && a_fill && fill_first, fire_a && a_fill, sel_b};
   end else begin : g_tag1
-    assign tag_in = sel_b;
+    assign tag_in = {sel_e, sel_b};
   end
   assign bypass = (tag_cnt == 0) && (drop_q == 0);
   assign tag_v  = bypass ? tag_in : tag_head;
   assign tag    = tag_v[0];
-  tq_fifo #(.WIDTH(TGW), .DEPTH(2 * FIFO_DEPTH)) u_tag (
+  tq_fifo #(.WIDTH(TGW), .DEPTH(MAXINF)) u_tag (
       .clk_i, .rst_ni, .clear_i,
       .push_i(rd_fire_o && !(bypass && rd_rvalid_i)), .data_i(tag_in),
       .pop_i({1'b0, rd_rvalid_i && !bypass && !drop}),
@@ -203,9 +224,10 @@ module tq_stream #(
 
   logic             a_resp;                              // an A memory response this cycle
   logic [VB-1:0]    pb_data_q;
-  assign a_resp    = rd_rvalid_i && !drop && !tag;
+  assign a_resp    = rd_rvalid_i && !drop && !tag && !tag_v[TGW-1];
   assign qa_push_o = a_resp || pb_v_q;
-  assign qb_push_o = rd_rvalid_i && !drop && tag;
+  assign qb_push_o = rd_rvalid_i && !drop && tag && !tag_v[TGW-1];
+  assign epi_rvalid_o = rd_rvalid_i && !drop && tag_v[TGW-1];
   assign q_data_o  = rd_rdata_i;
   assign qa_data_o = pb_v_q ? pb_data_q : rd_rdata_i;
 
@@ -271,7 +293,7 @@ module tq_stream #(
       act_a_q <= 1'b0; act_b_q <= 1'b0; rr_q <= 1'b0;
       addr_a_q <= '0; addr_b_q <= '0; vecs_a_q <= '0; vecs_b_q <= '0;
       cred_a_q <= '0; cred_b_q <= '0; infl_q <= '0; drop_q <= '0;
-      rd_hold_q <= 1'b0; rd_hold_b_q <= 1'b0; wr_hold_q <= 1'b0;
+      rd_hold_q <= 1'b0; rd_hold_b_q <= 1'b0; rd_hold_e_q <= 1'b0; wr_hold_q <= 1'b0;
       pk_v_q <= 1'b0; pk_sw_q <= 1'b0; pk_addr_q <= '0; pk_vecs_q <= '0; a_fill_q <= 1'b0; a_buf_q <= 1'b0;
       pb_v_q <= 1'b0; infl_a_q <= '0; a_first_q <= 1'b0;
     end else if (clear_i) begin
@@ -304,9 +326,10 @@ module tq_stream #(
         addr_b_q <= fire_b ? cur_addr_b + 32'(W) : cur_addr_b;
         vecs_b_q <= fire_b ? cur_vecs_b - 32'd1  : cur_vecs_b;
       end
-      if (rd_fire_o) rr_q <= !sel_b ^ swap_i;
+      if (rd_fire_o && !sel_e) rr_q <= !sel_b ^ swap_i;
       rd_hold_q   <= rd_req_o && !rd_gnt_i;
       rd_hold_b_q <= sel_b;
+      rd_hold_e_q <= sel_e;
       wr_hold_q   <= wr_req_o && !wr_gnt_i;
       cred_a_q <= cred_a_q - CRW'(qa_pop_i) + CRW'(fire_a) + CRW'(pb_fire);
       cred_b_q <= cred_b_q - CRW'(qb_pop_i) + CRW'(fire_b);

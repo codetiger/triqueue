@@ -11,8 +11,13 @@
 #      sby -f tq_core.sby shared    (1-80 min, varies widely, nightly CI: make formal-nightly)
 #      sby -f tq_core.sby ack       (shared port, WR_ACK = 1, write responses at any latency; nightly)
 #      sby -f tq_core.sby panel     (A panel buffer of 32 bytes = 4 vectors at T = 4; nightly)
+#      sby -f tq_core.sby epi_bmc   (TFLite epilogue, MODE[9]: the same invariants to depth 16, ~7 min; nightly)
+#      sby -f tq_core.sby epi       (the epilogue unbounded, with the walk; epi_nw without it)
 # The column walk (MODE[8]) is in every task but ack_split, which reads the RTL with
 # TQ_FORMAL_NO_WALK (MODE[8] reserved): with it PDR did not converge in 90 min (was ~5).
+# The epilogue (MODE[9]) is only in the epi tasks; the others read the RTL with TQ_FORMAL_NO_EPI
+# (MODE[9] reserved, and the read-tag FIFO without the parameter-read slots): with it split did
+# not converge in 60 min (was ~9).
 
 [tasks]
 split
@@ -20,21 +25,35 @@ shared
 ack
 ack_split
 panel
+epi
+epi_nw
+epi_bmc
 
 [options]
-mode prove
+~epi_bmc: mode prove
+epi_bmc: mode bmc
+epi_bmc: depth 16
 
 [engines]
-abc pdr
+~epi_bmc: abc pdr
+epi_bmc: smtbmc yices
 
 [script]
-ack_split: verilog_defines -DTQ_FORMAL_NO_WALK
+ack_split: verilog_defines -DTQ_FORMAL_NO_WALK -DTQ_FORMAL_NO_EPI
+epi_nw:    verilog_defines -DTQ_FORMAL_NO_WALK
+split:     verilog_defines -DTQ_FORMAL_NO_EPI
+shared:    verilog_defines -DTQ_FORMAL_NO_EPI
+ack:       verilog_defines -DTQ_FORMAL_NO_EPI
+panel:     verilog_defines -DTQ_FORMAL_NO_EPI
 read_verilog -sv -formal -DSYNTHESIS -DTQ_FORMAL_CORE tq_pkg.sv tq_icg.sv tq_cg.sv tq_fifo.sv tq_frontend.sv tq_stream.sv tq_mac_array.sv tq_drain.sv tq_core.sv tq_core_env.sv
 split:     chparam -set KERNEL 0 -set SHARED_PORT 0 tq_core_env
 shared:    chparam -set KERNEL 0 -set SHARED_PORT 1 tq_core_env
 ack:       chparam -set KERNEL 0 -set SHARED_PORT 1 -set WR_ACK 1 tq_core_env
 ack_split: chparam -set KERNEL 0 -set SHARED_PORT 0 -set WR_ACK 1 tq_core_env
 panel:     chparam -set KERNEL 0 -set PANEL_BYTES 32 tq_core_env
+epi:       chparam -set KERNEL 0 -set SHARED_PORT 0 tq_core_env
+epi_nw:    chparam -set KERNEL 0 -set SHARED_PORT 0 tq_core_env
+epi_bmc:   chparam -set KERNEL 0 -set SHARED_PORT 0 tq_core_env
 prep -top tq_core_env
 flatten
 # keep only the input cone of the assertions and assumptions (drops the datapath)

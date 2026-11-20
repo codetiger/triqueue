@@ -26,7 +26,7 @@ import numpy as np
 from cocotb.triggers import FallingEdge, ReadOnly
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "model"))
-from tri_queue import isa  # noqa: E402
+from tri_queue import isa, requant  # noqa: E402
 from tri_queue.core import Params, TriQueueCore, build_gemm, read_c, reference  # noqa: E402
 from tri_queue.programs import edge_program  # noqa: E402
 
@@ -54,9 +54,22 @@ def operands(case):
     return rand((m, k), case["a"]), rand((k, n), case["b"])
 
 
+def case_epi(case, n):
+    """Epilogue parameters of a case with "epi" (MODE[9]), drawn from the case seed: per-column
+    bias, M0 and shift (with the edge values of the shift range), per-tensor zp and clamp."""
+    if not case.get("epi"):
+        return None
+    rng = np.random.default_rng(case["seed"] + 77)
+    shift = rng.integers(-14, 3, n)
+    shift[: min(n, 3)] = [-40, 31, 0][: min(n, 3)]            # clamped to [-31, 30] by the drain
+    lo, hi = sorted(rng.integers(-128, 128, 2)) if case["epi"] == "clamp" else (-128, 127)
+    return dict(bias=rng.integers(-20000, 20000, n), m0=rng.integers(1 << 30, 1 << 31, n),
+                shift=shift, zp=int(rng.integers(-20, 21)), act_min=int(lo), act_max=int(hi))
+
+
 def model_run(a, b, p: Params, case=None):
     case = case or {}
-    mem, prog, layout = build_gemm(a, b, p)
+    mem, prog, layout = build_gemm(a, b, p, case_epi(case, b.shape[1]))
     if "prog" in case or "misalign" in case:
         L = dict(layout)
         if "misalign" in case:
@@ -255,12 +268,13 @@ async def gemm_cases(dut):
         stall = case.get("stall", 0.0)
         p = Params(**params, mem_latency=case["lat"], gnt_stall=stall, gnt_seed=case["seed"],
                    **({"out_bytes": 1, "out_shift": case["shift"]} if "shift" in case else {}),
+                   **({"out_bytes": 1} if case.get("epi") else {}),
                    **({"wr_resp_latency": case["wr_lat"]} if "wr_lat" in case else {}))
         a, b = operands(case)
         mem0, prog, layout, mem_model, s, ev = model_run(a, b, p, case)
         mem = mem0.copy()
         name = f"{case['m']}x{case['n']}x{case['k']} {case['a']}/{case['b']} lat={case['lat']} seed={case['seed']}"
-        for key in ("prog", "misalign", "prog_poke", "shift", "dist", "bus_err", "rresp_err"):
+        for key in ("prog", "misalign", "prog_poke", "shift", "epi", "dist", "bus_err", "rresp_err"):
             if key in case:
                 name += f" {key}={case[key]}"
         if case.get("stall"):
@@ -284,8 +298,13 @@ async def gemm_cases(dut):
                 await tb.reg_write(0xFFC, 0, 0)
             continue
         errs = []
-        want = (np.clip(reference(a, b) >> p.out_shift, -128, 127).astype(np.int8)
-                if p.out_bytes == 1 else reference(a, b))
+        e = case_epi(case, b.shape[1])
+        if e is not None:
+            want = requant.requantize(reference(a, b), e["bias"], e["m0"], np.clip(e["shift"], -31, 30),
+                                      e["zp"], e["act_min"], e["act_max"])
+        else:
+            want = (np.clip(reference(a, b) >> p.out_shift, -128, 127).astype(np.int8)
+                    if p.out_bytes == 1 else reference(a, b))
         if not s.error and "misalign" not in case and not np.array_equal(read_c(mem, layout), want):
             errs.append("C differs from numpy")
         if not np.array_equal(mem, mem_model):

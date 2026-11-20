@@ -584,8 +584,10 @@ class TriQueueCore:
                 if self.cfg[isa.EPI_BASE] % self.W:
                     self.err_align = True
                 self.epi_col, self.epi_par = None, None
+                # the fetch request is registered: its first read can go out next cycle
                 self.epi_fetch = {"col": tj, "addr": self.cfg[isa.EPI_BASE] + tj * isa.EPI_WORDS * self.W,
-                                  "left": isa.EPI_WORDS, "pend": isa.EPI_WORDS, "data": []}
+                                  "left": isa.EPI_WORDS, "pend": isa.EPI_WORDS, "data": [],
+                                  "from": self.cycle + 1}
             self.ev("mac", "drain_start", bank=bank, tile=tile, writes=rows)
             return
         if self.p.chain_c:
@@ -637,8 +639,10 @@ class TriQueueCore:
 
     def _epi_plan(self, t):
         """Requantize the draining tile with the loaded parameters (spec 10.1, tri_queue.requant)
-        and time its rows: the first row G + latency - 1 cycles after the bank and the parameters
-        are ready, each later one G cycles after the previous row's write (_issue_write)."""
+        and time its rows. Groups of L values enter the lanes one per cycle from the first cycle
+        the bank and the parameters are both ready (base_ready - 1 is when a plain drain would
+        stage its first word); a row is written latency cycles after its last group entered, and
+        each later row G cycles after the previous row's write (_issue_write)."""
         d, out = self.drain, self.cfg[isa.EPI_OUT]
         zp, lo, hi = (int(np.int8(np.uint8((out >> s) & 0xFF))) for s in (0, 8, 16))
         bias, m0, shift = self.epi_par
@@ -646,7 +650,7 @@ class TriQueueCore:
         q = requant.requantize(d["vals"], bias[:cols], m0[:cols], shift[:cols], zp, lo, hi)
         for rr in range(q.shape[0]):
             d["writes"].append((d["base"] + rr * self.cfg[isa.C_LD], q[rr].tobytes()))
-        d["ready"] = max(d["base_ready"], t) + self.T // self.epi_lanes + self.p.epi_latency - 1
+        d["ready"] = max(d["base_ready"] - 1, t) + self.T // self.epi_lanes - 1 + self.p.epi_latency
 
     def step_mac(self):
         self.swap_wait = False
@@ -841,7 +845,8 @@ class TriQueueCore:
         unchanged until granted: a held read skips stream arbitration (and panel loads), and on a
         shared port a held read or write keeps the port."""
         rd_gnt, wr_gnt = self.gnt.next()
-        epi_rd = self.epi_fetch is not None and self.epi_fetch["left"] > 0
+        epi_rd = (self.epi_fetch is not None and self.epi_fetch["left"] > 0
+                  and self.cycle >= self.epi_fetch["from"])
         cand = self.rd_pend or ("E" if epi_rd else self._read_candidate())
         room = self.wr_pend or not self.p.wr_ack or self.wr_out < self.p.wr_out_max
         can_write = (self.drain is not None and self.drain["ready"] is not None

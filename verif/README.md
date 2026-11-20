@@ -2,7 +2,7 @@
 
 ```
 make rtl-lint        # Verilator -Wall (12 parameter sets + 3 adapter tops + burst AXI) + Yosys elaboration
-make rtl-test        # cocotb + Verilator regression against the cycle model (2,210 cases in 31 configs + golden-vector $readmemh test, ~170 s)
+make rtl-test        # cocotb + Verilator regression against the cycle model (2,573 cases in 37 configs + golden-vector $readmemh test, ~170 s)
 make rtl-coverage    # the same with Verilator line + toggle coverage, merged per file (build/rtl-cov/summary.md, ~10 min)
 make formal          # SymbiYosys: clock-gating, FIFO, AXI4-Lite & CV-X-IF proofs, AXI4 master (cover, burst BMC, unbounded prove/burst_prove), T=4 core split (typically 3–11 min, but PDR variance can exceed 30 min)
 make formal-nightly  # SymbiYosys: T=4 core (shared, ack, ack_split, panel) + lazy clear csa1 + AXI4 burst read data (burst_data) (3–10 min each)
@@ -40,6 +40,11 @@ Each configuration in `test_rtl.py` builds the DUT once (in `build/rtl/<name>/`)
 | `t8_walk_panel` | Column walk + panel buffer keeping the B panel (`PANEL_BYTES = 1024`), back-pressure, illegal programs | 174 |
 | `t8_walk_panel_shared` | Column walk + B panel buffer on a shared port with `WR_ACK = 1` | 9 |
 | `t4_walk_panel` | Column walk + B panel buffer at T = 4 | 149 |
+| `t8_epi` | TFLite epilogue (`MODE[9]`, 4 lanes): edge shapes, latency sweep, clamp windows, back-pressure, latency 20 and 24 (parameter reads on top of a full set of A/B reads); C against `requant.requantize` | 118 |
+| `t8_epi_walk` | Epilogue with the column walk and the B panel buffer | 112 |
+| `t8_epi_l1` / `t8_epi_l8` | Epilogue with 1 and 8 lanes (`EPI_LANES`) | 6 + 6 |
+| `t8_epi_shared` | Epilogue on a shared port with `WR_ACK = 1` and back-pressure (the lanes hold while a row waits) | 9 |
+| `t4_epi` | Epilogue at T = 4 (2 lanes) | 110 |
 | `t8_mac1` | 1-stage MAC (`MAC_PIPE = 1`, no product register) | 119 |
 | `t8_mac1_csa_shared` | `MAC_PIPE = 1` + carry-save + shared port + panel buffer | 9 |
 | `t8_no_clock_gating` | `CLK_GATE = 0` (plain enable flops) | 74 |
@@ -53,7 +58,7 @@ Each configuration in `test_rtl.py` builds the DUT once (in `build/rtl/<name>/`)
 | `t32` | `T = 32` (1024 MACs/cycle, 512-bit ports) | 81 |
 | `t16` | `T = 16` (256 MACs/cycle, 256-bit ports) | 118 |
 | `t4` | `T = 4` (16 MACs/cycle, 64-bit ports) | 150 |
-| **Total** | **31 configurations** (+ `test_vectors_readmemh`) | **2,210** |
+| **Total** | **37 configurations** (+ `test_vectors_readmemh`) | **2,573** |
 
 Stalled cases are cycle-exact too: the testbench draws its grants from the model's `GrantSource` with the case's seed (`docs/golden-vectors.md`). It also checks OBI request stability: every ungranted request reappears unchanged the next cycle (except on `ABORT` or fatal error stop).
 
@@ -65,7 +70,7 @@ Stalled cases are cycle-exact too: the testbench draws its grants from the model
 
 **`tq_axil_regs.sby`**, **`tq_xif_regs.sby`** and **`tq_axi_mem.sby`** prove the AXI4-Lite register slave, CV-X-IF instruction adapter and AXI4 memory master (`tq_axi_mem.sby`, all in `make formal`: `cover`; bounded `burst` BMC depth 10 at `W = 4`, `MAX_OUT = 3`, `BURST_BEATS = 2`, including read data; the unbounded `prove` at `BURST_BEATS = 1`; and the unbounded `burst_prove` at `BURST_BEATS = 2` with every property except the read-data equality, which PDR does not prove at `MAX_OUT = 3` without strengthening invariants; `make formal-nightly` runs `burst_data`, the unbounded burst proof including read data at `MAX_OUT = 1`. In burst mode the environment follows one arbitrary address (`sym_a`) through the line buffer instead of carrying full addresses as data. Like `tq_core.sby`, it reads `tq_fifo` with `TQ_FORMAL_CORE`, so the FIFOs' legal use is asserted).
 
-**`tq_core.sby`** proves, unbounded (ABC PDR), the core invariants of `tq_core` at T = 4 with minimal queues (`FIFO_DEPTH = 2`, `MACQ_DEPTH = 2`, `PROG_BYTES = 8`, `tq_core_env.sv`): an accumulate never targets the bank being drained, no queue (QA, QB, MAC and stream command queues, read tags) overflows or underflows, and an ungranted request stays asserted with the same address (OBI request stability). It holds for any program (the program buffer is an arbitrary constant), START and ABORT at any time, any `gnt` pattern on both ports, and any read latency including zero. Tasks `split`, `shared`, `ack` (`SHARED_PORT = 1, WR_ACK = 1`), `ack_split` (`SHARED_PORT = 0, WR_ACK = 1`) and `panel` (`PANEL_BYTES = 32`) cover all modes. Programs may set the column walk (`MODE[8]`) in every task but `ack_split`, which reads the RTL with `TQ_FORMAL_NO_WALK` so that `MODE[8]` is reserved (with the walk, PDR did not converge in 90 min). `make formal` runs `split` (typically 3–11 min, but PDR variance can exceed 30 min); `shared`, `ack`, `ack_split` and `panel` run in `make formal-nightly`. With `TQ_FORMAL_CORE` defined, `tq_fifo`'s legal-use conditions become assertions instead of assumptions.
+**`tq_core.sby`** proves, unbounded (ABC PDR), the core invariants of `tq_core` at T = 4 with minimal queues (`FIFO_DEPTH = 2`, `MACQ_DEPTH = 2`, `PROG_BYTES = 8`, `tq_core_env.sv`): an accumulate never targets the bank being drained, no queue (QA, QB, MAC and stream command queues, read tags) overflows or underflows, and an ungranted request stays asserted with the same address (OBI request stability). It holds for any program (the program buffer is an arbitrary constant), START and ABORT at any time, any `gnt` pattern on both ports, and any read latency including zero. Tasks `split`, `shared`, `ack` (`SHARED_PORT = 1, WR_ACK = 1`), `ack_split` (`SHARED_PORT = 0, WR_ACK = 1`) and `panel` (`PANEL_BYTES = 32`) cover all modes. Programs may set the column walk (`MODE[8]`) in every task but `ack_split`, which reads the RTL with `TQ_FORMAL_NO_WALK` so that `MODE[8]` is reserved (with the walk, PDR did not converge in 90 min). With the TFLite epilogue (`MODE[9]`) the same invariants are checked to depth 16 (`epi_bmc`, nightly); the other tasks read the RTL with `TQ_FORMAL_NO_EPI` (`MODE[9]` reserved). `make formal` runs `split` (typically 3–11 min, but PDR variance can exceed 30 min); `shared`, `ack`, `ack_split` and `panel` run in `make formal-nightly`. With `TQ_FORMAL_CORE` defined, `tq_fifo`'s legal-use conditions become assertions instead of assumptions.
 
 Before solving, the script keeps only the input cone of the assertions and assumptions, so the multipliers and accumulators drop out (and the accumulator form doesn't matter). The environment isn't vacuous: with the reference kernel (`KERNEL = 1`) a cover of accumulate-during-drain is reached at step 20. The proof found that START or ABORT with reads in flight let the stale responses overflow an operand FIFO; `tq_stream` now discards them.
 

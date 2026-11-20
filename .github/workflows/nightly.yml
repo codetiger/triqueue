@@ -7,6 +7,7 @@
 #   - tq_core.sby ack:       unbounded core proof with WR_ACK = 1 (shared port)
 #   - tq_core.sby ack_split: unbounded core proof with WR_ACK = 1 (split port)
 #   - tq_core.sby panel:     unbounded core proof with PANEL_BYTES = 32
+#   - tq_core.sby epi_bmc:   core invariants with the TFLite epilogue (MODE[9]), BMC depth 16
 #   - tq_axi_mem.sby burst_data: unbounded AXI4 master burst proof with read data, MAX_OUT = 1
 # The other AXI4 master proofs (tq_axi_mem.sby prove / burst_prove / burst) take seconds and run on
 # every push in `make formal` (ci.yml).
@@ -38,6 +39,7 @@ jobs:
           - "tq_core.sby ack"
           - "tq_core.sby ack_split"
           - "tq_core.sby panel"
+          - "tq_core.sby epi_bmc"
           - "tq_axi_mem.sby burst_data"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

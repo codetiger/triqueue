@@ -44,6 +44,9 @@ module tq_frontend #(
     output logic [31:0]             cfg_n_o,
     output logic [31:0]             cfg_k_o,
     output logic [31:0]             cfg_mode_o,
+    output logic [31:0]             cfg_epi_base_o,
+    output logic [31:0]             cfg_epi_out_o,
+    output logic [15:0]             macq_tcol_o,     // tile column of a SWAP_C (epilogue parameters)
     // status
     output logic                    fence_o,         // a FENCE has retired
     output logic                    macq_stall_o,    // front end stalled on MAC command queue full
@@ -54,7 +57,7 @@ module tq_frontend #(
   // ---------------------------------------------------------------- state
   logic [PCW-1:0] pc_q;
   logic           fence_q;
-  logic [7:0][31:0] cfg_q;
+  logic [tq_pkg::NUM_CFG-1:0][31:0] cfg_q;
 
   // loop stack: frame 0 is the outer frame, frame 1 the inner
   logic [1:0]     sp_q;                 // number of valid frames
@@ -132,9 +135,16 @@ module tq_frontend #(
   // TQ_FORMAL_NO_WALK (formal only, tq_core.sby ack_split): MODE[8] is reserved, so the walk never
   // turns on; the other core proofs cover it.
 `ifdef TQ_FORMAL_NO_WALK
-  localparam int MODE_RSVD = tq_pkg::MODE_WALK_COLS;
+  localparam bit NO_WALK = 1'b1;
 `else
-  localparam int MODE_RSVD = tq_pkg::MODE_RSVD_LSB;
+  localparam bit NO_WALK = 1'b0;
+`endif
+  // TQ_FORMAL_NO_EPI (formal only): MODE[9] is reserved, so the epilogue never runs; tq_core.sby
+  // epi proves the core with it.
+`ifdef TQ_FORMAL_NO_EPI
+  localparam bit NO_EPI = 1'b1;
+`else
+  localparam bit NO_EPI = 1'b0;
 `endif
   logic        wc;
   assign wc = cfg_q[tq_pkg::CFG_MODE][tq_pkg::MODE_WALK_COLS];
@@ -232,11 +242,15 @@ module tq_frontend #(
           if (arg != 4'h0) begin err = 1'b1; err_code = tq_pkg::ERR_OPCODE; end
         end
         tq_pkg::OP_CFG: begin
-          if (arg[3])          begin err = 1'b1; err_code = tq_pkg::ERR_CFG_REG;  end
+          if (32'(arg) >= tq_pkg::NUM_CFG) begin err = 1'b1; err_code = tq_pkg::ERR_CFG_REG; end
           else if (sp_q != 0)  begin err = 1'b1; err_code = tq_pkg::ERR_CFG_LOOP; end
           else if ((arg == 4'(tq_pkg::CFG_K) && imm > ((32'hFFFF_FFFF >> L2T) & ~32'd7)) ||
                    ((arg == 4'(tq_pkg::CFG_M) || arg == 4'(tq_pkg::CFG_N)) && imm > (32'hFFFF << L2T)) ||
-                   (arg == 4'(tq_pkg::CFG_MODE) && imm[31:MODE_RSVD] != '0) ||
+                   (arg == 4'(tq_pkg::CFG_MODE) && (imm[31:tq_pkg::MODE_RSVD_LSB] != '0 ||
+                                                    (NO_WALK && imm[tq_pkg::MODE_WALK_COLS]) ||
+                                                    (NO_EPI && imm[tq_pkg::MODE_EPI]) ||
+                                                    (imm[tq_pkg::MODE_EPI] && !imm[tq_pkg::MODE_OUT_INT8]))) ||
+                   (arg == 4'(tq_pkg::CFG_EPI_OUT) && imm[31:24] != 8'd0) ||
                    // MODE[8] may change only before the run's first STREAM: the stream engine's
                    // state (panels, reads in flight, FIFO credits) belongs to one walk order
                    (arg == 4'(tq_pkg::CFG_MODE) && st_seen_q &&
@@ -441,14 +455,14 @@ module tq_frontend #(
   end
 
   // CFG registers: written by CFG, cleared by START; static during the GEMM, so each is gated.
-  // The eight gates hang off one gate open for any CFG write or clear (each enable implies it),
+  // The NUM_CFG gates hang off one gate open for any CFG write or clear (each enable implies it),
   // so their clock pins see only those cycles.
   logic gclk_cfg;
   tq_cg #(.EN(CLK_GATE)) u_cg_cfg (.clk_i, .en_i(cfg_clear_i || cfg_we), .gclk_o(gclk_cfg));
-  for (genvar i = 0; i < 8; i++) begin : g_cfg
+  for (genvar i = 0; i < tq_pkg::NUM_CFG; i++) begin : g_cfg
     logic        we, gclk;
     logic [31:0] q;
-    assign we = cfg_clear_i || (cfg_we && 32'(arg[2:0]) == i);
+    assign we = cfg_clear_i || (cfg_we && 32'(arg) == i);
     tq_cg #(.EN(CLK_GATE)) u_cg (.clk_i(gclk_cfg), .en_i(we), .gclk_o(gclk));
     always_ff @(posedge gclk or negedge rst_ni) begin
       if (!rst_ni)              q <= '0;
@@ -465,6 +479,9 @@ module tq_frontend #(
   assign cfg_m_o      = cfg_q[tq_pkg::CFG_M];
   assign cfg_n_o      = cfg_q[tq_pkg::CFG_N];
   assign cfg_mode_o   = cfg_q[tq_pkg::CFG_MODE];
+  assign cfg_epi_base_o = cfg_q[tq_pkg::CFG_EPI_BASE];
+  assign cfg_epi_out_o  = cfg_q[tq_pkg::CFG_EPI_OUT];
+  assign macq_tcol_o    = fe_tj_q;
   assign fence_o      = fence_q;
   assign retire_o     = exec && !err;
   assign error_o      = exec && err;

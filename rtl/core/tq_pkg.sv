@@ -31,6 +31,10 @@ package tq_pkg;
   localparam int CFG_M      = 5;
   localparam int CFG_N      = 6;
   localparam int CFG_MODE   = 7;
+  localparam int CFG_EPI_BASE = 8;     // epilogue parameter table (spec 10.1)
+  localparam int CFG_EPI_OUT  = 9;     // {act_max, act_min, zp_out} int8, [31:24] reserved
+  localparam int NUM_CFG      = 10;
+  localparam int EPI_WORDS    = 5;     // port words per tile column of the parameter table
 
   // ---- MODE register bits (CFG_MODE, spec 6.1, 10.1) ----
   localparam int MODE_A_SIGNED  = 0;
@@ -38,7 +42,8 @@ package tq_pkg;
   localparam int MODE_OUT_INT8  = 2;   // 1: C written as int8, clip(acc >> shift, -128, 127), T lanes
   localparam int MODE_SHIFT_LSB = 3;   // MODE[7:3]: right shift (0..31) for int8 output
   localparam int MODE_WALK_COLS = 8;   // 1: LOOP_T walks down tile columns; the panel buffer keeps B
-  localparam int MODE_RSVD_LSB  = 9;   // MODE[31:9] reserved (ERR_CFG_VAL)
+  localparam int MODE_EPI       = 9;   // 1: TFLite int8 epilogue in the drain (needs MODE_OUT_INT8)
+  localparam int MODE_RSVD_LSB  = 10;  // MODE[31:10] reserved (ERR_CFG_VAL)
 
   // ---- error codes (STATUS.err_code) ----
   localparam logic [3:0] ERR_NONE      = 4'd0;

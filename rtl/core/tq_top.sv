@@ -18,6 +18,7 @@ module tq_top #(
     parameter int PANEL_BYTES = 0,
     parameter int MAC_PIPE    = 2,
     parameter bit PERF        = 1'b1,
+    parameter int EPI_LANES   = T / 2,     // TFLite epilogue lanes (MODE[9], spec 10.1); divides T
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -69,7 +70,7 @@ module tq_top #(
   tq_core #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
             .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
             .CLK_GATE(CLK_GATE), .WR_ACK(WR_ACK), .WR_OUT_MAX(WR_OUT_MAX),
-            .PANEL_BYTES(PANEL_BYTES), .MAC_PIPE(MAC_PIPE), .PERF(PERF)) u_core (
+            .PANEL_BYTES(PANEL_BYTES), .MAC_PIPE(MAC_PIPE), .PERF(PERF), .EPI_LANES(EPI_LANES)) u_core (
       .clk_i, .rst_ni,
       .start_i(start), .abort_i(abort), .prog_i(prog),
       .clear_o(flush_o), .busy_o(busy), .pending_o(core_pending),

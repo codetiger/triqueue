@@ -190,6 +190,47 @@ CONFIGS = {
         dict(tile=4, panel_bytes=256, walk_cols=True),
         edge_cases(4, (1, 8, 64, 100)) + latency_sweep(4, (1, 2, 5)) + [case(16, 16, 16), case(64, 1, 48, stall=0.5)],
     ),
+    "t8_epi": (
+        # TFLite epilogue (MODE[9], spec 10.1): parameter fetch ahead of A/B, 4 lanes, both walks
+        dict(T=8),
+        dict(tile=8),
+        [dict(c, epi=True) for c in edge_cases(8, (1, 9, 33))] + [dict(c, epi=True) for c in latency_sweep(8, (1, 2, 5))]
+        + [dict(case(64, 64, 8), epi=True), dict(case(64, 64, 64), epi="clamp"), dict(case(65, 65, 65), epi=True),
+           dict(case(20, 24, 27, lat=3, stall=0.4), epi=True), dict(case(33, 40, 64, lat=7, stall=0.7), epi="clamp"),
+           # latency > 2 x FIFO_DEPTH: parameter reads in flight on top of a full set of A/B reads (tag FIFO depth)
+           dict(case(64, 24, 64, lat=20), epi=True), dict(case(40, 33, 40, lat=24, stall=0.2), epi=True)],
+    ),
+    "t8_epi_walk": (
+        dict(T=8, PANEL_BYTES=1024),
+        dict(tile=8, panel_bytes=1024, walk_cols=True),
+        [dict(c, epi=True) for c in edge_cases(8, (1, 9, 64))]
+        + [dict(case(64, 16, 64), epi=True), dict(case(256, 32, 72), epi="clamp"),
+           dict(case(40, 33, 64, lat=2, stall=0.5), epi=True), dict(case(64, 64, 8, lat=7, stall=0.3), epi=True)],
+    ),
+    "t8_epi_l1": (
+        dict(T=8, EPI_LANES=1),
+        dict(tile=8, epi_lanes=1),
+        [dict(case(m, n, k, lat=lat, stall=st), epi=True) for (m, n, k) in ((20, 24, 27), (64, 64, 8), (9, 9, 9))
+         for lat, st in ((1, 0.0), (3, 0.4))],
+    ),
+    "t8_epi_l8": (
+        dict(T=8, EPI_LANES=8),
+        dict(tile=8, epi_lanes=8),
+        [dict(case(m, n, k, lat=lat, stall=st), epi=True) for (m, n, k) in ((20, 24, 27), (64, 64, 8), (9, 9, 9))
+         for lat, st in ((1, 0.0), (3, 0.4))],
+    ),
+    "t8_epi_shared": (
+        dict(T=8, SHARED_PORT=1, WR_ACK=1, WR_OUT_MAX=2),
+        dict(tile=8, shared_port=True, wr_ack=True, wr_out_max=2, walk_cols=True),
+        [dict(case(m, n, k, lat=lat, stall=st), wr_lat=wl, epi=True) for (m, n, k) in ((24, 20, 27), (64, 64, 8), (40, 40, 40))
+         for lat, st, wl in ((1, 0.0, 0), (2, 0.4, 3), (5, 0.6, 9))],
+    ),
+    "t4_epi": (
+        dict(T=4),
+        dict(tile=4),
+        [dict(c, epi=True) for c in edge_cases(4, (1, 8, 33))] + [dict(case(16, 16, 16), epi="clamp"),
+                                                                 dict(case(17, 9, 40, lat=3, stall=0.5), epi=True)],
+    ),
     "t8_mac1": (
         # MAC_PIPE = 1: no product register, multiply and accumulate in the beat's cycle
         dict(T=8, MAC_PIPE=1),

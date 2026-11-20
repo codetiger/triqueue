@@ -11,15 +11,29 @@ All notable changes to the Tri-Queue project. This format follows
 
 ### Added
 
-- **TFLite int8 epilogue in the cycle model (`MODE[9]`, `CFG` 8 `EPI_BASE`, `CFG` 9 `EPI_OUT`,
-  decision D1; RTL to follow).** Per output column `out = clamp(MultiplyByQuantizedMultiplier(acc +
+- **TFLite int8 epilogue (`MODE[9]`, `CFG` 8 `EPI_BASE`, `CFG` 9 `EPI_OUT`, decision D1).** RTL:
+  `EPI_LANES` (default T/2) two-stage lanes in `tq_drain` (+ bias, << shift, 32 × 32 × M0; rounding
+  high multiply, rounding right shift, + zero point, clamp) into a T-byte row buffer that holds the
+  lanes while a row waits for `gnt`; `tq_core` fetches a tile column's 5 words into a T × 9-byte
+  parameter register (a tile-column FIFO rides beside the MAC command queue) and `tq_stream` reads
+  them ahead of A/B with a third response tag. Regression `t8_epi`, `t8_epi_walk`, `t8_epi_l1`,
+  `t8_epi_l8`, `t8_epi_shared`, `t4_epi` (2,573 cases in 37 configurations), bit-exact against
+  `requant.requantize` and cycle-exact with the model; disabling the lane hold fails them.
+  Formal found a bug the regression had missed: parameter reads bypass the operand-FIFO credits,
+  so with memory latency above 2 × `FIFO_DEPTH` the response-tag FIFO (2 × `FIFO_DEPTH` deep)
+  overflowed; it is now 2 × `FIFO_DEPTH` + 5 deep (at most 5 parameter reads are in flight), and
+  `t8_epi` gained cases at latency 20 and 24 that fail on the old sizing. The core proofs other than
+  the epilogue tasks build with the formal-only `TQ_FORMAL_NO_EPI` (`MODE[9]` reserved, and the tag
+  FIFO without the parameter-read slots), since `split` with the epilogue did not converge in 60 min
+  (was ~9). `ui/data/traces_data.js` regenerated (10 `CFG` registers).
+  Model: Per output column `out = clamp(MultiplyByQuantizedMultiplier(acc +
   bias, M0, shift) + zp_out, act_min, act_max)`, bit-exact with TFLite's default double rounding
   (`tri_queue/requant.py`). The drain loads a tile column's parameters (5 port words) through the read
   port ahead of A/B reads when the column changes; `epi_lanes` (default T/2) values per cycle.
   `MODE[9]` needs `MODE[2]`; `MODE[31:10]`, `EPI_OUT[31:24]` and `CFG` registers 10–15 are rejected
   (`cfg_reg` now uses register 10, `cfg_val_mode` bit 10). `model/dse.md` §14: with the column walk
-  and 4 lanes, DS-CNN 96.5%, VWW 83.5%, ResNet-8 98.8%, BERT-tiny 99.7% (shift-only int8: 97.1%,
-  89.0%, 99.2%, 100.0%); VWW 87.4% with 8 lanes. `tests/test_epilogue.py`: 49 cases, both walks,
+  and 4 lanes, DS-CNN 96.5%, VWW 84.1%, ResNet-8 98.9%, BERT-tiny 99.7% (shift-only int8: 97.1%,
+  89.0%, 99.2%, 100.0%); VWW 87.8% with 8 lanes. `tests/test_epilogue.py`: 49 cases, both walks,
   1/4/8 lanes, back-pressure, shared port, error rules. Without `epi`, programs, memory images and
   every published result are unchanged.
 - **Column-major tile walk (`MODE[8]`, decision D2).** `LOOP_T` and `STREAM_A`/`STREAM_B` walk down

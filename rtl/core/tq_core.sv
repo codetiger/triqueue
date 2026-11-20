@@ -25,6 +25,7 @@ module tq_core #(
     parameter int PANEL_BYTES = 0,     // A panel buffer (tq_stream, spec 10.9); 0 = none
     parameter int MAC_PIPE    = 2,     // MAC stages (tq_mac_array): 2, or 1 without the product register
     parameter bit PERF        = 1'b1,  // 1: five 32-bit performance counters; 0: tied to 0
+    parameter int EPI_LANES   = T / 2, // TFLite epilogue values requantized per cycle (MODE[9], tq_drain)
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -74,7 +75,8 @@ module tq_core #(
   logic          queues_idle, scmd_idle, fe_macq_stall;
   tq_pkg::mcmd_t macq_in;
   tq_pkg::scmd_t scmd_a_in, scmd_b_in;
-  logic [31:0]   a_base, b_base, c_base, c_ld, cfg_m, cfg_n, cfg_k, mode;
+  logic [31:0]   a_base, b_base, c_base, c_ld, cfg_m, cfg_n, cfg_k, mode, epi_base, epi_out;
+  logic [15:0]   macq_tcol;
   logic          fence, retire, fe_err;
   logic [3:0]    fe_err_code;
 
@@ -87,6 +89,7 @@ module tq_core #(
       .scmd_b_push_o(scmd_b_push), .scmd_b_data_o(scmd_b_in),
       .cfg_a_base_o(a_base), .cfg_b_base_o(b_base), .cfg_c_base_o(c_base), .cfg_c_ld_o(c_ld),
       .cfg_m_o(cfg_m), .cfg_n_o(cfg_n), .cfg_k_o(cfg_k), .cfg_mode_o(mode),
+      .cfg_epi_base_o(epi_base), .cfg_epi_out_o(epi_out), .macq_tcol_o(macq_tcol),
       .fence_o(fence), .macq_stall_o(fe_macq_stall),
       .retire_o(retire), .error_o(fe_err), .err_code_o(fe_err_code));
 
@@ -106,6 +109,18 @@ module tq_core #(
       .push_i(macq_push), .data_i(macq_in), .pop_i(macq_pop),
       .head0_o(e0), .head1_o(e1), .count_o(macq_cnt));
   assign macq_full = (32'(macq_cnt) - 32'(macq_pop)) >= MACQ_DEPTH;
+
+  // tile column of each command (used by SWAP_C: the epilogue parameters), pushed and popped with
+  // the MAC command queue
+  logic [15:0] e0_tcol;
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic [15:0] e1_tcol;
+  logic [MCW-1:0] tcol_cnt;
+  /* verilator lint_on UNUSEDSIGNAL */
+  tq_fifo #(.WIDTH(16), .DEPTH(MACQ_DEPTH), .CLK_GATE(CLK_GATE)) u_macq_tcol (
+      .clk_i, .rst_ni, .clear_i(clear),
+      .push_i(macq_push), .data_i(macq_tcol), .pop_i(macq_pop),
+      .head0_o(e0_tcol), .head1_o(e1_tcol), .count_o(tcol_cnt));
 
   // ---------------------------------------------------------------- operand FIFOs
   localparam int QCW = $clog2(FIFO_DEPTH + 1);
@@ -213,15 +228,76 @@ module tq_core #(
       .rd_bank_i(rd_bank), .rd_row_i(rd_row), .rd_val_o(rd_val),
       .prod_valid_o(prod_valid), .prod_bank_o(prod_bank));
 
+  // ---------------------------------------------------------------- epilogue parameters (MODE[9])
+  // A drain on a tile whose column's parameters are not loaded fetches that column's EPI_WORDS
+  // port words from EPI_BASE + col * EPI_WORDS * W through the read port (tq_stream: ahead of A/B
+  // reads). The request is registered, so the first read can go out next cycle. Model:
+  // start_drain, _issue_read("E"), _epi_arrive.
+  localparam int EW = $clog2(tq_pkg::EPI_WORDS + 1);
+  logic          epi_mode, epi_start, epi_fire, epi_rvalid, par_v_q;
+  logic [15:0]   par_col_q, fetch_col_q;
+  logic [EW-1:0] fetch_left_q, fetch_got_q;
+  logic [31:0]   fetch_addr_q, epi_col_addr;
+  logic [tq_pkg::EPI_WORDS-1:0][VB-1:0] par_q;
+  assign epi_mode  = mode[tq_pkg::MODE_EPI];
+  assign epi_start = is_swap && epi_mode && !(par_v_q && par_col_q == e0_tcol);
+  // col * EPI_WORDS * W = col * 5W = (col << log2(4W)) + (col << log2(W))
+  assign epi_col_addr = epi_base + ({16'b0, e0_tcol} << ($clog2(VB / 8) + 2)) + ({16'b0, e0_tcol} << $clog2(VB / 8));
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      par_v_q <= 1'b0; par_col_q <= '0; fetch_col_q <= '0; fetch_left_q <= '0; fetch_got_q <= '0;
+      fetch_addr_q <= '0;
+    end else if (clear) begin
+      par_v_q <= 1'b0; fetch_left_q <= '0; fetch_got_q <= '0;
+    end else begin
+      if (epi_start) begin
+        par_v_q      <= 1'b0;
+        fetch_col_q  <= e0_tcol;
+        fetch_addr_q <= epi_col_addr;
+        fetch_left_q <= EW'(tq_pkg::EPI_WORDS);
+        fetch_got_q  <= '0;
+      end else if (epi_fire) begin
+        fetch_addr_q <= fetch_addr_q + 32'(VB / 8);
+        fetch_left_q <= fetch_left_q - EW'(1);
+      end
+      if (epi_rvalid) begin
+        fetch_got_q <= fetch_got_q + EW'(1);
+        if (32'(fetch_got_q) == tq_pkg::EPI_WORDS - 1) begin
+          par_v_q   <= 1'b1;
+          par_col_q <= fetch_col_q;
+        end
+      end
+    end
+  end
+  for (genvar i = 0; i < tq_pkg::EPI_WORDS; i++) begin : g_par
+    logic          we, gclk;
+    logic [VB-1:0] q;
+    assign we = epi_rvalid && 32'(fetch_got_q) == i;
+    tq_cg #(.EN(CLK_GATE)) u_cg (.clk_i, .en_i(we), .gclk_o(gclk));
+    always_ff @(posedge gclk) begin
+      if (we || CLK_GATE) q <= rd_rdata_i;
+    end
+    assign par_q[i] = q;
+  end
+  logic [tq_pkg::EPI_WORDS*VB-1:0] par_flat;
+  assign par_flat = par_q;
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_par;
+  assign unused_par = ^{par_flat[tq_pkg::EPI_WORDS*VB-1 : T*72], epi_out[31:24]};
+  /* verilator lint_on UNUSEDSIGNAL */
+
   // ---------------------------------------------------------------- drain
   logic wr_pending, wr_fire, drain_align_err;
-  tq_drain #(.T(T), .CLK_GATE(CLK_GATE)) u_drain (
+  tq_drain #(.T(T), .CLK_GATE(CLK_GATE), .EPI_LANES(EPI_LANES)) u_drain (
       .clk_i, .rst_ni, .clear_i(clear),
       .start_i(is_swap), .start_bank_i(active_q), .c_addr_i(e0.c_addr),
       .rows_i(e0.rows), .cols_i(e0.cols), .c_ld_i(c_ld),
       .c_base_err_i(c_base[$clog2(T):0] != '0),
       .out_int8_i(mode[tq_pkg::MODE_OUT_INT8]),
       .out_shift_i(mode[tq_pkg::MODE_SHIFT_LSB +: 5]),
+      .epi_i(epi_mode), .par_valid_i(par_v_q && !epi_start),   // a starting fetch invalidates them now
+      .par_bias_i(par_flat[0 +: T*32]), .par_m0_i(par_flat[T*32 +: T*32]), .par_shift_i(par_flat[T*64 +: T*8]),
+      .epi_out_i(epi_out[23:0]),
       .prod_valid_i(prod_valid), .prod_bank_i(prod_bank),
       .rd_bank_o(rd_bank), .rd_row_o(rd_row), .rd_val_i(rd_val),
       .wr_valid_o(wr_pending), .wr_addr_o(wr_addr_o), .wr_be_o(wr_be_o), .wr_data_o(wr_wdata_o),
@@ -277,6 +353,7 @@ module tq_core #(
   tq_stream #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .SCMD_DEPTH(SCMD_DEPTH), .SHARED_PORT(SHARED_PORT),
               .CLK_GATE(CLK_GATE), .PANEL_BYTES(PANEL_BYTES)) u_stream (
       .clk_i, .rst_ni, .clear_i(clear), .run_i(running_q), .swap_i(wc),
+      .epi_req_i(fetch_left_q != '0), .epi_addr_i(fetch_addr_q), .epi_fire_o(epi_fire), .epi_rvalid_o(epi_rvalid),
       .scmd_a_push_i(st_a_push), .scmd_a_i(st_a_in),
       .scmd_b_push_i(st_b_push), .scmd_b_i(st_b_in),
       .scmd_a_full_o(st_a_full), .scmd_b_full_o(st_b_full),
@@ -307,7 +384,7 @@ module tq_core #(
     if (running_q) begin
       if (fe_err) begin
         err_now = 1'b1; err_now_code = fe_err_code;
-      end else if (drain_align_err || stream_align_err) begin
+      end else if (drain_align_err || stream_align_err || (epi_start && epi_base[$clog2(T):0] != '0)) begin
         err_now = 1'b1; err_now_code = tq_pkg::ERR_ALIGN;
       end else if (fence && mac_done && !drop_busy && (!stream_idle || qa_cnt != '0 || qb_cnt != '0)) begin
         err_now = 1'b1; err_now_code = tq_pkg::ERR_OPERAND;

@@ -84,7 +84,7 @@ formal:
 	cd verif/formal && $(SBY) -f tq_cg.sby && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_xif_regs.sby && $(SBY) -f tq_axi_mem.sby cover burst prove burst_prove && $(SBY) -f tq_mac_array.sby cpa2 cpa1 csa2 && $(SBY) -f tq_core.sby split
 
 formal-nightly:
-	cd verif/formal && $(SBY) -f tq_mac_array.sby csa1 && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_core.sby ack_split && $(SBY) -f tq_core.sby panel && $(SBY) -f tq_axi_mem.sby burst_data
+	cd verif/formal && $(SBY) -f tq_mac_array.sby csa1 && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_core.sby ack_split && $(SBY) -f tq_core.sby panel && $(SBY) -f tq_core.sby epi_bmc && $(SBY) -f tq_axi_mem.sby burst_data
 
 # Synthesizability check with generic Yosys cells: no latches, no loops, no undriven nets.
 # The clock-gating cell (tq_icg, a latch by design) is kept as its own module and is the only

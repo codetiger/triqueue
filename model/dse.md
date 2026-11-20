@@ -299,8 +299,8 @@ The drain requantizes with per-column bias, M0 and shift (`tri_queue/requant.py`
 | Network | Shift-only int8 | L = 4: row walk | column walk | best | L = 8: best | Parameter reads, % of reads (best, L = 4) |
 | --- | --- | --- | --- | --- | --- | --- |
 | `kws_dscnn` | 97.1% | 89.5% | 96.5% | 96.5% | 96.6% | 0.6% |
-| `vww_mbv1` | 89.0% | 77.8% | 83.5% | 83.5% | 87.4% | 0.8% |
-| `ic_resnet8` | 99.2% | 95.7% | 98.8% | 98.8% | 99.1% | 0.1% |
+| `vww_mbv1` | 89.0% | 77.2% | 84.1% | 84.1% | 87.8% | 0.8% |
+| `ic_resnet8` | 99.2% | 95.6% | 98.9% | 98.9% | 99.1% | 0.1% |
 | `ad_fcae` | 16.6% | 15.9% | 15.9% | 15.9% | 15.9% | 4.0% |
 | `bert_tiny` | 100.0% | 96.7% | 99.7% | 99.7% | 99.7% | 0.2% |
 
