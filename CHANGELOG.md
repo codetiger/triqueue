@@ -9,6 +9,31 @@ All notable changes to the Tri-Queue project. This format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **AXI4 master proofs were unsound and never finished (`verif/formal/tq_axi_mem.sby`):** the
+  proof read `tq_fifo.sv` without `TQ_FORMAL_CORE`, so each embedded tag / slot / order FIFO
+  loaded `tq_fifo`'s stand-alone proof: its legal-use conditions (no pop when empty, no push when
+  full) were assumed instead of checked, and `pushed_q < 28` bounded every trace. The FIFOs now
+  assert their legal use, as in `tq_core.sby`, and `prove` passes in about 20 s (was 3 min).
+  `burst_prove` had been cancelled at the 2 h nightly limit since v1.0.1; it now proves every
+  property except the burst read-data equality, unbounded, in about 20 s. That equality is not
+  inductive without strengthening invariants (PDR does not converge in hours), so it is checked by
+  the `burst` BMC, now depth 10 (was 8).
+
+### Changed
+
+- `tq_axi_mem_env.sv`: in burst mode the environment keeps only the address bits its assumptions
+  leave free and follows one arbitrary word address (`sym_a`) through the line buffer instead of
+  full addresses as data (with the FIFO fix, 757 instead of 1,229 state bits after `opt`), and
+  asserts that AR addresses are line aligned and in range. Injected wrong-beat and missing-flush
+  bugs still fail `burst` within a few cycles.
+- `make formal` now runs all four `tq_axi_mem.sby` tasks (about 1.5 min); `make formal-nightly` and
+  `nightly.yml` keep the long `tq_core` proofs and add `tq_mac_array.sby csa1`, which the
+  Makefile ran but the nightly workflow had left out.
+- `release.yml` takes the release notes from the tag's `CHANGELOG.md` section (failing before
+  publishing if there is none) instead of GitHub's generated list.
+
 ## [v1.0.2] — 2026-11-19
 
 Idle-logic power and a new silicon layout release. Activity measurements showed the multiplier

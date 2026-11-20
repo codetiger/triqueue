@@ -1,11 +1,20 @@
 # SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 #
-# Unbounded proof (ABC PDR) of the AXI4 memory master (tq_axi_mem, W = 4, 3 transactions in
-# flight) for any core request sequence that keeps OBI rules but may drop a waiting request, and
-# any in-order AXI slave (tq_axi_mem_env.sv): AXI VALID and payload held until READY, the core
-# gets exactly its own responses in order with the right data, wr_done only for its writes.
-# Covers: a dropped read and a dropped write complete. Run: sby -f tq_axi_mem.sby
+# Formal proofs of the AXI4 memory master (tq_axi_mem, W = 4, 3 transactions in flight) for any
+# core request sequence that keeps OBI rules but may drop a waiting request, and any in-order AXI
+# slave (tq_axi_mem_env.sv): AXI VALID and payload held until READY, the core gets exactly its own
+# responses in order with the right data, wr_done only for its writes, and the internal tag / slot
+# / order FIFOs are never pushed when full or popped when empty.
+#   prove        unbounded (ABC PDR), BURST_BEATS = 1, every property (~20 s)
+#   cover        reachability: a dropped read and a dropped write complete, bus error, new epoch
+#   burst        BMC depth 10, BURST_BEATS = 2, every property including read data (~40 s)
+#   burst_prove  unbounded (ABC PDR), BURST_BEATS = 2, every property except the read-data
+#                equality (CHECK_RDATA = 0, ~20 s). The data equality is not inductive without
+#                strengthening invariants that tie the line slots and the order FIFO to the
+#                environment's queues; with it PDR does not converge in hours, so it is checked
+#                to the `burst` depth only.
+# Run: sby -f tq_axi_mem.sby <task>
 
 [tasks]
 prove
@@ -18,7 +27,7 @@ prove: mode prove
 cover: mode cover
 cover: depth 16
 burst: mode bmc
-burst: depth 8
+burst: depth 10
 burst_prove: mode prove
 
 [engines]
@@ -28,9 +37,12 @@ burst: smtbmc yices
 burst_prove: abc pdr
 
 [script]
-read_verilog -sv -formal tq_icg.sv tq_cg.sv tq_fifo.sv tq_axi_mem.sv tq_axi_mem_env.sv
+# TQ_FORMAL_CORE: the embedded FIFOs assert their legal use (as in tq_core.sby) instead of loading
+# tq_fifo's stand-alone proof, whose environment assumptions would constrain the adapter under test
+# and bound every trace to fewer than 28 pushes per FIFO. tq_fifo.sby proves the FIFO itself.
+read_verilog -sv -formal -DTQ_FORMAL_CORE tq_icg.sv tq_cg.sv tq_fifo.sv tq_axi_mem.sv tq_axi_mem_env.sv
 burst: chparam -set BURST_BEATS 2 tq_axi_mem_env
-burst_prove: chparam -set BURST_BEATS 2 tq_axi_mem_env
+burst_prove: chparam -set BURST_BEATS 2 -set CHECK_RDATA 0 tq_axi_mem_env
 prep -top tq_axi_mem_env
 flatten
 opt_clean

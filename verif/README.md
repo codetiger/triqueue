@@ -3,8 +3,8 @@
 ```
 make rtl-lint        # Verilator -Wall (12 parameter sets + 3 adapter tops + burst AXI) + Yosys elaboration
 make rtl-test        # cocotb + Verilator regression against the cycle model (1,742 cases in 26 configs + golden-vector $readmemh test, ~170 s)
-make formal          # SymbiYosys: clock-gating, FIFO, AXI4-Lite & CV-X-IF proofs, AXI4 cover & burst BMC, T=4 core split (typically 3–11 min, but PDR variance can exceed 30 min)
-make formal-nightly  # SymbiYosys: T=4 core (shared, ack, ack_split, panel) + unbounded AXI4 master proofs (prove, burst_prove, ~10–80 min)
+make formal          # SymbiYosys: clock-gating, FIFO, AXI4-Lite & CV-X-IF proofs, AXI4 master (cover, burst BMC, unbounded prove/burst_prove), T=4 core split (typically 3–11 min, but PDR variance can exceed 30 min)
+make formal-nightly  # SymbiYosys: T=4 core (shared, ack, ack_split, panel) + lazy clear csa1 (3–10 min each)
 make synth-check     # generic Yosys synthesis, both ACC_FORMs: no unintended latches, loops or undriven nets
 python3 -m pytest verif -q -k t16    # selects t16 and t16_panel; use -k "t16 and not panel" for one
 ```
@@ -57,7 +57,7 @@ Stalled cases are cycle-exact too: the testbench draws its grants from the model
 
 **`tq_fifo.sby`** proves by k-induction (unbounded), at depths 2, 3, 4, 8 and 16: the occupancy invariant, no overflow or underflow under legal use, and that every entry is stored and popped in order with its data intact. Every queue in the core is an instance of this FIFO.
 
-**`tq_axil_regs.sby`**, **`tq_xif_regs.sby`** and **`tq_axi_mem.sby`** prove the AXI4-Lite register slave, CV-X-IF instruction adapter and AXI4 memory master (`tq_axi_mem.sby` runs `cover` and bounded `burst` BMC depth 8 at `W = 4`, `MAX_OUT = 3`, `BURST_BEATS = 2` in `make formal`, and the unbounded `prove` at `BURST_BEATS = 1` and `burst_prove` at `BURST_BEATS = 2` in `make formal-nightly`).
+**`tq_axil_regs.sby`**, **`tq_xif_regs.sby`** and **`tq_axi_mem.sby`** prove the AXI4-Lite register slave, CV-X-IF instruction adapter and AXI4 memory master (`tq_axi_mem.sby`, all in `make formal`: `cover`; bounded `burst` BMC depth 10 at `W = 4`, `MAX_OUT = 3`, `BURST_BEATS = 2`, including read data; the unbounded `prove` at `BURST_BEATS = 1`; and the unbounded `burst_prove` at `BURST_BEATS = 2` with every property except the read-data equality, which PDR does not prove without strengthening invariants. In burst mode the environment follows one arbitrary address (`sym_a`) through the line buffer instead of carrying full addresses as data. Like `tq_core.sby`, it reads `tq_fifo` with `TQ_FORMAL_CORE`, so the FIFOs' legal use is asserted).
 
 **`tq_core.sby`** proves, unbounded (ABC PDR), the core invariants of `tq_core` at T = 4 with minimal queues (`FIFO_DEPTH = 2`, `MACQ_DEPTH = 2`, `PROG_BYTES = 8`, `tq_core_env.sv`): an accumulate never targets the bank being drained, no queue (QA, QB, MAC and stream command queues, read tags) overflows or underflows, and an ungranted request stays asserted with the same address (OBI request stability). It holds for any program (the program buffer is an arbitrary constant), START and ABORT at any time, any `gnt` pattern on both ports, and any read latency including zero. Tasks `split`, `shared`, `ack` (`SHARED_PORT = 1, WR_ACK = 1`), `ack_split` (`SHARED_PORT = 0, WR_ACK = 1`) and `panel` (`PANEL_BYTES = 32`) cover all modes. `make formal` runs `split` (typically 3–11 min, but PDR variance can exceed 30 min); `shared`, `ack`, `ack_split` and `panel` run in `make formal-nightly`. With `TQ_FORMAL_CORE` defined, `tq_fifo`'s legal-use conditions become assertions instead of assumptions.
 

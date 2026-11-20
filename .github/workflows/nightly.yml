@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Longer formal proofs (`make formal-nightly`):
+#   - tq_mac_array.sby csa1: lazy accumulator clear, carry-save with MAC_PIPE = 1
 #   - tq_core.sby shared:    unbounded core proof on a shared memory port
 #   - tq_core.sby ack:       unbounded core proof with WR_ACK = 1 (shared port)
 #   - tq_core.sby ack_split: unbounded core proof with WR_ACK = 1 (split port)
 #   - tq_core.sby panel:     unbounded core proof with PANEL_BYTES = 32
-#   - tq_axi_mem.sby prove:       unbounded AXI4 master proof (BURST_BEATS = 1)
-#   - tq_axi_mem.sby burst_prove: unbounded AXI4 master proof (BURST_BEATS = 2)
+# The AXI4 master proofs (tq_axi_mem.sby prove / burst_prove) take seconds and run on every push
+# in `make formal` (ci.yml).
 # Each proof runs in its own matrix job with `fail-fast: false` so every proof's verdict is visible.
 
 name: Nightly formal
@@ -29,12 +30,11 @@ jobs:
       fail-fast: false
       matrix:
         task:
+          - "tq_mac_array.sby csa1"
           - "tq_core.sby shared"
           - "tq_core.sby ack"
           - "tq_core.sby ack_split"
           - "tq_core.sby panel"
-          - "tq_axi_mem.sby prove"
-          - "tq_axi_mem.sby burst_prove"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4

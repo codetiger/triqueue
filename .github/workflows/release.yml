@@ -23,6 +23,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # tags, for the release notes' compare link
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
@@ -36,6 +38,18 @@ jobs:
         run: make all
       - name: Build reproducible release archives
         run: make dist VERSION="${GITHUB_REF_NAME#v}"
+      - name: Release notes from CHANGELOG.md
+        # The tag's "## [vX.Y.Z]" section becomes the release body; a tag without one fails here,
+        # before anything is published. Written after `make dist`, so it is not in SHA256SUMS.
+        run: |
+          awk -v h="## [${GITHUB_REF_NAME}]" 'index($0, h) == 1 {f = 1; next} /^## \[/ || /^\[[^]]*\]: / {if (f) exit} f' \
+            CHANGELOG.md > dist/RELEASE_NOTES.md
+          grep -q '[^[:space:]]' dist/RELEASE_NOTES.md || { echo "CHANGELOG.md has no ${GITHUB_REF_NAME} section"; exit 1; }
+          prev=$(git tag --list 'v*' --sort=-v:refname | grep -A1 -x "${GITHUB_REF_NAME}" | sed -n 2p)
+          if [ -n "$prev" ]; then
+            printf '\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' \
+              "$GITHUB_REPOSITORY" "$prev" "$GITHUB_REF_NAME" >> dist/RELEASE_NOTES.md
+          fi
       - name: Upload release archives
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -57,7 +71,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
-          generate_release_notes: true
+          body_path: dist/RELEASE_NOTES.md
           fail_on_unmatched_files: true
           files: |
             dist/*.tar.gz
