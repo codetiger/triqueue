@@ -48,8 +48,12 @@ All notable changes to the Tri-Queue project. This format follows
   coverage 97.2%.
 - `t8_axi_burst`: four shapes with half-width edge panels and odd `Kp / 8` (12×12×24, 36×4×8,
   28×28×24, 5×64×40) leave partly read lines in the read burst buffer, so it has to evict a
-  still-valid line, which no case did before. `tq_axi_mem` line coverage 100%, total 97.5%; the
-  regression is 1,753 cases in 27 configurations.
+  still-valid line, which no case did before. `tq_axi_mem` line coverage 100%, total 97.5%.
+- Edge program `loop_t_in_k`: a `LOOP_T` nested in a `LOOP_K` that runs once, both ending at the same
+  byte (legal for a 4×4 tile with K ≤ 8). It reaches the frontend's inner-`LOOP_T` and outer-`LOOP_K`
+  frame ends, which the GEMM kernel never does; model test and two `t8_edge_cases` runs. Line
+  coverage 98.0% (346/353): every line point reachable in `tq_top*` is hit. The regression is 1,755
+  cases in 27 configurations.
 
 ### Fixed (SoC bench)
 

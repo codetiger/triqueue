@@ -9,7 +9,7 @@ detailed commands and the per-configuration case list are in [`verif/README.md`]
 ## 1. Differential regression (RTL vs cycle model)
 
 `make rtl-test` builds `tq_top` (and the adapters) with Verilator for 27 configurations and runs
-**1,753 cases** (plus a standalone Verilator `$readmemh` golden-vector test). Each case drives a
+**1,755 cases** (plus a standalone Verilator `$readmemh` golden-vector test). Each case drives a
 real program through the register port, serves memory from a Python SRAM/bus model, records every
 read, write and MAC start, and compares the RTL with the cycle-model run:
 
@@ -72,13 +72,13 @@ post-route); T = 32 has no PPA record.
 
 ## 5. What is not covered yet
 
-- **Simulation coverage gaps.** `make rtl-coverage` (nightly CI, artifact `rtl-coverage`) reruns the
-  regression with Verilator line and toggle coverage: 97.5% of line points (344/353) and 94.3% of
-  toggle points under `rtl/` are hit across the 27 configurations (2026-11-20). The line points the
-  regression never reaches are two loop-reset paths in `tq_frontend`, covered by the core proof but
-  not in simulation. The remaining misses cannot be reached in `tq_top*`: the `CLK_GATE` arms of gated
+- **Simulation coverage.** `make rtl-coverage` (nightly CI, artifact `rtl-coverage`) reruns the
+  regression with Verilator line and toggle coverage: 98.0% of line points (346/353) and 94.3% of
+  toggle points under `rtl/` are hit across the 27 configurations (2026-11-20). Every line point
+  that can be reached in `tq_top*` is hit; the 7 misses cannot be: the `CLK_GATE` arms of gated
   register writes with gating on, and `tq_xif_regs` waiting for a register grant or response, which
-  `tq_regs` gives at once and one cycle later. There is no branch or expression
+  `tq_regs` gives at once and one cycle later (and that state machine's `default` arm). Toggle
+  points include bits that cannot move in a configuration. There is no branch or expression
   coverage, and coverage is a report, not a gate.
 - **Unbounded coverage-guided program fuzzing.** `t8_edge_cases` includes seeded random valid and
   invalid program sequences and mid-run abort/restart checks, but there is no coverage-guided

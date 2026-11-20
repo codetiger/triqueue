@@ -104,6 +104,7 @@ CONFIGS = {
           "loop_nest_over", "second_loop_t", "pc", "pc_skip_loop", "cfg_val_k", "cfg_val_m",
           "cfg_val_mode", "cfg_val_cld", "operand_leftover", "operand_starved", "cfg_after_swap",
           "zero_in_drain")]
+        + [dict(case(4, 4, 8), prog="loop_t_in_k"), dict(case(3, 2, 5, stall=0.3), prog="loop_t_in_k")]
         + [dict(case(14, 15, 27), prog="explicit_8x8"),
            dict(case(8, 4, 27), prog="explicit_8x4"),
            dict(case(4, 8, 27), prog="explicit_4x8"),

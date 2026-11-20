@@ -35,6 +35,8 @@ def edge_program(name: str, cfg: bytes) -> bytes:
     operand_leftover  STREAM_A followed by FENCE with no VOUTER_MAC           -> ERR_OPERAND
     operand_starved   VOUTER_MAC followed by FENCE with no STREAM_A/B         -> ERR_OPERAND
     zero_in_drain     ZERO_C right after SWAP_C in every tile: waits for the drain, C is right
+    loop_t_in_k       LOOP_T nested in a LOOP_K that runs once, both ending at the same byte: legal
+                      when the first tile's LOOP_K count is 1 (a 4x4 tile, K <= 8 at T = 8); C is right
     cfg_after_swap    CFG C_BASE after SWAP_C: waits for queued work, C is right at original C_BASE
     explicit_8x8      kernel with explicit 8x8x1 VOUTER_MAC instead of AUTO   -> ok (when tiles are full)
     explicit_8x4      kernel with explicit 8x4x2 VOUTER_MAC                   -> ok (when tiles are 8x4)
@@ -73,6 +75,8 @@ def edge_program(name: str, cfg: bytes) -> bytes:
         "operand_starved": cfg + E(isa.ZERO_C) + isa.vouter() + E(isa.FENCE),
         "zero_in_drain": cfg + kernel[:3] + E(isa.LOOP_T, 6) + tile_loop + E(isa.ZERO_C) + E(isa.FENCE),
         "cfg_after_swap": cfg + body + isa.cfg(isa.C_BASE, 0x1000) + E(isa.FENCE),
+        "loop_t_in_k": cfg + E(isa.ZERO_C) + E(isa.LOOP_K, 5) + E(isa.LOOP_T, 4) + E(isa.STREAM_A)
+                       + E(isa.STREAM_B) + isa.vouter() + E(isa.SWAP_C) + E(isa.FENCE),
         "explicit_8x8": cfg + explicit_kernel(8, 8),
         "explicit_8x4": cfg + explicit_kernel(8, 4),
         "explicit_4x8": cfg + explicit_kernel(4, 8),
@@ -106,6 +110,7 @@ EXPECTED_ERROR = {
     "operand_starved": isa.ERR_OPERAND,
     "zero_in_drain": 0,
     "cfg_after_swap": 0,
+    "loop_t_in_k": 0,
     "explicit_8x8": 0,
     "explicit_8x4": 0,
     "explicit_4x8": 0,

@@ -73,6 +73,12 @@ def test_misaligned_base_is_err_align(field):
     assert s.error == isa.ERR_ALIGN
 
 
+def test_loop_t_nested_in_a_loop_k_that_runs_once():
+    a, b, core, L, s = run("loop_t_in_k", m=4, n=4, k=8)
+    assert s.error == 0
+    assert np.array_equal(read_c(core.mem, L), reference(a, b))
+
+
 def test_zero_c_waits_for_the_drain():
     """ZERO_C after SWAP_C in every tile: it waits for the drain instead of clearing the bank
     being drained, so C is still right, and it costs cycles."""
