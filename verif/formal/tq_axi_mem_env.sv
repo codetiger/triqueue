@@ -10,7 +10,8 @@
 // Properties: AXI VALID and payload held until READY; the core receives exactly the responses
 // of its own granted requests, in order and with the right data (a dropped request's response
 // never reaches it); wr_done only for the core's granted writes. CHECK_RDATA = 0 leaves out only
-// the read-data equality (tq_axi_mem.sby burst_prove; burst_deep checks it to a bounded depth).
+// the read-data equality (tq_axi_mem.sby burst_prove; burst checks it to a bounded depth and
+// burst_data unbounded at MAX_OUT = 1).
 
 module tq_axi_mem_env #(
     parameter int MAX_OUT     = 3,

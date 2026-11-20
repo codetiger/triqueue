@@ -7,8 +7,9 @@
 #   - tq_core.sby ack:       unbounded core proof with WR_ACK = 1 (shared port)
 #   - tq_core.sby ack_split: unbounded core proof with WR_ACK = 1 (split port)
 #   - tq_core.sby panel:     unbounded core proof with PANEL_BYTES = 32
-# The AXI4 master proofs (tq_axi_mem.sby prove / burst_prove) take seconds and run on every push
-# in `make formal` (ci.yml).
+#   - tq_axi_mem.sby burst_data: unbounded AXI4 master burst proof with read data, MAX_OUT = 1
+# The other AXI4 master proofs (tq_axi_mem.sby prove / burst_prove / burst) take seconds and run on
+# every push in `make formal` (ci.yml).
 # Each proof runs in its own matrix job with `fail-fast: false` so every proof's verdict is visible.
 
 name: Nightly formal
@@ -35,6 +36,7 @@ jobs:
           - "tq_core.sby ack"
           - "tq_core.sby ack_split"
           - "tq_core.sby panel"
+          - "tq_axi_mem.sby burst_data"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4

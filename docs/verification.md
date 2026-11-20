@@ -38,6 +38,7 @@ queueing and error timing, for the tested configurations.
 | `tq_xif_regs.sby` | CV-X-IF adapter: commit-gated register access, one result per committed instruction, killed/speculative instructions have no effect | `make formal` |
 | `tq_axi_mem.sby` (`cover`, `burst`) | AXI master reachability (`cover`, `BURST_BEATS = 1`, depth 16) and bounded burst proof including read data (`burst`, `W = 4`, `MAX_OUT = 3`, `BURST_BEATS = 2`, BMC depth 10) | `make formal` |
 | `tq_axi_mem.sby` (`prove`, `burst_prove`) | Unbounded AXI master rules, response routing, orphan tracking and legal use of the internal FIFOs at `W = 4`, `MAX_OUT = 3`: every property at `BURST_BEATS = 1` (`prove`); at `BURST_BEATS = 2` (`burst_prove`) every property except the read-data equality, which is bounded by `burst` | `make formal` |
+| `tq_axi_mem.sby burst_data` | Unbounded burst proof including read data at `BURST_BEATS = 2`, `MAX_OUT = 1` (one core read in flight; line buffer, hits, orphans, flush and write invalidation unrestricted) | `make formal-nightly` |
 | `tq_core.sby split` | T = 4 core (`FIFO_DEPTH = 2`, `MACQ_DEPTH = 2`, `PROG_BYTES = 8`), any program, START/ABORT at any time, any `gnt`, any read latency: no accumulate into the draining bank, no queue overflow/underflow, OBI request stability | `make formal` |
 | `tq_core.sby shared/ack/ack_split/panel` | The same unbounded core invariants for shared port (`shared`), `WR_ACK = 1` on shared (`ack`) and split (`ack_split`) ports, and panel buffer (`panel`, `PANEL_BYTES = 32`) | `make formal-nightly` |
 

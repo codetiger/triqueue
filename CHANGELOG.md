@@ -18,8 +18,9 @@ All notable changes to the Tri-Queue project. This format follows
   assert their legal use, as in `tq_core.sby`, and `prove` passes in about 20 s (was 3 min).
   `burst_prove` had been cancelled at the 2 h nightly limit since v1.0.1; it now proves every
   property except the burst read-data equality, unbounded, in about 20 s. That equality is not
-  inductive without strengthening invariants (PDR does not converge in hours), so it is checked by
-  the `burst` BMC, now depth 10 (was 8).
+  inductive without strengthening invariants at `MAX_OUT = 3` (PDR does not converge in hours), so
+  it is checked there by the `burst` BMC, now depth 10 (was 8), and unbounded at `MAX_OUT = 1` by
+  the new nightly task `burst_data` (~5 min).
 
 ### Fixed (docs)
 

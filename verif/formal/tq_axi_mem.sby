@@ -10,10 +10,13 @@
 #   cover        reachability: a dropped read and a dropped write complete, bus error, new epoch
 #   burst        BMC depth 10, BURST_BEATS = 2, every property including read data (~40 s)
 #   burst_prove  unbounded (ABC PDR), BURST_BEATS = 2, every property except the read-data
-#                equality (CHECK_RDATA = 0, ~20 s). The data equality is not inductive without
-#                strengthening invariants that tie the line slots and the order FIFO to the
-#                environment's queues; with it PDR does not converge in hours, so it is checked
-#                to the `burst` depth only.
+#                equality (CHECK_RDATA = 0, ~20 s). At MAX_OUT = 3 the data equality is not
+#                inductive without strengthening invariants that tie the line slots and the order
+#                FIFO to the environment's queues; PDR does not converge on it in hours.
+#   burst_data   unbounded (ABC PDR), BURST_BEATS = 2, MAX_OUT = 1, every property including read
+#                data (~5 min, nightly): one core read in flight, with the 4-slot line buffer,
+#                hits, orphans, flush/epoch, write invalidation and error responses unrestricted.
+#                MAX_OUT > 1 for read data is covered to the `burst` depth.
 # Run: sby -f tq_axi_mem.sby <task>
 
 [tasks]
@@ -21,6 +24,7 @@ prove
 cover
 burst
 burst_prove
+burst_data
 
 [options]
 prove: mode prove
@@ -29,12 +33,14 @@ cover: depth 16
 burst: mode bmc
 burst: depth 10
 burst_prove: mode prove
+burst_data: mode prove
 
 [engines]
 prove: abc pdr
 cover: smtbmc yices
 burst: smtbmc yices
 burst_prove: abc pdr
+burst_data: abc pdr
 
 [script]
 # TQ_FORMAL_CORE: the embedded FIFOs assert their legal use (as in tq_core.sby) instead of loading
@@ -43,6 +49,7 @@ burst_prove: abc pdr
 read_verilog -sv -formal -DTQ_FORMAL_CORE tq_icg.sv tq_cg.sv tq_fifo.sv tq_axi_mem.sv tq_axi_mem_env.sv
 burst: chparam -set BURST_BEATS 2 tq_axi_mem_env
 burst_prove: chparam -set BURST_BEATS 2 -set CHECK_RDATA 0 tq_axi_mem_env
+burst_data: chparam -set BURST_BEATS 2 -set MAX_OUT 1 tq_axi_mem_env
 prep -top tq_axi_mem_env
 flatten
 opt_clean
