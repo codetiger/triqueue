@@ -3,6 +3,7 @@
 ```
 make rtl-lint        # Verilator -Wall (12 parameter sets + 3 adapter tops + burst AXI) + Yosys elaboration
 make rtl-test        # cocotb + Verilator regression against the cycle model (1,742 cases in 26 configs + golden-vector $readmemh test, ~170 s)
+make rtl-coverage    # the same with Verilator line + toggle coverage, merged per file (build/rtl-cov/summary.md, ~7 min)
 make formal          # SymbiYosys: clock-gating, FIFO, AXI4-Lite & CV-X-IF proofs, AXI4 master (cover, burst BMC, unbounded prove/burst_prove), T=4 core split (typically 3–11 min, but PDR variance can exceed 30 min)
 make formal-nightly  # SymbiYosys: T=4 core (shared, ack, ack_split, panel) + lazy clear csa1 + AXI4 burst read data (burst_data) (3–10 min each)
 make synth-check     # generic Yosys synthesis, both ACC_FORMs: no unintended latches, loops or undriven nets

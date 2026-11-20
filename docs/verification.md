@@ -72,8 +72,16 @@ post-route); T = 32 has no PPA record.
 
 ## 5. What is not covered yet
 
-- **Coverage metrics.** No line/toggle/branch coverage report is published. Adding
-  `verilator --coverage` to CI is an open verification task.
+- **Simulation coverage gaps.** `make rtl-coverage` (nightly CI, artifact `rtl-coverage`) reruns the
+  regression with Verilator line and toggle coverage: 94.9% of line points (335/353) and 94.3% of
+  toggle points under `rtl/` are hit across the 26 configurations (2026-11-20, `1f30d81`). The line
+  points the regression never reaches are each covered by a formal proof but not in simulation: the
+  burst line buffer evicting a still-valid line (`tq_axi_mem`), the `CHECK_PROT` error responses of
+  `tq_axil_regs` (no configuration sets it), back-pressure on the CV-X-IF adapter's register grant,
+  response and result handshakes (`tq_xif_regs`), the reserved-argument `ERR_OPCODE` checks of five
+  opcodes and two loop-reset paths in `tq_frontend`. The remaining misses are the `CLK_GATE` arms of
+  gated register writes, which cannot be reached with gating on. There is no branch or expression
+  coverage, and coverage is a report, not a gate.
 - **Unbounded coverage-guided program fuzzing.** `t8_edge_cases` includes seeded random valid and
   invalid program sequences and mid-run abort/restart checks, but there is no coverage-guided
   fuzzer.
@@ -89,6 +97,7 @@ post-route); T = 32 has no PPA record.
 pip install -r requirements.txt
 make model-test sw-test          # no EDA tools
 make rtl-lint rtl-test           # Verilator + cocotb
+make rtl-coverage                # regression with line + toggle coverage, build/rtl-cov/summary.md
 make formal                      # SymbiYosys, typically 3–11 min (PDR variance can exceed 30 min)
 make synth-check                 # generic Yosys
 make lock-check                  # PPA records and locked UI layouts

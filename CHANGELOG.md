@@ -31,8 +31,16 @@ All notable changes to the Tri-Queue project. This format follows
   −25–54% / −26–49% power, −10.3% / −9.0% cell area, −38.2% / −35.8% energy per MAC).
   `flow/fpga/README.md` now says its 8,563 flip-flops were measured at v1.0.1.
 
+### Added
+
+- `make rtl-coverage` (`TQ_COVERAGE=1` in `verif/test_rtl.py`, `tools/rtl_coverage.py`, nightly CI
+  job with an `rtl-coverage` artifact): the regression with Verilator line + toggle coverage, merged
+  per source file. 94.9% of line points and 94.3% of toggle points under `rtl/`; the unreached lines
+  are listed in `docs/verification.md` §5.
+
 ### Changed
 
+- `docs/benchmarks.md` §3: T = 32 has utilization results only, no place-and-route record.
 - `tools/check_doc_numbers.py` (`make doc-check`, in `make all` and the CI results job): every
   flop count quoted in the public docs and the diagram generator must be a recorded one, and the
   spec §10.2 / §10.8 and `docs/benchmarks.md` §5 comparison paragraphs must quote the comparison

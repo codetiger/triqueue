@@ -34,7 +34,7 @@ Source: `verif/` (`make rtl-test`). The SystemVerilog core gives the same cycle 
 
 ## 3. Tile size (cycle model)
 
-Source: `model/dse.md` (`model/dse.py`). Port width 2T bytes.
+Source: `model/dse.md` (`model/dse.py`). Port width 2T bytes. All three sizes run cycle-exact in the RTL regression (`t32`, `t16`, `t4`), but only T = 8 and T = 16 have place-and-route records (§5); T = 32 has utilization results only, no area or energy.
 
 | | T = 8 | T = 16 | T = 32 |
 | --- | --- | --- | --- |

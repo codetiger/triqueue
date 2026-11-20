@@ -13,7 +13,7 @@ RTL       := $(shell cat rtl/files.f)
 LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GPANEL_BYTES=1024" "-GMAC_PIPE=1" "-GPERF=0" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
 ACC_FORMS := cpa:1 csa:0
 
-.PHONY: all model-test sw-test model-results flow-results lock-check doc-check spdx-check rtl-lint rtl-test formal formal-nightly synth-check fpga ui-data ui-serve dist clean
+.PHONY: all model-test sw-test model-results flow-results lock-check doc-check spdx-check rtl-lint rtl-test rtl-coverage formal formal-nightly synth-check fpga ui-data ui-serve dist clean
 
 all: model-test sw-test spdx-check lock-check doc-check rtl-lint rtl-test formal synth-check
 
@@ -70,6 +70,13 @@ rtl-lint:
 
 rtl-test:
 	$(PYTHON) -m pytest verif -q
+
+# The regression again with Verilator line + toggle coverage (build/rtl-cov/), merged into
+# build/rtl-cov/summary.md, coverage.info (lcov) and annotated/. A report, not a gate (nightly CI).
+rtl-coverage:
+	rm -rf build/rtl-cov
+	TQ_COVERAGE=1 $(PYTHON) -m pytest verif -q
+	$(PYTHON) tools/rtl_coverage.py
 
 # formal: clock-gating template (pattern check + tq_cg.sby), FIFO, AXI4-Lite and CV-X-IF adapters, AXI master (cover, burst BMC, unbounded prove/burst_prove, ~1.5 min), lazy accumulator clear (tq_mac_array.sby), core proof (split port). formal-nightly: csa1 lazy clear, core proofs for shared port, WR_ACK and panel buffer, AXI master burst read data at MAX_OUT = 1 (3-10 min each, PDR variance can exceed 30 min).
 formal:

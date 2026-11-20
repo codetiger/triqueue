@@ -256,7 +256,9 @@ def test_rtl(name):
 
     rtl_params, model_params, cases = CONFIGS[name]
     top, host = TOPS.get(name, ("tq_top", "native"))
-    build_dir = ROOT / "build" / "rtl" / name
+    # TQ_COVERAGE=1: line + toggle coverage builds in build/rtl-cov/ (make rtl-coverage merges them)
+    coverage = os.environ.get("TQ_COVERAGE") == "1"
+    build_dir = ROOT / "build" / ("rtl-cov" if coverage else "rtl") / name
     runner = get_runner("verilator")
     x_mode = "unique" if name in ("t8_no_clock_gating", "t8_mcu_custom") else "fast"
     runner.build(
@@ -264,7 +266,8 @@ def test_rtl(name):
         hdl_toplevel=top,
         parameters=rtl_params,
         build_dir=build_dir,
-        build_args=["-Wno-fatal", "--assert", "-O3", "--x-assign", x_mode, "--x-initial", x_mode],
+        build_args=["-Wno-fatal", "--assert", "-O3", "--x-assign", x_mode, "--x-initial", x_mode]
+        + (["--coverage-line", "--coverage-toggle"] if coverage else []),
     )
     extra_env = {
         "TQ_PARAMS": json.dumps(model_params),

@@ -11,6 +11,8 @@
 # The other AXI4 master proofs (tq_axi_mem.sby prove / burst_prove / burst) take seconds and run on
 # every push in `make formal` (ci.yml).
 # Each proof runs in its own matrix job with `fail-fast: false` so every proof's verdict is visible.
+# rtl-coverage reruns the cocotb regression with Verilator line + toggle coverage (`make rtl-coverage`)
+# and publishes the per-file summary and lcov data as an artifact.
 
 name: Nightly formal
 
@@ -46,3 +48,31 @@ jobs:
       - name: Run SymbiYosys proof (${{ matrix.task }})
         working-directory: verif/formal
         run: sby -f ${{ matrix.task }}
+
+  rtl-coverage:
+    name: RTL regression with Verilator line + toggle coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
+        with:
+          version: "2026-11-11"  # last build the full rtl job passed on
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: pip install -r requirements.txt
+      - name: Regression with coverage, merged per source file
+        run: make rtl-coverage && cat build/rtl-cov/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage report (summary, lcov, annotated sources)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rtl-coverage
+          path: |
+            build/rtl-cov/summary.md
+            build/rtl-cov/coverage.info
+            build/rtl-cov/annotated/
+          if-no-files-found: warn
