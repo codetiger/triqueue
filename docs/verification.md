@@ -77,10 +77,11 @@ post-route); T = 32 has no PPA record.
   toggle points under `rtl/` are hit across the 26 configurations (2026-11-20). The line points the
   regression never reaches are each covered by a formal proof but not in simulation: the burst line
   buffer evicting a still-valid line (`tq_axi_mem`), the `CHECK_PROT` error responses of
-  `tq_axil_regs` (no configuration sets it), back-pressure on the CV-X-IF adapter's register grant,
-  response and result handshakes (`tq_xif_regs`), and two loop-reset paths in `tq_frontend`. The
-  remaining misses are the `CLK_GATE` arms of gated register writes, which cannot be reached with
-  gating on. There is no branch or expression
+  `tq_axil_regs` (no configuration sets it), result back-pressure on the CV-X-IF adapter
+  (`x_result_ready_i` low while a result is valid in `tq_xif_regs`), and two loop-reset paths in
+  `tq_frontend`. The remaining misses cannot be reached in `tq_top*`: the `CLK_GATE` arms of gated
+  register writes with gating on, and `tq_xif_regs` waiting for a register grant or response, which
+  `tq_regs` gives at once and one cycle later. There is no branch or expression
   coverage, and coverage is a report, not a gate.
 - **Unbounded coverage-guided program fuzzing.** `t8_edge_cases` includes seeded random valid and
   invalid program sequences and mid-run abort/restart checks, but there is no coverage-guided
