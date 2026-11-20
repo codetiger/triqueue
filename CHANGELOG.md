@@ -9,6 +9,15 @@ All notable changes to the Tri-Queue project. This format follows
 
 ## [Unreleased]
 
+### Added (v1.1 studies, model only)
+
+- `Params.walk_cols`: a column-major tile walk; the panel buffer then keeps the B panel. `dse.md` §12:
+  utilization within 0.1 points of the row walk on every network, per-column epilogue parameters
+  0.1–0.5% of the operand traffic instead of 2–6%, and 18% fewer SRAM bytes per MAC on ResNet-8.
+- `tri_queue/requant.py`: TFLite's int8 requantization (`MultiplyByQuantizedMultiplier`, double and
+  single rounding, `QuantizeMultiplier`), a line-by-line transcription checked against a vectorized
+  version. `dse.md` §13: requantization lanes 1–8 against utilization and multiplier cost.
+
 ### Fixed
 
 - **AXI4 master proofs were unsound and never finished (`verif/formal/tq_axi_mem.sby`):** the

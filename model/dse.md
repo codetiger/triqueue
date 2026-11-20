@@ -258,3 +258,37 @@ Both are per output column, so a tile column needs T values of each: 4T bytes of
 | 64×64×64 | 4,122 → 4,634 | 99.4% → 89.8% |
 | 2304×16×8 | 5,209 → 9,242 | 88.5% → 56.1% |
 
+## 12. Column-major tile walk (model study, not in the RTL)
+
+`LOOP_T` walks down tile columns instead of along tile rows (`Params.walk_cols`). Consecutive tiles then share the B panel, so the panel buffer keeps B (the weights of a convolution lowered with im2col) instead of A, and per-column epilogue parameters (bias, scale) change once per tile column instead of every tile. *Best per layer*: software sets the walk per GEMM, so each layer takes the faster order (on a tie, the one that reads less). Epilogue words: per-column parameters fetched once per tile in the row walk and once per tile column in the column walk (3 W-byte words each at T = 8, section 11), as a share of the operand words read. T = 8, 4 KiB panel buffer, int32 C.
+
+| Network | Utilization: row, no buffer | row + A buffer | column + B buffer | best per layer | Bytes read per MAC: row + A buffer | column + B buffer | best per layer | Epilogue words: row | column |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `kws_dscnn` | 97.1% | 97.1% | 97.1% | 97.1% | 0.144 | 0.136 | 0.136 | 5.1% | 0.3% |
+| `vww_mbv1` | 85.4% | 89.5% | 89.6% | 89.6% | 0.171 | 0.162 | 0.160 | 6.0% | 0.5% |
+| `ic_resnet8` | 99.1% | 99.1% | 99.1% | 99.1% | 0.187 | 0.153 | 0.153 | 2.1% | 0.1% |
+| `ad_fcae` | 16.6% | 24.1% | 16.6% | 24.1% | 1.025 | 1.500 | 1.025 | 2.5% | 2.5% |
+| `bert_tiny` | 99.9% | 99.9% | 99.9% | 99.9% | 0.131 | 0.133 | 0.130 | 2.0% | 0.1% |
+
+Per shape (tag `layerpath`), T = 8, 4 KiB:
+
+| M×N×K | Utilization: row + A buffer | column + B buffer | KiB read: row + A buffer | column + B buffer | Panel hits: row | column |
+| --- | --- | --- | --- | --- | --- | --- |
+| 4×512×512 | 99.1% | 66.6% | 258.0 | 384.0 | 63 | 0 |
+| 8×512×512 | 99.9% | 99.9% | 260.0 | 512.0 | 63 | 0 |
+| 1×256×512 | 24.6% | 16.6% | 130.0 | 192.0 | 31 | 0 |
+| 1×256×1024 | 24.6% | 16.7% | 260.0 | 384.0 | 31 | 0 |
+| 1×256×4096 | 16.7% | 16.7% | 1536.0 | 1536.0 | 0 | 0 |
+| 2304×16×8 | 46.9% | 46.9% | 54.0 | 36.1 | 288 | 574 |
+
+## 13. Epilogue lanes (requantization throughput, model study)
+
+A TFLite-exact epilogue multiplies each int32 value by a per-channel Q31 multiplier with rounding (`tri_queue/requant.py`): one 32×32 multiply per value. With L lanes the drain requantizes L values per cycle, so a tile drains in rows × T / L cycles instead of rows (`drain_lanes = L`, int8 C, split port: the model then also issues one write per L values, which a row-assembling drain would not, so only the split port is shown). *Multiplier bits*: L × 32 × 32 partial-product bits against the 5,184 of the 64 9×9 multipliers.
+
+| L | Multiplier bits vs MAC array | `kws_dscnn` | `vww_mbv1` | `ic_resnet8` | `ad_fcae` | `bert_tiny` | 64×64×8 | 64×64×16 | 64×64×32 | 64×64×64 | 2304×16×8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 19.8% | 88.6% | 55.6% | 91.2% | 16.5% | 99.7% | 12.2% | 24.4% | 48.7% | 96.6% | 12.3% |
+| 2 | 39.5% | 97.0% | 76.2% | 97.8% | 16.5% | 99.9% | 24.0% | 47.7% | 94.8% | 98.8% | 24.2% |
+| 4 | 79.0% | 97.1% | 85.4% | 99.1% | 16.6% | 99.9% | 46.0% | 91.3% | 98.4% | 99.2% | 46.9% |
+| 8 | 158.0% | 97.1% | 89.0% | 99.2% | 16.6% | 100.0% | 85.2% | 97.5% | 98.7% | 99.4% | 88.5% |
+

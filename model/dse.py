@@ -356,6 +356,76 @@ for m, n, k in [(64, 64, kk) for kk in (8, 16, 32, 64)] + [(2304, 16, 8)]:
     w(f"| {m}×{n}×{k} | {s0.cycles:,} → {s1.cycles:,} | {pct(s0.utilization)} → {pct(s1.utilization)} |")
 w("")
 
+# 12. column-major tile walk (model study for v1.1, Params.walk_cols)
+EPI_WORDS = 3                         # per tile column at T = 8: 4T bytes bias + 2T bytes scale (section 11)
+w("## 12. Column-major tile walk (model study, not in the RTL)\n")
+w("`LOOP_T` walks down tile columns instead of along tile rows (`Params.walk_cols`). Consecutive tiles "
+  "then share the B panel, so the panel buffer keeps B (the weights of a convolution lowered with "
+  "im2col) instead of A, and per-column epilogue parameters (bias, scale) change once per tile column "
+  "instead of every tile. *Best per layer*: software sets the walk per GEMM, so each layer takes the "
+  "faster order (on a tie, the one that reads less). Epilogue words: per-column parameters fetched once per tile in the row walk and once "
+  f"per tile column in the column walk ({EPI_WORDS} W-byte words each at T = 8, section 11), as a "
+  "share of the operand words read. T = 8, 4 KiB panel buffer, int32 C.\n")
+w("| Network | Utilization: row, no buffer | row + A buffer | column + B buffer | best per layer | "
+  "Bytes read per MAC: row + A buffer | column + B buffer | best per layer | Epilogue words: row | column |")
+w("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+for net in nets:
+    rs = [r for r in layers if r["group"] == net]
+    macs = sum(r["count"] * r["m"] * r["n"] * r["k"] for r in rs)
+    p0, pa, pb = Params(), Params(panel_bytes=4096), Params(panel_bytes=4096, walk_cols=True)
+    cyc = {"0": 0, "a": 0, "b": 0, "best": 0}
+    rd = {"a": 0, "b": 0, "best": 0}
+    epi_row = epi_col = rdw = 0
+    for r in rs:
+        c, (m, n, k) = r["count"], (r["m"], r["n"], r["k"])
+        s0, sa, sb = gemm(m, n, k, p0), gemm(m, n, k, pa), gemm(m, n, k, pb)
+        best = min((sa, sb), key=lambda st: (st.cycles, st.read_bytes))   # ties: fewer SRAM reads
+        cyc["0"] += c * s0.cycles; cyc["a"] += c * sa.cycles; cyc["b"] += c * sb.cycles; cyc["best"] += c * best.cycles
+        rd["a"] += c * sa.read_bytes; rd["b"] += c * sb.read_bytes; rd["best"] += c * best.read_bytes
+        ntm, ntn = -(-m // 8), -(-n // 8)
+        epi_row += c * EPI_WORDS * ntm * ntn
+        epi_col += c * EPI_WORDS * ntn
+        rdw += c * s0.read_vectors
+    u = lambda x: pct(macs / (64 * x))  # noqa: E731
+    w(f"| `{net}` | {u(cyc['0'])} | {u(cyc['a'])} | {u(cyc['b'])} | {u(cyc['best'])} | "
+      f"{rd['a'] / macs:.3f} | {rd['b'] / macs:.3f} | {rd['best'] / macs:.3f} | "
+      f"{pct(epi_row / rdw)} | {pct(epi_col / rdw)} |")
+w("")
+w("Per shape (tag `layerpath`), T = 8, 4 KiB:\n")
+w("| M×N×K | Utilization: row + A buffer | column + B buffer | KiB read: row + A buffer | column + B buffer | Panel hits: row | column |")
+w("| --- | --- | --- | --- | --- | --- | --- |")
+for m, n, k in shapes("layerpath"):
+    sa, sb = gemm(m, n, k, Params(panel_bytes=4096)), gemm(m, n, k, Params(panel_bytes=4096, walk_cols=True))
+    w(f"| {m}×{n}×{k} | {pct(sa.utilization)} | {pct(sb.utilization)} | {sa.read_bytes / 1024:.1f} | "
+      f"{sb.read_bytes / 1024:.1f} | {sa.panel_hits} | {sb.panel_hits} |")
+w("")
+
+# 13. epilogue lanes: requantization throughput (model study for v1.1, proposal 4.1)
+LANES = (1, 2, 4, 8)
+ARRAY_PP = 64 * 9 * 9                 # partial-product bits of the T = 8 MAC array (64 x 9x9)
+w("## 13. Epilogue lanes (requantization throughput, model study)\n")
+w("A TFLite-exact epilogue multiplies each int32 value by a per-channel Q31 multiplier with rounding "
+  "(`tri_queue/requant.py`): one 32×32 multiply per value. With L lanes the drain requantizes L values "
+  "per cycle, so a tile drains in rows × T / L cycles instead of rows (`drain_lanes = L`, int8 C, split "
+  "port: the model then also issues one write per L values, which a row-assembling drain would not, "
+  "so only the split port is shown). *Multiplier bits*: L × 32 × 32 partial-product bits against the "
+  f"{ARRAY_PP:,} of the 64 9×9 multipliers.\n")
+w("| L | Multiplier bits vs MAC array | " + " | ".join(f"`{net}`" for net in nets) + " | "
+  + " | ".join(f"64×64×{k}" for k in (8, 16, 32, 64)) + " | 2304×16×8 |")
+w("| --- | --- |" + " --- |" * (len(nets) + 5))
+for lanes in LANES:
+    p = Params(out_bytes=1, drain_lanes=lanes)
+    cells = []
+    for net in nets:
+        rs = [r for r in layers if r["group"] == net]
+        macs = sum(r["count"] * r["m"] * r["n"] * r["k"] for r in rs)
+        cyc = sum(r["count"] * gemm(r["m"], r["n"], r["k"], p).cycles for r in rs)
+        cells.append(pct(macs / (64 * cyc)))
+    cells += [pct(gemm(64, 64, k, p).utilization) for k in (8, 16, 32, 64)]
+    cells.append(pct(gemm(2304, 16, 8, p).utilization))
+    w(f"| {lanes} | {pct(lanes * 32 * 32 / ARRAY_PP)} | " + " | ".join(cells) + " |")
+w("")
+
 text = "\n".join(out)
 Path(__file__).with_name("dse.md").write_text(text + "\n")
 print(text)

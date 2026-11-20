@@ -45,6 +45,9 @@ Modelling assumptions (stated in model/README.md):
     already packed as the next layer's A. A tile is contiguous; padding rows and columns are zero
     in the bank. chain_snapshot models a wide bank read (first word one cycle after the bank is
     stable); the default drain reads one row per cycle and needs T - 1 cycles.
+  * A column-major tile walk (walk_cols, model study for v1.1, dse.md section 12): LOOP_T walks
+    down tile columns, so consecutive tiles share the B panel; the panel buffer then keeps B
+    instead of A. Not in the RTL.
   * Write completion: by default a write is complete when granted (SRAM). With wr_ack (an
     interconnect such as AXI, where a write completes at its B response) each granted write
     completes wr_resp_latency cycles later, FENCE waits until none is outstanding, and no new
@@ -100,6 +103,10 @@ class Params:
     # models a wide bank read that forms the first word one cycle after the bank is stable.
     chain_c: bool = False
     chain_snapshot: bool = False
+    # Column-major tile walk (model study for v1.1; not in the RTL): LOOP_T walks down tile columns
+    # instead of along tile rows, so consecutive tiles share the B panel (and per-column epilogue
+    # parameters). The panel buffer then keeps the B panel instead of the A panel.
+    walk_cols: bool = False
 
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
@@ -148,6 +155,8 @@ class Params:
             raise ValueError("chain_c needs int8 output")
         if self.chain_snapshot and not self.chain_c:
             raise ValueError("chain_snapshot needs chain_c")
+        if self.walk_cols and self.chain_c:
+            raise ValueError("chain_c writes C in row-walk order; it cannot be combined with walk_cols")
 
 
 @dataclass
@@ -269,7 +278,8 @@ class TriQueueCore:
         self.inflight = deque()                 # (arrive_cycle, which, data)
         self.inflight_n = {"A": 0, "B": 0}      # bytes in flight (memory and panel buffer)
         self.pinflight = deque()                # panel-buffer reads: (arrive_cycle, data)
-        self.panel_key = None                   # (addr, bytes) of the A panel in the buffer
+        self.panel_key = None                   # (addr, bytes) of the panel in the buffer
+        self.ps = "B" if self.p.walk_cols else "A"   # the operand the panel buffer keeps
         self.panel_data = np.zeros(self.p.panel_bytes, np.uint8)
         self.rr = "A"
         # MAC + accumulator banks
@@ -300,8 +310,13 @@ class TriQueueCore:
         return m, n, k, kp(k), -(-m // self.T), -(-n // self.T)
 
     def tile_coords(self, t):
-        *_, ntn = self.dims
-        return (0, 0) if not ntn else divmod(t, ntn)
+        *_, ntm, ntn = self.dims
+        if not ntn:
+            return (0, 0)
+        if self.p.walk_cols:
+            tj, ti = divmod(t, ntm)
+            return ti, tj
+        return divmod(t, ntn)
 
     def tile_shape(self, t):
         m, n, *_ = self.dims
@@ -630,7 +645,7 @@ class TriQueueCore:
                     self.stream[s] = [self.cfg[isa.B_BASE] + tj * T * kpad, w * kpad, "mem", 0]
                 self.ev("se", "panel", s=s, tile=tile, addr=self.stream[s][0], bytes=self.stream[s][1])
                 nbytes = self.stream[s][1]
-                if s == "A" and 0 < nbytes <= self.p.panel_bytes:
+                if s == self.ps and 0 < nbytes <= self.p.panel_bytes:
                     key = (self.stream[s][0], nbytes)
                     if key == self.panel_key:            # the buffered panel: replay it
                         self.stream[s][2] = "buf"
@@ -646,32 +661,34 @@ class TriQueueCore:
             # QA takes vectors in order: an A read waits for replayed vectors still in flight
             # (and the replay waits for A reads, step_panel)
             if self.stream[s] is not None and self.stream[s][2] != "buf" \
-                    and not (s == "A" and self.pinflight) \
+                    and not (s == self.ps and self.pinflight) \
                     and self.fifo[s].n + self.inflight_n[s] + self.W <= cap:
                 return s
         return None
 
     def step_panel(self):
-        """Replay one vector of the buffered A panel into QA (no memory port). Waits until no A
-        read is in flight, so QA receives the vectors in order."""
-        st = self.stream["A"]
+        """Replay one vector of the buffered panel (A, or B with walk_cols) into its FIFO (no memory
+        port). Waits until no read of that operand is in flight, so the FIFO receives the vectors in
+        order."""
+        ps = self.ps
+        st = self.stream[ps]
         cap = self.p.fifo_depth * self.W
         pin = sum(len(d) for _, d in self.pinflight)
-        if st is None or st[2] != "buf" or self.inflight_n["A"] - pin:
+        if st is None or st[2] != "buf" or self.inflight_n[ps] - pin:
             return
-        if self.fifo["A"].n + self.inflight_n["A"] + self.W > cap:
+        if self.fifo[ps].n + self.inflight_n[ps] + self.W > cap:
             return
         nb = min(self.W, st[1])
         data = self.panel_data[st[3]:st[3] + nb].copy()
         self.pinflight.append((self.cycle + self.p.panel_latency, data))
-        self.inflight_n["A"] += nb
+        self.inflight_n[ps] += nb
         self.ev("pb", "rd", off=st[3], n=nb)
         st[0] += nb
         st[1] -= nb
         st[3] += nb
         self.stats.panel_vectors += 1
         if st[1] == 0:
-            self.stream["A"] = None
+            self.stream[ps] = None
 
     def _issue_read(self, s):
         addr = self.stream[s][0]
@@ -756,8 +773,8 @@ class TriQueueCore:
             self.fifo[s].push(data)
         while self.pinflight and self.pinflight[0][0] <= self.cycle:
             _, data = self.pinflight.popleft()
-            self.inflight_n["A"] -= len(data)
-            self.fifo["A"].push(data)
+            self.inflight_n[self.ps] -= len(data)
+            self.fifo[self.ps].push(data)
 
     # ---- top level ------------------------------------------------------------------------
     def step(self):
