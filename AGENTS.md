@@ -37,7 +37,7 @@ Setup: `pip install -r requirements.txt` (Python 3.12+). RTL work also needs Ver
 From the repo root:
 
 ```
-make                  # model-test, sw-test, spdx-check, lock-check, rtl-lint, rtl-test, formal, synth-check
+make                  # model-test, sw-test, spdx-check, lock-check, doc-check, rtl-lint, rtl-test, formal, synth-check
 make model-test       # model pytest suite
 make sw-test          # C driver against the model
 make spdx-check       # every checked-in source/config file has an SPDX header
@@ -48,12 +48,13 @@ python3 -m pytest verif -q -k t8_default    # one RTL configuration
 make formal           # SymbiYosys: clock-gating template (check_cg_pattern.py + tq_cg.sby), FIFO (tq_fifo.sby), AXI4-Lite and CV-X-IF adapters (tq_axil_regs.sby, tq_xif_regs.sby), AXI4 master (tq_axi_mem.sby cover/burst/prove/burst_prove, ~1.5 min), lazy accumulator clear (tq_mac_array.sby cpa2/cpa1/csa2, ~1 min), unbounded core proof, split port (tq_core.sby split, typically 3–11 min, but PDR variance can exceed 30 min)
 make formal-nightly   # lazy clear, carry-save with MAC_PIPE = 1 (tq_mac_array.sby csa1, ~6 min), core proofs, shared port, WR_ACK and panel buffer (tq_core.sby shared/ack/ack_split/panel, 3–10 min each)
 make flow-results     # rewrite flow/results.md from flow/records/ (no flow run)
+make doc-check        # hand-written docs quote flow/results.md's flop counts and comparison figures (tools/check_doc_numbers.py)
 make synth-check      # generic Yosys synthesis: no latches, loops or undriven nets (stats in build/synth/)
 make fpga             # ECP5 out-of-context synth + nextpnr (flow/fpga/; needs nextpnr-ecp5, not part of make)
 make clean            # removes build/, dist/, SymbiYosys work dirs, and temporary caches (tools/clean.sh)
 ```
 
-RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_axi_burst`, `t8_xif`, `t8_write_ack`, `t8_write_ack_shared`, `t8_edge_cases`, `t8_edge_shared`, `t8_mcu_custom`, `t8_panel`, `t8_panel_shared`, `t16_panel`, `t4_panel`, `t8_mac1`, `t8_mac1_csa_shared`, `t32`, `t16`, `t4` (26 configurations, 1,742 cases, plus `test_vectors_readmemh`). CI (`.github/workflows/ci.yml`) runs four jobs on every push: model tests on Python 3.12/3.13, SPDX headers, the results-up-to-date diff, and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/release.yml` publishes the source/vector tarballs on a `v*` tag; `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
+RTL regression configurations (names for `-k`): `t8_default`, `t8_shared_port`, `t8_small_queues`, `t8_backpressure`, `t8_shared_backpressure`, `t8_acc_csa`, `t8_no_clock_gating`, `t8_reference_queues`, `t8_axil`, `t8_axi`, `t8_axi_burst`, `t8_xif`, `t8_write_ack`, `t8_write_ack_shared`, `t8_edge_cases`, `t8_edge_shared`, `t8_mcu_custom`, `t8_panel`, `t8_panel_shared`, `t16_panel`, `t4_panel`, `t8_mac1`, `t8_mac1_csa_shared`, `t32`, `t16`, `t4` (26 configurations, 1,742 cases, plus `test_vectors_readmemh`). CI (`.github/workflows/ci.yml`) runs four jobs on every push: model tests on Python 3.12/3.13, SPDX headers, the results-up-to-date diff (plus `tools/check_doc_numbers.py`), and rtl-lint/rtl-test/formal/synth-check. `.github/workflows/release.yml` publishes the source/vector tarballs on a `v*` tag; `.github/workflows/nightly.yml` runs `make formal-nightly` daily.
 
 Run model commands from `model/` (`pytest.ini` sets `pythonpath = .`, so imports are `from tri_queue...`):
 

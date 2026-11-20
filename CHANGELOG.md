@@ -21,8 +21,21 @@ All notable changes to the Tri-Queue project. This format follows
   inductive without strengthening invariants (PDR does not converge in hours), so it is checked by
   the `burst` BMC, now depth 10 (was 8).
 
+### Fixed (docs)
+
+- Spec §1, §2.1, §7, §9, README and the architecture figure quoted 8,562 flip-flops (8,563 shared
+  port, 12,530 carry-save) and spec §10.2 / §10.8 the v1.0.0 accumulator-form and clock-gating
+  deltas; they now quote the v1.0.2 records (8,571 / 8,572 / 12,539; plain adder −20.9% / −16.9%
+  cell area, −31.6% flops, −21.9% / −19.6% energy per MAC, 1,001.9 vs 968.4 MHz on ASAP7; gating
+  −25–54% / −26–49% power, −10.3% / −9.0% cell area, −38.2% / −35.8% energy per MAC).
+  `flow/fpga/README.md` now says its 8,563 flip-flops were measured at v1.0.1.
+
 ### Changed
 
+- `tools/check_doc_numbers.py` (`make doc-check`, in `make all` and the CI results job): every
+  flop count quoted in the public docs and the diagram generator must be a recorded one, and the
+  spec §10.2 / §10.8 and `docs/benchmarks.md` §5 comparison paragraphs must quote the comparison
+  rows of `flow/results.md`.
 - `tq_axi_mem_env.sv`: in burst mode the environment keeps only the address bits its assumptions
   leave free and follows one arbitrary word address (`sym_a`) through the line buffer instead of
   full addresses as data (with the FIFO fix, 757 instead of 1,229 state bits after `opt`), and

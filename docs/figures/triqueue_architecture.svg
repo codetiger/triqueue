@@ -101,7 +101,7 @@
   <text x="228.0" y="332.0" text-anchor="start" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16.5" font-weight="700" fill="#18222c">Compute Engine (tq_mac_array)</text>
   <rect x="228.0" y="356.0" width="244.0" height="52.0" rx="6.0" fill="#f7f4cf" stroke="#2c3744" stroke-width="2.0" filter="url(#drop-shadow)"/>
   <text x="350.0" y="373.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#18222c">No Vector RF · No Crossbar</text>
-  <text x="350.0" y="393.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.8" font-weight="500" fill="#3d4d5e">~6.5 Kbit Arch State (8,562 FFs)</text>
+  <text x="350.0" y="393.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.8" font-weight="500" fill="#3d4d5e">~6.5 Kbit Arch State (8,571 FFs)</text>
   <rect x="524.0" y="332.0" width="360.0" height="54.0" rx="7.0" fill="#ffe096" stroke="#b57612" stroke-width="2.1" filter="url(#drop-shadow)"/>
   <text x="704.0" y="350.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.0" font-weight="700" fill="#3d2604">QB Operand FIFO (u_qb · 8 × 16 B)</text>
   <text x="704.0" y="371.0" text-anchor="middle" dominant-baseline="central" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.8" font-weight="500" fill="#3d2604">B Row Slices  (8 cols × 2 k-steps / vec  →  8 B / beat)</text>

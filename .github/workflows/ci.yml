@@ -83,6 +83,8 @@ jobs:
           python ui/pipeline/build_ui_data.py
       - name: Check committed files are up to date
         run: git diff --exit-code model/results.md model/dse.md bench/reference/amx/results.md bench/reference/amx/ablation.md flow/results.md ui/data/traces_data.js
+      - name: Check hand-written docs quote flow/results.md (flop counts, comparison figures)
+        run: python tools/check_doc_numbers.py
 
   rtl:
     name: RTL lint, cocotb regression, formal, synth-check

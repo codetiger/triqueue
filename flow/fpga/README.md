@@ -23,7 +23,7 @@ Synthesis at T = 8 on the v1.0.1 RTL (Yosys 0.70+post, `0c11ea0`, measured 2026-
 | `t8_shared` | `ACC_FORM=1`, `SHARED_PORT=1` | 18,423 | 8,564 | 2,340 | 64 |
 | `t8_csa` | `ACC_FORM=0` (carry-save) | 33,314 | 12,531 | 853 | 64 |
 
-`t8_cpa` is 23% of the 85F's 83,640 LUT4 and 41% of its 156 multipliers, with one `MULT18X18D` per 9×9 multiplier. The flip-flop count is within one of the ASIC record (`flow/results.md`: 8,562 for `t8_cpa` and `t8_cpa_nocg`). Carry-save costs 14,366 more LUT4 and 3,968 more flip-flops than the default adder, which is why the plain adder is the default (spec §10.2).
+`t8_cpa` is 23% of the 85F's 83,640 LUT4 and 41% of its 156 multipliers, with one `MULT18X18D` per 9×9 multiplier. At the same RTL the flip-flop count was within one of the ASIC record (8,562 for `t8_cpa` and `t8_cpa_nocg` at v1.0.1); the v1.0.2 idle-logic changes, among them the lazy clear's eight zero flags, bring the ASIC record to 8,571 (`flow/results.md`), and this FPGA note has not been re-run at v1.0.2. Carry-save costs 14,366 more LUT4 and 3,968 more flip-flops than the default adder, which is why the plain adder is the default (spec §10.2).
 
 The v1.0.1 control-plane work (wider `PCW`, `CFG` serialization, `STATUS.PENDING`, the new error checks) costs about 2.3k LUT4 at T = 8: the same command at tag `v1.0.0` gives 16,658 LUT4, 8,562 flip-flops and 2,294 CCU2C. The multiplier array, accumulator cells and FIFOs are unchanged, so the 64 `MULT18X18D` and the flip-flop count hold.
 

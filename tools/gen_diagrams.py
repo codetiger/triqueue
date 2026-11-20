@@ -565,7 +565,7 @@ def generate_architecture_diagram() -> None:
     # Top-left callout box (matching the "Local Register File" position in reference)
     c.rounded_box(228, 356, 244, 52, r=6, fc=C_BADGE_FILL, ec=C_SLATE_BORDER, lw=2.0)
     c.text(350, 373, "No Vector RF · No Crossbar", size=12.5, bold=True, color=C_SLATE_TEXT)
-    c.text(350, 393, "~6.5 Kbit Arch State (8,562 FFs)", size=10.8, bold=False, color=C_SLATE_SUB)
+    c.text(350, 393, "~6.5 Kbit Arch State (8,571 FFs)", size=10.8, bold=False, color=C_SLATE_SUB)
 
     # =========================================================================
     # 6. QB OPERAND FIFO (Top Gold Buffer feeding Columns)
