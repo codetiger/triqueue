@@ -65,7 +65,7 @@ python3 -m pytest -q                                          # all tests (~14 s
 python3 -m pytest -q tests/test_core.py::test_random_sizes    # single test
 python3 -m pytest -q -k signedness                            # by name
 python3 bench.py                                              # ~70 s, rewrites model/results.md
-python3 dse.py                                                # ~5 min, rewrites model/dse.md (T = 8/16/32)
+python3 dse.py                                                # ~10 min, rewrites model/dse.md (T = 8/16/32)
 python3 -m tri_queue.vectors --m 16 --n 16 --k 16 -o ../build/vectors/x   # golden vectors (build/ is gitignored)
 ```
 

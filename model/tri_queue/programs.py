@@ -20,11 +20,11 @@ def edge_program(name: str, cfg: bytes) -> bytes:
     reserved_zero_c, reserved_stream_a, reserved_stream_b, reserved_swap_c, reserved_fence
                       the kernel with that instruction's argument nibble = 1 -> ERR_OPCODE
                       (SWAP_C in the first tile's body, FENCE at the end)
-    cfg_reg           a CFG to register 8 first                               -> ERR_CFG_REG
+    cfg_reg           a CFG to register 10 first                              -> ERR_CFG_REG
     cfg_loop          a CFG inside LOOP_T's body                              -> ERR_CFG_LOOP
     cfg_val_k         a CFG K above the supported range                       -> ERR_CFG_VAL
     cfg_val_m         a CFG M above 65,535 tiles                              -> ERR_CFG_VAL
-    cfg_val_mode      a CFG MODE with non-zero reserved bits [31:9]           -> ERR_CFG_VAL
+    cfg_val_mode      a CFG MODE with non-zero reserved bits [31:10]          -> ERR_CFG_VAL
     cfg_val_cld       a CFG C_LD narrower than the row width                  -> ERR_CFG_VAL
     walk_after_stream a CFG MODE that flips MODE[8] after a STREAM_A          -> ERR_CFG_VAL
     walk_before_stream the same flip before any STREAM: legal, C is right (column walk)
@@ -61,11 +61,11 @@ def edge_program(name: str, cfg: bytes) -> bytes:
         "reserved_stream_b": cfg + kernel[:2] + E(isa.STREAM_B, 1) + kernel[3:],
         "reserved_swap_c": cfg + kernel[:8] + E(isa.SWAP_C, 1) + kernel[9:],
         "reserved_fence": cfg + body + E(isa.FENCE, 1),
-        "cfg_reg": E(isa.CFG, 8) + (0).to_bytes(4, "little") + cfg + kernel,
+        "cfg_reg": E(isa.CFG, 10) + (0).to_bytes(4, "little") + cfg + kernel,
         "cfg_loop": cfg + E(isa.ZERO_C) + E(isa.LOOP_T, 5) + isa.cfg(isa.K, 8) + E(isa.FENCE),
         "cfg_val_k": cfg[:20] + isa.cfg(isa.K, 0xFFFF_FFF8) + cfg[25:] + kernel,
         "cfg_val_m": cfg[:25] + isa.cfg(isa.M, 0x10_0000) + cfg[30:] + kernel,
-        "cfg_val_mode": cfg[:35] + isa.cfg(isa.MODE, 0x200) + kernel,
+        "cfg_val_mode": cfg[:35] + isa.cfg(isa.MODE, 0x400) + kernel,
         "cfg_val_cld": cfg[:15] + isa.cfg(isa.C_LD, 16) + cfg[20:] + kernel,
         "walk_after_stream": cfg + E(isa.ZERO_C) + E(isa.STREAM_A)
                              + isa.cfg(isa.MODE, int.from_bytes(cfg[36:40], "little") ^ isa.MODE_WALK_COLS)

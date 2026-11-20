@@ -16,6 +16,9 @@ MNEMONIC = {
 
 # Config registers
 A_BASE, B_BASE, C_BASE, C_LD, K, M, N, MODE = range(8)
+EPI_BASE, EPI_OUT = 8, 9     # epilogue parameter table address; {zp_out, act_min, act_max} (spec 10.1)
+NUM_CFG = 10
+EPI_WORDS = 5                # W-byte words per tile column of the table: T x (int32 bias, int32 M0, int8 shift)
 
 # STATUS error codes (spec 6.4): the core stops in the cycle it finds one
 ERR_NONE, ERR_OPCODE, ERR_CFG_REG, ERR_LOOP, ERR_CFG_LOOP, ERR_PC, ERR_ALIGN, ERR_CFG_VAL, ERR_OPERAND = range(9)
@@ -24,7 +27,13 @@ MODE_B_SIGNED = 0x2
 MODE_OUT_INT8 = 0x4
 MODE_OUT_SHIFT = 3
 MODE_WALK_COLS = 0x100       # LOOP_T walks down tile columns; the panel buffer keeps B (spec 6.1)
-MODE_RESERVED_SHIFT = 9      # MODE[31:9] must be 0 (ERR_CFG_VAL)
+MODE_EPI = 0x200             # TFLite int8 epilogue in the drain (needs MODE_OUT_INT8; spec 10.1)
+MODE_RESERVED_SHIFT = 10     # MODE[31:10] must be 0 (ERR_CFG_VAL)
+
+
+def epi_out(zp_out: int, act_min: int = -128, act_max: int = 127) -> int:
+    """CFG EPI_OUT: int8 output zero point and activation clamp, bits [31:24] reserved."""
+    return (zp_out & 0xFF) | ((act_min & 0xFF) << 8) | ((act_max & 0xFF) << 16)
 
 
 def mode_out_int8(shift: int = 0) -> int:
@@ -70,8 +79,11 @@ def gemm_kernel() -> bytes:
     ])
 
 
-def gemm_config(a_base, b_base, c_base, c_ld, k, m, n, mode) -> bytes:
-    return b"".join(cfg(r, v) for r, v in enumerate((a_base, b_base, c_base, c_ld, k, m, n, mode)))
+def gemm_config(a_base, b_base, c_base, c_ld, k, m, n, mode, epi_base=None, epi_out_word=None) -> bytes:
+    regs = [a_base, b_base, c_base, c_ld, k, m, n, mode]
+    if epi_base is not None:
+        regs += [epi_base, epi_out_word]
+    return b"".join(cfg(r, v) for r, v in enumerate(regs))
 
 
 def decode(prog: bytes, pc: int):

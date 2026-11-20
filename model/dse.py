@@ -426,6 +426,56 @@ for lanes in LANES:
     w(f"| {lanes} | {pct(lanes * 32 * 32 / ARRAY_PP)} | " + " | ".join(cells) + " |")
 w("")
 
+# 14. the epilogue as built (MODE[9], spec 10.1): parameter fetch, lanes, walk order
+from tri_queue import requant  # noqa: E402
+epi_rng = np.random.default_rng(14)     # own generator: earlier sections keep their operands
+_epi_cache = {}
+
+
+def gemm_epi(m, n, k, p: Params):
+    key = (m, n, k, tuple(sorted(vars(p).items())))
+    if key not in _epi_cache:
+        a = epi_rng.integers(-128, 128, (m, k)).astype(np.int8)
+        b = epi_rng.integers(-128, 128, (k, n)).astype(np.int8)
+        e = dict(bias=epi_rng.integers(-4096, 4096, n), m0=epi_rng.integers(1 << 30, 1 << 31, n),
+                 shift=epi_rng.integers(-12, 0, n), zp=-3, act_min=-128, act_max=127)
+        c, st = run_gemm(a, b, p, epi=e)
+        want = requant.requantize(reference(a, b), e["bias"], e["m0"], e["shift"], e["zp"], -128, 127)
+        assert np.array_equal(c, want), (m, n, k, p)
+        _epi_cache[key] = st
+    return _epi_cache[key]
+
+
+w("## 14. TFLite epilogue as built (`MODE[9]`)\n")
+w("The drain requantizes with per-column bias, M0 and shift (`tri_queue/requant.py`, TFLite double "
+  "rounding), loading a tile column's parameters (5 port words) through the read port when the column "
+  "changes, ahead of A/B reads. L lanes: T / L cycles per row plus 2 cycles of latency. *Best*: each "
+  "layer takes the faster walk (on a tie, fewer reads). Shift-only int8 (`MODE[2]`, section 8) for "
+  "comparison. T = 8, split port, MAC-weighted utilization; bit-exact against `requant.requantize`.\n")
+w("| Network | Shift-only int8 | L = 4: row walk | column walk | best | L = 8: best | Parameter reads, % of reads (best, L = 4) |")
+w("| --- | --- | --- | --- | --- | --- | --- |")
+for net in nets:
+    rs = [r for r in layers if r["group"] == net]
+    macs = sum(r["count"] * r["m"] * r["n"] * r["k"] for r in rs)
+    shift = sum(r["count"] * gemm(r["m"], r["n"], r["k"], Params(out_bytes=1)).cycles for r in rs)
+    cyc = {}
+    epi_rd = all_rd = 0
+    for lanes in (4, 8):
+        rw = cw = best = 0
+        for r in rs:
+            c, (m, n, k) = r["count"], (r["m"], r["n"], r["k"])
+            sr = gemm_epi(m, n, k, Params(out_bytes=1, epi_lanes=lanes))
+            sc = gemm_epi(m, n, k, Params(out_bytes=1, epi_lanes=lanes, walk_cols=True))
+            sb = min((sr, sc), key=lambda st: (st.cycles, st.read_vectors))
+            rw += c * sr.cycles; cw += c * sc.cycles; best += c * sb.cycles
+            if lanes == 4:
+                epi_rd += c * sb.epi_reads; all_rd += c * sb.read_vectors
+        cyc[lanes] = (rw, cw, best)
+    u = lambda x: pct(macs / (64 * x))  # noqa: E731
+    w(f"| `{net}` | {u(shift)} | {u(cyc[4][0])} | {u(cyc[4][1])} | {u(cyc[4][2])} | {u(cyc[8][2])} | "
+      f"{pct(epi_rd / all_rd)} |")
+w("")
+
 text = "\n".join(out)
 Path(__file__).with_name("dse.md").write_text(text + "\n")
 print(text)

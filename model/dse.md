@@ -292,3 +292,15 @@ A TFLite-exact epilogue multiplies each int32 value by a per-channel Q31 multipl
 | 4 | 79.0% | 97.1% | 85.4% | 99.1% | 16.6% | 99.9% | 46.0% | 91.3% | 98.4% | 99.2% | 46.9% |
 | 8 | 158.0% | 97.1% | 89.0% | 99.2% | 16.6% | 100.0% | 85.2% | 97.5% | 98.7% | 99.4% | 88.5% |
 
+## 14. TFLite epilogue as built (`MODE[9]`)
+
+The drain requantizes with per-column bias, M0 and shift (`tri_queue/requant.py`, TFLite double rounding), loading a tile column's parameters (5 port words) through the read port when the column changes, ahead of A/B reads. L lanes: T / L cycles per row plus 2 cycles of latency. *Best*: each layer takes the faster walk (on a tie, fewer reads). Shift-only int8 (`MODE[2]`, section 8) for comparison. T = 8, split port, MAC-weighted utilization; bit-exact against `requant.requantize`.
+
+| Network | Shift-only int8 | L = 4: row walk | column walk | best | L = 8: best | Parameter reads, % of reads (best, L = 4) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `kws_dscnn` | 97.1% | 89.5% | 96.5% | 96.5% | 96.6% | 0.6% |
+| `vww_mbv1` | 89.0% | 77.8% | 83.5% | 83.5% | 87.4% | 0.8% |
+| `ic_resnet8` | 99.2% | 95.7% | 98.8% | 98.8% | 99.1% | 0.1% |
+| `ad_fcae` | 16.6% | 15.9% | 15.9% | 15.9% | 15.9% | 4.0% |
+| `bert_tiny` | 100.0% | 96.7% | 99.7% | 99.7% | 99.7% | 0.2% |
+

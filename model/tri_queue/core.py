@@ -45,6 +45,11 @@ Modelling assumptions (stated in model/README.md):
     already packed as the next layer's A. A tile is contiguous; padding rows and columns are zero
     in the bank. chain_snapshot models a wide bank read (first word one cycle after the bank is
     stable); the default drain reads one row per cycle and needs T - 1 cycles.
+  * TFLite int8 epilogue (MODE[9], spec 10.1; run_gemm(..., epi=...)): the drain requantizes
+    with per-column (bias, M0, shift) from the table at CFG EPI_BASE, loaded (5 port words) through
+    the read port ahead of A/B reads when the tile column changes, epi_lanes values per cycle, a
+    row written G = T / epi_lanes cycles apart (epi_latency before the first), the lanes held
+    while a row's write waits for gnt.
   * A column-major tile walk (MODE[8], MODE_WALK_COLS; Params.walk_cols sets it in build_gemm;
     dse.md section 12): LOOP_T walks down tile columns, so consecutive tiles share the B panel; the
     panel buffer then keeps B instead of A.
@@ -59,7 +64,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from . import isa
+from . import isa, requant
 from .packing import kp, auto_shape, panel_width
 
 # Max products an accumulate cell in each (T/2 x T/2) quadrant may sum per cycle (spec section 4.1).
@@ -107,6 +112,10 @@ class Params:
     # tile columns instead of along tile rows, so consecutive tiles share the B panel (and
     # per-column epilogue parameters); the panel buffer then keeps the B panel instead of the A one.
     walk_cols: bool = False
+    # TFLite int8 epilogue (MODE[9], spec 10.1): epi_lanes values requantized per drain cycle
+    # (0: T/2, the RTL default EPI_LANES), epi_latency cycles from a row's last group to its write.
+    epi_lanes: int = 0
+    epi_latency: int = 2
 
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
@@ -155,6 +164,9 @@ class Params:
             raise ValueError("chain_c needs int8 output")
         if self.chain_snapshot and not self.chain_c:
             raise ValueError("chain_snapshot needs chain_c")
+        lanes = self.epi_lanes or max(1, self.tile // 2)
+        if self.epi_lanes < 0 or self.tile % lanes or self.epi_latency < 1:
+            raise ValueError("epi_lanes must divide tile (0 = tile/2) and epi_latency >= 1")
         if self.walk_cols and self.chain_c:
             raise ValueError("chain_c writes C in row-walk order; it cannot be combined with walk_cols")
 
@@ -179,6 +191,7 @@ class Stats:
     error: int = 0               # STATUS error code (isa.ERR_*); 0 for a normal FENCE
     panel_hits: int = 0          # A panels replayed from the panel buffer instead of read
     panel_vectors: int = 0       # W-byte vectors replayed from the panel buffer
+    epi_reads: int = 0           # epilogue parameter words read (MODE[9])
 
     @property
     def ideal_cycles(self):
@@ -258,7 +271,7 @@ class TriQueueCore:
         self.T, self.W = self.p.tile, int(self.p.port_bytes)
         self.h = self.T // 2
         self.trace = trace
-        self.cfg = [0] * 8
+        self.cfg = [0] * isa.NUM_CFG
         self.cycle = 0
         self.stats = Stats(peak_macs=self.T * self.T, program_bytes=len(program))
         # front end
@@ -296,6 +309,11 @@ class TriQueueCore:
         self.wr_out = 0                 # writes granted and not yet complete (wr_ack)
         self.wr_done_at = deque()       # completion cycles of those writes
         self._no_progress = 0
+        # epilogue: the tile column whose parameters are loaded, and a fetch in progress
+        self.epi_col = None
+        self.epi_par = None             # (bias, m0, shift) int64 arrays of length T
+        self.epi_fetch = None           # dict(col, addr, left, pend, data)
+        self.epi_lanes = self.p.epi_lanes or max(1, self.T // 2)
 
     def ev(self, unit, event, **kv):
         if self.trace is not None:
@@ -347,13 +365,15 @@ class TriQueueCore:
             if arg != 0:
                 err = isa.ERR_OPCODE
         elif op == isa.CFG:
-            if arg >= 8:
+            if arg >= isa.NUM_CFG:
                 err = isa.ERR_CFG_REG
             elif self.loops:
                 err = isa.ERR_CFG_LOOP
             elif (arg == isa.K and imm > ((0xFFFF_FFFF >> l2t) & ~7)) \
                     or (arg in (isa.M, isa.N) and imm > (0xFFFF << l2t)) \
                     or (arg == isa.MODE and (imm >> isa.MODE_RESERVED_SHIFT) != 0) \
+                    or (arg == isa.MODE and imm & isa.MODE_EPI and not imm & isa.MODE_OUT_INT8) \
+                    or (arg == isa.EPI_OUT and (imm >> 24) != 0) \
                     or (arg == isa.MODE and (imm ^ self.cfg[isa.MODE]) & isa.MODE_WALK_COLS
                         and (self.scmd_issued["A"] or self.scmd_issued["B"])):
                 # MODE[8] may change only before the run's first STREAM_A / STREAM_B: the stream
@@ -397,7 +417,7 @@ class TriQueueCore:
     def stream_idle(self):
         return (not self.scmd["A"] and not self.scmd["B"]
                 and self.stream["A"] is None and self.stream["B"] is None
-                and not self.inflight and not self.pinflight)
+                and not self.inflight and not self.pinflight and self.epi_fetch is None)
 
     def all_idle(self):
         return (not self.macq and self.cur is None and self.stream_idle()
@@ -552,6 +572,22 @@ class TriQueueCore:
         if self.cfg[isa.C_BASE] % self.W or (not self.p.chain_c and self.cfg[isa.C_LD] % self.W):
             self.err_align = True                # ERR_ALIGN at the end of this cycle
         writes = deque()
+        if mode & isa.MODE_EPI:
+            # TFLite epilogue (spec 10.1): rows are requantized L values per cycle with the tile
+            # column's (bias, M0, shift), loaded through the read port when the column changes
+            base_ready = max(self.cycle, self.last_write[bank]) + self.p.cpa_latency
+            self.drain = {"bank": bank, "tile": tile, "ready": None, "writes": writes, "epi": True,
+                          "vals": vals[:rows, :cols].astype(np.int64), "base": base, "base_ready": base_ready}
+            if self.epi_col == tj:
+                self._epi_plan(self.cycle)
+            else:
+                if self.cfg[isa.EPI_BASE] % self.W:
+                    self.err_align = True
+                self.epi_col, self.epi_par = None, None
+                self.epi_fetch = {"col": tj, "addr": self.cfg[isa.EPI_BASE] + tj * isa.EPI_WORDS * self.W,
+                                  "left": isa.EPI_WORDS, "pend": isa.EPI_WORDS, "data": []}
+            self.ev("mac", "drain_start", bank=bank, tile=tile, writes=rows)
+            return
         if self.p.chain_c:
             # Next layer's A panels: column-major, w = panel_width(rows) bytes per column (the
             # same tail compaction pack_a uses), W/w columns per word. Padding rows and columns
@@ -581,6 +617,36 @@ class TriQueueCore:
             ready = max(self.cycle, self.last_write[bank]) + self.p.cpa_latency
         self.drain = {"bank": bank, "tile": tile, "ready": ready, "writes": writes}
         self.ev("mac", "drain_start", bank=bank, tile=tile, writes=len(writes))
+
+    def _epi_arrive(self, data):
+        """An epilogue parameter word arrived; with the last one the tile column's parameters are
+        loaded (T x int32 bias, T x int32 M0, T x int8 shift, clamped to [-31, 30])."""
+        f = self.epi_fetch
+        f["data"].append(bytes(data))
+        f["pend"] -= 1
+        if f["pend"]:
+            return
+        raw, T = b"".join(f["data"]), self.T
+        bias = np.frombuffer(raw[:4 * T], "<i4").astype(np.int64)
+        m0 = np.frombuffer(raw[4 * T:8 * T], "<i4").astype(np.int64)
+        shift = np.clip(np.frombuffer(raw[8 * T:9 * T], np.int8).astype(np.int64), -31, 30)
+        self.epi_col, self.epi_par, self.epi_fetch = f["col"], (bias, m0, shift), None
+        self.ev("epi", "loaded", col=f["col"])
+        if self.drain is not None and self.drain.get("epi") and self.drain["ready"] is None:
+            self._epi_plan(self.cycle)
+
+    def _epi_plan(self, t):
+        """Requantize the draining tile with the loaded parameters (spec 10.1, tri_queue.requant)
+        and time its rows: the first row G + latency - 1 cycles after the bank and the parameters
+        are ready, each later one G cycles after the previous row's write (_issue_write)."""
+        d, out = self.drain, self.cfg[isa.EPI_OUT]
+        zp, lo, hi = (int(np.int8(np.uint8((out >> s) & 0xFF))) for s in (0, 8, 16))
+        bias, m0, shift = self.epi_par
+        cols = d["vals"].shape[1]
+        q = requant.requantize(d["vals"], bias[:cols], m0[:cols], shift[:cols], zp, lo, hi)
+        for rr in range(q.shape[0]):
+            d["writes"].append((d["base"] + rr * self.cfg[isa.C_LD], q[rr].tobytes()))
+        d["ready"] = max(d["base_ready"], t) + self.T // self.epi_lanes + self.p.epi_latency - 1
 
     def step_mac(self):
         self.swap_wait = False
@@ -703,6 +769,19 @@ class TriQueueCore:
             self.stream[ps] = None
 
     def _issue_read(self, s):
+        if s == "E":                                     # epilogue parameter word
+            f = self.epi_fetch
+            addr = f["addr"]
+            if addr < 0 or addr + self.W > len(self.mem):
+                raise ValueError(f"bus error: read out of bounds at 0x{addr:x} ({self.W} bytes, mem size 0x{len(self.mem):x})")
+            self.inflight.append((self.cycle + self.p.mem_latency, "E", self.mem[addr:addr + self.W].copy()))
+            f["addr"] += self.W
+            f["left"] -= 1
+            self.stats.read_vectors += 1
+            self.stats.read_bytes += self.W
+            self.stats.epi_reads += 1
+            self.ev("port", "rd", s="E", addr=addr, n=self.W)
+            return
         addr = self.stream[s][0]
         nb = min(self.W, self.stream[s][1])
         if addr < 0 or addr + nb > len(self.mem):
@@ -731,6 +810,8 @@ class TriQueueCore:
         self.stats.write_vectors += 1
         self.stats.write_bytes += len(data)
         self.ev("port", "wr", addr=addr, n=len(data), data=data.hex())
+        if self.drain.get("epi"):                        # the lanes resume: next row G cycles on
+            self.drain["ready"] = self.cycle + self.T // self.epi_lanes
         if not self.drain["writes"]:
             bank = self.drain["bank"]
             self.sum[bank] = 0          # drain clears the bank
@@ -760,9 +841,11 @@ class TriQueueCore:
         unchanged until granted: a held read skips stream arbitration (and panel loads), and on a
         shared port a held read or write keeps the port."""
         rd_gnt, wr_gnt = self.gnt.next()
-        cand = self.rd_pend or self._read_candidate()
+        epi_rd = self.epi_fetch is not None and self.epi_fetch["left"] > 0
+        cand = self.rd_pend or ("E" if epi_rd else self._read_candidate())
         room = self.wr_pend or not self.p.wr_ack or self.wr_out < self.p.wr_out_max
-        can_write = self.drain is not None and self.cycle >= self.drain["ready"] and room
+        can_write = (self.drain is not None and self.drain["ready"] is not None
+                     and self.cycle >= self.drain["ready"] and room)
         if not self.p.shared_port:
             if can_write:
                 self._try_write(wr_gnt)
@@ -781,6 +864,9 @@ class TriQueueCore:
     def arrivals(self):
         while self.inflight and self.inflight[0][0] <= self.cycle:
             _, s, data = self.inflight.popleft()
+            if s == "E":
+                self._epi_arrive(data)
+                continue
             self.inflight_n[s] -= len(data)
             self.fifo[s].push(data)
         while self.pinflight and self.pinflight[0][0] <= self.cycle:
@@ -837,8 +923,24 @@ def reference(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return ((full + 2**31) % 2**32 - 2**31).astype(np.int32)
 
 
-def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None):
-    """Pack operands and build the memory image and program. Returns (mem, prog, layout)."""
+def epi_table(epi: dict, n: int, tile: int, port_bytes: int) -> bytes:
+    """The epilogue parameter table (spec 10.1): per tile column, T x int32 bias, T x int32 M0 and
+    T x int8 shift, zero-padded to isa.EPI_WORDS port words. Columns past n are zero."""
+    ntn, out = -(-n // tile), bytearray()
+    for tj in range(ntn):
+        sl = slice(tj * tile, min(n, (tj + 1) * tile))
+        col = [np.zeros(tile, dt) for dt in ("<i4", "<i4", np.int8)]
+        for arr, key in zip(col, ("bias", "m0", "shift")):
+            arr[:sl.stop - sl.start] = np.asarray(epi[key])[sl]
+        entry = b"".join(c.tobytes() for c in col)
+        out += entry + bytes(isa.EPI_WORDS * port_bytes - len(entry))
+    return bytes(out)
+
+
+def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None, epi: dict | None = None):
+    """Pack operands and build the memory image and program. Returns (mem, prog, layout).
+    epi: TFLite epilogue (MODE[9], needs out_bytes = 1): per-column bias, m0, shift (length n)
+    and per-tensor zp, act_min, act_max; the parameter table follows C."""
     from .packing import pack_a, pack_b
     p = params or Params()
     p.validate()
@@ -860,7 +962,15 @@ def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None):
     else:
         c_ld = _align(n * p.out_bytes, int(p.port_bytes))   # C rows padded to whole port words
         c_bytes = m * c_ld
-    mem = np.zeros(_align(c_base + c_bytes + 64, al), np.uint8)
+    table = b""
+    if epi is not None:
+        if p.out_bytes != 1 or p.chain_c:
+            raise ValueError("the epilogue needs int8 output (out_bytes = 1) and the row layout")
+        table = epi_table(epi, n, p.tile, int(p.port_bytes))
+    epi_base = _align(c_base + c_bytes, al)
+    mem_end = epi_base + len(table) if epi is not None else c_base + c_bytes   # no table: v1 image size
+    mem = np.zeros(_align(mem_end + 64, al), np.uint8)
+    mem[epi_base:epi_base + len(table)] = np.frombuffer(table, np.uint8)
     mem[a_base:a_base + len(pa)] = pa
     mem[b_base:b_base + len(pb)] = pb
     mode = (isa.MODE_A_SIGNED if a.dtype == np.int8 else 0) | (isa.MODE_B_SIGNED if b.dtype == np.int8 else 0)
@@ -868,17 +978,26 @@ def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None):
         mode |= isa.mode_out_int8(p.out_shift)
     if p.walk_cols:
         mode |= isa.MODE_WALK_COLS
-    prog = isa.gemm_config(a_base, b_base, c_base, c_ld, k, m, n, mode) + isa.gemm_kernel()
+    if epi is not None:
+        mode |= isa.MODE_EPI
+        out_word = isa.epi_out(epi.get("zp", 0), epi.get("act_min", -128), epi.get("act_max", 127))
+        prog = isa.gemm_config(a_base, b_base, c_base, c_ld, k, m, n, mode, epi_base, out_word)
+    else:
+        prog = isa.gemm_config(a_base, b_base, c_base, c_ld, k, m, n, mode)
+    prog += isa.gemm_kernel()
     layout = dict(m=m, n=n, k=k, a_base=a_base, b_base=b_base, c_base=c_base, c_ld=c_ld, mode=mode,
                   out_bytes=p.out_bytes)
+    if epi is not None:
+        layout.update(epi_base=epi_base)
     if p.chain_c:                 # only the chaining layout needs these (read_c, trace consumers)
         layout.update(tile=p.tile, chain_c=True)
     return mem, prog, layout
 
 
-def run_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None, trace=None):
+def run_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None, trace=None,
+             epi: dict | None = None):
     p = params or Params()
-    mem, prog, L = build_gemm(a, b, p)
+    mem, prog, L = build_gemm(a, b, p, epi)
     core = TriQueueCore(mem, prog, p, trace)
     stats = core.run()
     stats.useful_macs = L["m"] * L["n"] * L["k"]
