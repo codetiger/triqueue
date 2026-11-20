@@ -50,13 +50,22 @@ set +u                       # conda's and Chipyard's activation scripts read un
 source /work/conda/etc/profile.d/conda.sh
 
 if [ ! -f /work/.setup-$TAG ]; then
+  export GIT_TERMINAL_PROMPT=0     # a dead submodule URL fails instead of waiting for credentials
+  # Chipyard 1.15.0's Gemmini tests pull github.com/ibm/rocc-software, which no longer exists (404
+  # since Nov 2026), so build-setup's recursive submodule update fails. The SoCs here build the
+  # Gemmini generator, not its software: check its tests out without that nested submodule.
+  git submodule update --init generators/gemmini
+  git -C generators/gemmini submodule update --init software/gemmini-rocc-tests
+  git -C generators/gemmini/software/gemmini-rocc-tests config submodule.rocc-software.update none
+  # steps 1 conda env, 2 submodules, 5 precompile; a run that stopped after step 1 reuses its
+  # environment and repeats the rest (both are idempotent)
+  args=(--use-lean-conda --skip-toolchain --skip-ctags --skip-firesim --skip-marshal --skip-circt --skip-clean)
   if [ -f $CY/env.sh ] && [ -d $CY/.conda-env ]; then
-    echo "[setup] resuming: conda environment and submodules are in place"
-  else
-    # steps 1 conda env, 2 submodules, 5 precompile
-    ./build-setup.sh --use-lean-conda --skip-toolchain --skip-ctags --skip-firesim --skip-marshal \
-        --skip-circt --skip-clean
+    echo "[setup] resuming: conda environment in place, repeating submodules and precompile"
+    source $CY/env.sh
+    args+=(--skip-conda)
   fi
+  ./build-setup.sh "${args[@]}"
   touch /work/.setup-$TAG
 fi
 source $CY/env.sh

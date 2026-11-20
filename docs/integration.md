@@ -142,10 +142,10 @@ The operand FIFOs hide SRAM read latency, not cache misses. A FIFO of depth `FIF
 `L = FIFO_DEPTH - 1` cycles of SRAM read latency (`FIFO_DEPTH >= L + 1`, where model `mem_latency =
 L + 1` includes the 1-cycle operand FIFO write); depth 4 hides up to `L = 3`, depth 8 hides up to
 `L = 7`, and depth 16 hides up to `L = 15`. Choose `FIFO_DEPTH` from the memory's read latency plus
-the adapter's latency. The 64³ GEMM on the Chipyard Rocket SoC passes bit-exact but runs at 10.6%
-because the 8-word FIFOs do not hide the TileLink/L2/DRAM latency; that is a memory-system result,
-not a core limit. The committed run predates the driver's GEMM API and the v1 RTL, so treat the
-cycle count as indicative until it is re-run (`docs/benchmarks.md` §6).
+the adapter's latency. The 64³ GEMM on the Chipyard Rocket SoC passes bit-exact but runs at 23.8% with
+4-beat read bursts (`BURST_BEATS = 4`) and 10.5% with single-beat reads, because the 8-word FIFOs do
+not hide the TileLink/L2/DRAM latency; that is a memory-system result, not a core limit
+(`docs/benchmarks.md` §6, v1.0.2 RTL). For a cached-memory SoC, use read bursts of a cache line.
 
 ## 5. AXI4 master (`tq_top_axi`)
 
@@ -222,8 +222,12 @@ profile's energy or area from a different configuration.
 - `rtl/common/tq_icg.sv` is a simulation/generic-synthesis model with no DFT scan-enable (`SE`/`TE`)
   pin; replace it with the foundry's technology ICG cell and wire `TE` for scan insertion (§2).
 - `AxUSER` is not exposed on `tq_top_axi`; tie it off in a wrapper if required.
-- Cached-DRAM performance is not a v1 use case; the Chipyard result is 10.6% (measured on pre-v1 RTL
-  `65815f3`).
+- Cached-DRAM performance is not a v1 use case; on the Chipyard Rocket SoC a 64³ GEMM runs at 23.8%
+  with 4-beat read bursts and 10.5% with single-beat reads (v1.0.2 RTL).
+- The optional input ports `ext_pending_i` (`tq_top*`) and `flush_i` (`tq_axi_mem`) have a default
+  value (`= 1'b0`) in their declarations. Verilator 5.022 (Chipyard 1.15.0's) rejects input port
+  defaults; Verilator 5.054 accepts them. With an older tool, connect those ports and drop the
+  defaults (`bench/soc/chipyard/TriQueue.scala` does this).
 - T=16 closes at 741 MHz on ASAP7 (747 MHz post-route); T=32 has no PPA record.
 - CV-X-IF (`tq_xif_regs`, `core-v-xif` `8a46f9a` subset) has not been validated on a real
   CVA6/CV32E40X pipeline.

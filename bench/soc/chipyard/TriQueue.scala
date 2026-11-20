@@ -57,7 +57,15 @@ class TriQueueBlackBox(t: Int, idBits: Int, midBits: Int, root: String)
   })
   // One file, in rtl/files.f order (tq_pkg first), then the shim: Chipyard compiles black-box
   // sources in its own order, and the package must come before its users.
-  private def read(f: String) = { val src = scala.io.Source.fromFile(f); try src.mkString finally src.close() }
+  // Chipyard 1.15.0's Verilator (5.022) rejects default values on input ports ("input logic
+  // ext_pending_i = 1'b0"), which the RTL uses to keep newer ports optional. Every such port is
+  // connected in tq_top_axi, so the defaults are dropped from the inlined copy.
+  private val portDefault = """(?m)^(\s*input\s+logic\b[^=\n]*?)\s*=\s*1'b[01]""".r
+  private def read(f: String) = {
+    val src = scala.io.Source.fromFile(f)
+    try portDefault.replaceAllIn(src.mkString, m => scala.util.matching.Regex.quoteReplacement(m.group(1)))
+    finally src.close()
+  }
   private val files = scala.io.Source.fromFile(s"$root/rtl/files.f").getLines().map(_.trim).filter(_.nonEmpty)
     .map(f => s"$root/$f").toSeq :+ s"$root/bench/soc/chipyard/vsrc/tq_chipyard.sv"
   setInline("tq_chipyard_all.sv", files.map(f => s"// ---- $f\n" + read(f)).mkString("\n"))
@@ -82,8 +90,8 @@ class TriQueueAXI(params: TriQueueParams)(implicit p: Parameters) extends LazyMo
 
   lazy val module = new LazyModuleImp(this) {
     val (s, se) = regNode.in(0)
-    val (m, _) = memNode.out(0)
-    val bb = Module(new TriQueueBlackBox(params.tile, se.bundle.idBits, m.bundle.idBits, params.root))
+    val (m, me) = memNode.out(0)
+    val bb = Module(new TriQueueBlackBox(params.tile, se.bundle.idBits, me.bundle.idBits, params.root))
     bb.io.clock := clock
     bb.io.reset := reset.asBool
     // registers (slave)
@@ -97,13 +105,12 @@ class TriQueueAXI(params: TriQueueParams)(implicit p: Parameters) extends LazyMo
     bb.io.s_arvalid := s.ar.valid; s.ar.ready := bb.io.s_arready
     s.r.bits.id := bb.io.s_rid; s.r.bits.data := bb.io.s_rdata; s.r.bits.resp := bb.io.s_rresp
     s.r.bits.last := bb.io.s_rlast; s.r.valid := bb.io.s_rvalid; bb.io.s_rready := s.r.ready
-    // memory (master)
+    // memory (master); rocket-chip's AXI4 bundle has no AxREGION, and tq_top_axi drives it 0
     m.ar.bits := 0.U.asTypeOf(m.ar.bits)
     m.ar.bits.id := bb.io.m_arid
     m.ar.bits.addr := bb.io.m_araddr; m.ar.bits.len := bb.io.m_arlen; m.ar.bits.size := bb.io.m_arsize
     m.ar.bits.burst := bb.io.m_arburst; m.ar.bits.prot := bb.io.m_arprot
     m.ar.bits.cache := bb.io.m_arcache; m.ar.bits.qos := bb.io.m_arqos
-    m.ar.bits.region := bb.io.m_arregion
     m.ar.valid := bb.io.m_arvalid; bb.io.m_arready := m.ar.ready
     bb.io.m_rid := m.r.bits.id
     bb.io.m_rdata := m.r.bits.data; bb.io.m_rresp := m.r.bits.resp; bb.io.m_rlast := m.r.bits.last
@@ -113,7 +120,6 @@ class TriQueueAXI(params: TriQueueParams)(implicit p: Parameters) extends LazyMo
     m.aw.bits.addr := bb.io.m_awaddr; m.aw.bits.len := bb.io.m_awlen; m.aw.bits.size := bb.io.m_awsize
     m.aw.bits.burst := bb.io.m_awburst; m.aw.bits.prot := bb.io.m_awprot
     m.aw.bits.cache := bb.io.m_awcache; m.aw.bits.qos := bb.io.m_awqos
-    m.aw.bits.region := bb.io.m_awregion
     m.aw.valid := bb.io.m_awvalid; bb.io.m_awready := m.aw.ready
     m.w.bits := 0.U.asTypeOf(m.w.bits)
     m.w.bits.data := bb.io.m_wdata; m.w.bits.strb := bb.io.m_wstrb; m.w.bits.last := bb.io.m_wlast

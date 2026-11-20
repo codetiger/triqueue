@@ -43,6 +43,19 @@ All notable changes to the Tri-Queue project. This format follows
   first coverage run showed the regression never reached those checks (line coverage 94.9% →
   96.3%). The regression is now 1,747 cases in 26 configurations.
 
+### Fixed (SoC bench)
+
+- `bench/soc/chipyard` had not been run since pre-v1 RTL and no longer built:
+  `bench/chipyard/setup.sh` now skips Gemmini's `rocc-software` test submodule (its GitHub
+  repository is gone, which failed Chipyard's setup) and repeats submodule setup when an earlier run
+  stopped after the conda step; `TriQueue.scala` takes the master ID width from the edge
+  (`me.bundle`), no longer drives `AxREGION` (rocket-chip's AXI4 bundle has none; `tq_top_axi` drives
+  it 0), and drops the input port defaults that Chipyard's Verilator 5.022 rejects.
+- Re-run on the v1.0.2 RTL: 64³ passes bit-exact with the model's beats, reads and writes in 17,187
+  cycles (23.8%) with the shim's 4-beat read bursts, and 38,686 cycles (10.5%) with single-beat
+  reads (was 38,295 on pre-v1 RTL). README, `docs/benchmarks.md` §6, `docs/integration.md` and spec
+  §11 quote the new run; `docs/integration.md` §8 notes the input port defaults.
+
 ### Fixed (testbench)
 
 - `TqTbXif` drew a 0–2 cycle `x_result_ready_i` delay but counted it from before the result was

@@ -109,4 +109,12 @@ Source: `flow/results.md` (`flow/results.py`, from runs of `flow/ppa.py` and `fl
 
 Source: `bench/soc/chipyard/README.md`. A one-core Rocket SoC (Chipyard 1.15.0) with `tq_top_axi` attached to the periphery and front buses, running a 64×64×64 int8 GEMM in Verilator through `sw/tq.c`.
 
-It passes with 0 mismatches and the same 4,096 beats, 4,096 reads and 1,024 writes as the cycle model, in **38,295 cycles (10.6% utilization)** against 4,130 cycles (99.2%) on a 2-cycle SRAM. This run is from 2026-11-08 (`65815f3`); it predates the driver's GEMM API (`261d12d`) and the v1 RTL (`cfd68f4`), and has not been re-run since. The 8-word operand FIFOs are meant for tightly coupled SRAM and do not hide the latency of the TileLink-to-AXI bridge, L2 cache and DRAM. This is a memory-latency result, not a core limit: the supported v1 integration is a low-latency SRAM or TCM. A deeper FIFO, read bursts and the optional panel buffer are the levers for a cached-memory SoC; no measured profile for that exists yet (`docs/integration.md`).
+It passes with 0 mismatches and the same 4,096 beats, 4,096 reads and 1,024 writes as the cycle model (v1.0.2 RTL, 2026-11-20):
+
+| Memory master | Cycles | Utilization |
+| --- | --- | --- |
+| `BURST_BEATS = 4` (the shim's setting: one 64-byte line per AR) | **17,187** | **23.8%** |
+| `BURST_BEATS = 1` (one 16-byte word per AR) | 38,686 | 10.5% |
+| Fixed-latency SRAM, 2 cycles (cycle model and RTL) | 4,130 | 99.2% |
+
+The 8-word operand FIFOs are meant for tightly coupled SRAM and do not hide the latency of the TileLink-to-AXI bridge, L2 cache and DRAM. Read bursts take one round trip per line instead of per word and cut the cycles 2.25×. This is a memory-latency result, not a core limit: the supported v1 integration is a low-latency SRAM or TCM. A deeper FIFO and the optional panel buffer are the other levers for a cached-memory SoC and have not been measured in the SoC (`docs/integration.md`). The single-beat run matches the pre-v1 result (38,295 cycles, 2026-11-08, `65815f3`).
