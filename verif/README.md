@@ -2,7 +2,7 @@
 
 ```
 make rtl-lint        # Verilator -Wall (12 parameter sets + 3 adapter tops + burst AXI) + Yosys elaboration
-make rtl-test        # cocotb + Verilator regression against the cycle model (1,742 cases in 26 configs + golden-vector $readmemh test, ~170 s)
+make rtl-test        # cocotb + Verilator regression against the cycle model (1,747 cases in 26 configs + golden-vector $readmemh test, ~170 s)
 make rtl-coverage    # the same with Verilator line + toggle coverage, merged per file (build/rtl-cov/summary.md, ~7 min)
 make formal          # SymbiYosys: clock-gating, FIFO, AXI4-Lite & CV-X-IF proofs, AXI4 master (cover, burst BMC, unbounded prove/burst_prove), T=4 core split (typically 3–11 min, but PDR variance can exceed 30 min)
 make formal-nightly  # SymbiYosys: T=4 core (shared, ack, ack_split, panel) + lazy clear csa1 + AXI4 burst read data (burst_data) (3–10 min each)
@@ -29,7 +29,7 @@ Each configuration in `test_rtl.py` builds the DUT once (in `build/rtl/<name>/`)
 | `t8_shared_backpressure` | Shared port + random `gnt` stalls | 12 |
 | `t8_acc_csa` | `ACC_FORM = CSA` (carry-save accumulator): edge shapes, signedness, 64³, GEMV, stalls | 118 |
 | `t8_reference_queues` | Physical-design reference queues (`FIFO_DEPTH = 4`, `MACQ_DEPTH = 3`) | 42 |
-| `t8_edge_cases` | Illegal programs (error codes & exact stop cycle), `ZERO_C` during drain, `K = 0`, `PROG` writes while busy, mid-run `ABORT`/error restart, seeded random valid/invalid programs, register/IRQ/W1C contract | 40 |
+| `t8_edge_cases` | Illegal programs (error codes & exact stop cycle), `ZERO_C` during drain, `K = 0`, `PROG` writes while busy, mid-run `ABORT`/error restart, seeded random valid/invalid programs, register/IRQ/W1C contract | 45 |
 | `t8_edge_shared` | Illegal/edge-case programs and mid-run `ABORT`/error restart with `SHARED_PORT = 1` and `WR_ACK = 1` | 11 |
 | `t8_mcu_custom` | `PERF = 0` (counters tie to 0), `PROG_BYTES = 128` (`HW_CONFIG[20:10]`, programs > 64 B, PC wrap at 128 B) | 4 |
 | `t8_panel` | `A` panel buffer (`PANEL_BYTES = 1024`, spec §10.9): replay hits, K overflow fallback, stalls, errors | 175 |
@@ -48,7 +48,7 @@ Each configuration in `test_rtl.py` builds the DUT once (in `build/rtl/<name>/`)
 | `t32` | `T = 32` (1024 MACs/cycle, 512-bit ports) | 81 |
 | `t16` | `T = 16` (256 MACs/cycle, 256-bit ports) | 118 |
 | `t4` | `T = 4` (16 MACs/cycle, 64-bit ports) | 150 |
-| **Total** | **26 configurations** (+ `test_vectors_readmemh`) | **1,742** |
+| **Total** | **26 configurations** (+ `test_vectors_readmemh`) | **1,747** |
 
 Stalled cases are cycle-exact too: the testbench draws its grants from the model's `GrantSource` with the case's seed (`docs/golden-vectors.md`). It also checks OBI request stability: every ungranted request reappears unchanged the next cycle (except on `ABORT` or fatal error stop).
 

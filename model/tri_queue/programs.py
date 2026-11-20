@@ -17,6 +17,9 @@ def edge_program(name: str, cfg: bytes) -> bytes:
     opcode            the kernel with FENCE replaced by an undefined opcode   -> ERR_OPCODE
     reserved_arg      a NOP with a non-zero argument nibble                   -> ERR_OPCODE
     reserved_vouter   a VOUTER_MAC with reserved bit arg[2] set               -> ERR_OPCODE
+    reserved_zero_c, reserved_stream_a, reserved_stream_b, reserved_swap_c, reserved_fence
+                      the kernel with that instruction's argument nibble = 1 -> ERR_OPCODE
+                      (SWAP_C in the first tile's body, FENCE at the end)
     cfg_reg           a CFG to register 8 first                               -> ERR_CFG_REG
     cfg_loop          a CFG inside LOOP_T's body                              -> ERR_CFG_LOOP
     cfg_val_k         a CFG K above the supported range                       -> ERR_CFG_VAL
@@ -49,6 +52,11 @@ def edge_program(name: str, cfg: bytes) -> bytes:
         "opcode": cfg + body + E(0xA),
         "reserved_arg": cfg + E(isa.NOP, 1) + kernel,
         "reserved_vouter": cfg + E(isa.ZERO_C) + E(isa.STREAM_A) + E(isa.STREAM_B) + E(isa.VOUTER_MAC, 0x4) + E(isa.FENCE),
+        "reserved_zero_c": cfg + E(isa.ZERO_C, 1) + kernel[1:],
+        "reserved_stream_a": cfg + kernel[:1] + E(isa.STREAM_A, 1) + kernel[2:],
+        "reserved_stream_b": cfg + kernel[:2] + E(isa.STREAM_B, 1) + kernel[3:],
+        "reserved_swap_c": cfg + kernel[:8] + E(isa.SWAP_C, 1) + kernel[9:],
+        "reserved_fence": cfg + body + E(isa.FENCE, 1),
         "cfg_reg": E(isa.CFG, 8) + (0).to_bytes(4, "little") + cfg + kernel,
         "cfg_loop": cfg + E(isa.ZERO_C) + E(isa.LOOP_T, 5) + isa.cfg(isa.K, 8) + E(isa.FENCE),
         "cfg_val_k": cfg[:20] + isa.cfg(isa.K, 0xFFFF_FFF8) + cfg[25:] + kernel,
@@ -77,6 +85,11 @@ EXPECTED_ERROR = {
     "opcode": isa.ERR_OPCODE,
     "reserved_arg": isa.ERR_OPCODE,
     "reserved_vouter": isa.ERR_OPCODE,
+    "reserved_zero_c": isa.ERR_OPCODE,
+    "reserved_stream_a": isa.ERR_OPCODE,
+    "reserved_stream_b": isa.ERR_OPCODE,
+    "reserved_swap_c": isa.ERR_OPCODE,
+    "reserved_fence": isa.ERR_OPCODE,
     "cfg_reg": isa.ERR_CFG_REG,
     "cfg_loop": isa.ERR_CFG_LOOP,
     "cfg_val_k": isa.ERR_CFG_VAL,

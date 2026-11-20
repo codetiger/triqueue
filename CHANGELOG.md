@@ -35,8 +35,13 @@ All notable changes to the Tri-Queue project. This format follows
 
 - `make rtl-coverage` (`TQ_COVERAGE=1` in `verif/test_rtl.py`, `tools/rtl_coverage.py`, nightly CI
   job with an `rtl-coverage` artifact): the regression with Verilator line + toggle coverage, merged
-  per source file. 94.9% of line points and 94.3% of toggle points under `rtl/`; the unreached lines
+  per source file. 96.3% of line points and 94.3% of toggle points under `rtl/`; the unreached lines
   are listed in `docs/verification.md` §5.
+- Edge programs `reserved_zero_c`, `reserved_stream_a`, `reserved_stream_b`, `reserved_swap_c` and
+  `reserved_fence` (`model/tri_queue/programs.py`, model tests and `t8_edge_cases`): a non-zero
+  reserved argument on each of these opcodes stops with `ERR_OPCODE` at the model's cycle. The
+  first coverage run showed the regression never reached those checks (line coverage 94.9% →
+  96.3%). The regression is now 1,747 cases in 26 configurations.
 
 ### Changed
 

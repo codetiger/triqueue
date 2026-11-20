@@ -99,7 +99,8 @@ CONFIGS = {
         dict(T=8),
         dict(tile=8),
         [dict(case(20, 24, 27), prog=pr) for pr in
-         ("opcode", "reserved_arg", "reserved_vouter", "cfg_reg", "cfg_loop", "loop_depth", "loop_zero_body",
+         ("opcode", "reserved_arg", "reserved_vouter", "reserved_zero_c", "reserved_stream_a",
+          "reserved_stream_b", "reserved_swap_c", "reserved_fence", "cfg_reg", "cfg_loop", "loop_depth", "loop_zero_body",
           "loop_nest_over", "second_loop_t", "pc", "pc_skip_loop", "cfg_val_k", "cfg_val_m",
           "cfg_val_mode", "cfg_val_cld", "operand_leftover", "operand_starved", "cfg_after_swap",
           "zero_in_drain")]

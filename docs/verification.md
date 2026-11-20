@@ -9,7 +9,7 @@ detailed commands and the per-configuration case list are in [`verif/README.md`]
 ## 1. Differential regression (RTL vs cycle model)
 
 `make rtl-test` builds `tq_top` (and the adapters) with Verilator for 26 configurations and runs
-**1,742 cases** (plus a standalone Verilator `$readmemh` golden-vector test). Each case drives a
+**1,747 cases** (plus a standalone Verilator `$readmemh` golden-vector test). Each case drives a
 real program through the register port, serves memory from a Python SRAM/bus model, records every
 read, write and MAC start, and compares the RTL with the cycle-model run:
 
@@ -73,14 +73,14 @@ post-route); T = 32 has no PPA record.
 ## 5. What is not covered yet
 
 - **Simulation coverage gaps.** `make rtl-coverage` (nightly CI, artifact `rtl-coverage`) reruns the
-  regression with Verilator line and toggle coverage: 94.9% of line points (335/353) and 94.3% of
-  toggle points under `rtl/` are hit across the 26 configurations (2026-11-20, `1f30d81`). The line
-  points the regression never reaches are each covered by a formal proof but not in simulation: the
-  burst line buffer evicting a still-valid line (`tq_axi_mem`), the `CHECK_PROT` error responses of
+  regression with Verilator line and toggle coverage: 96.3% of line points (340/353) and 94.3% of
+  toggle points under `rtl/` are hit across the 26 configurations (2026-11-20). The line points the
+  regression never reaches are each covered by a formal proof but not in simulation: the burst line
+  buffer evicting a still-valid line (`tq_axi_mem`), the `CHECK_PROT` error responses of
   `tq_axil_regs` (no configuration sets it), back-pressure on the CV-X-IF adapter's register grant,
-  response and result handshakes (`tq_xif_regs`), the reserved-argument `ERR_OPCODE` checks of five
-  opcodes and two loop-reset paths in `tq_frontend`. The remaining misses are the `CLK_GATE` arms of
-  gated register writes, which cannot be reached with gating on. There is no branch or expression
+  response and result handshakes (`tq_xif_regs`), and two loop-reset paths in `tq_frontend`. The
+  remaining misses are the `CLK_GATE` arms of gated register writes, which cannot be reached with
+  gating on. There is no branch or expression
   coverage, and coverage is a report, not a gate.
 - **Unbounded coverage-guided program fuzzing.** `t8_edge_cases` includes seeded random valid and
   invalid program sequences and mid-run abort/restart checks, but there is no coverage-guided
