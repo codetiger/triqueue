@@ -59,9 +59,9 @@ module tq_axi_mem_env #(
     if (BURST_BEATS > 1) qval = QW'(a[DAW-1:2] == sym_a);
     else                 qval = QW'(a);
   endfunction
+  // {epoch, zero-extended qval}: {e[1], 30'b0, e[0]} in burst mode, {e[31], e[30:0]} otherwise
   function automatic logic [31:0] qdata(input logic [QW:0] e);
-    if (BURST_BEATS > 1) qdata = {e[QW], 30'b0, e[0]};
-    else                 qdata = {e[QW], (31 - DAW)'(0), e[QW-1:0]};
+    qdata = {e[QW], 31'(e[QW-1:0])};
   endfunction
   logic [31:0] rd_addr_c, wr_addr_c;
   assign rd_addr_c = (BURST_BEATS > 1) ? {26'b0, rd_addr_i[5:0]} : rd_addr_i;
