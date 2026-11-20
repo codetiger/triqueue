@@ -216,7 +216,10 @@ class TqTb:
 class TqTbAxil(TqTb):
     """Drives tq_top_axil: the same runs, with the registers reached through AXI4-Lite. The
     AXI side is checked for the protocol rules a master relies on (VALID held until READY,
-    exactly one response per request)."""
+    exactly one response per request). Accesses are privileged and secure (AxPROT = 0b001, what
+    CHECK_PROT = 1 requires) unless a call passes another `prot`."""
+
+    PROT = 0b001
 
     def core_handle(self):
         return self.dut.u_tq.u_core
@@ -237,22 +240,31 @@ class TqTbAxil(TqTb):
                 return
         raise TimeoutError(what)
 
-    async def _write_addr(self, addr: int, data: int, be: int):
+    async def _write_addr(self, addr: int, data: int, be: int, prot: int | None = None):
         """Present AW and W until accepted; return at the falling edge after the handshake."""
         d = self.dut
         if val(d.s_bvalid_o):
             await self._write_resp()
         d.s_bready_i.value = 0
+        d.s_awprot_i.value = self.PROT if prot is None else prot
         d.s_awaddr_i.value, d.s_awvalid_i.value = addr, 1
         d.s_wdata_i.value, d.s_wstrb_i.value, d.s_wvalid_i.value = data, be, 1
         await self._handshake(d.s_awready_o, "AXI write not accepted")
         d.s_awvalid_i.value, d.s_wvalid_i.value = 0, 0
 
-    async def _write_resp(self):
+    async def _write_resp(self, expect: int = 0):
+        """Take the B response (BRESP sampled in the handshake cycle) and check it is `expect`."""
         d = self.dut
         d.s_bready_i.value = 1
-        assert val(d.s_bresp_o) == 0
-        await self._handshake(d.s_bvalid_o, "no AXI write response")
+        for _ in range(20):
+            await ReadOnly()
+            ok, resp = val(d.s_bvalid_o), val(d.s_bresp_o)
+            await FallingEdge(d.clk_i)
+            if ok:
+                break
+        else:
+            raise TimeoutError("no AXI write response")
+        assert resp == expect, f"BRESP {resp}, expected {expect}"
         d.s_bready_i.value = 0
         assert not val(d.s_bvalid_o), "second write response"
 
@@ -266,11 +278,12 @@ class TqTbAxil(TqTb):
         await self._write_addr(REG_CTRL, 1, 0xF)
         self.dut.s_bready_i.value = 1
 
-    async def reg_read(self, addr: int) -> int:
+    async def reg_read(self, addr: int, prot: int | None = None, expect: int = 0) -> int:
         d = self.dut
         if val(d.s_bvalid_o):
             await self._write_resp()
         d.s_bready_i.value = 0
+        d.s_arprot_i.value = self.PROT if prot is None else prot
         d.s_araddr_i.value, d.s_arvalid_i.value, d.s_rready_i.value = addr, 1, 1
         await self._handshake(d.s_arready_o, "AXI read not accepted")
         d.s_arvalid_i.value = 0
@@ -282,7 +295,7 @@ class TqTbAxil(TqTb):
                 break
         else:
             raise TimeoutError("no AXI read response")
-        assert resp == 0
+        assert resp == expect, f"RRESP {resp}, expected {expect}"
         d.s_rready_i.value = 0
         assert not val(d.s_rvalid_o), "second read response"
         return data

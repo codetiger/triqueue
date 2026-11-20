@@ -2,7 +2,7 @@
 
 ```
 make rtl-lint        # Verilator -Wall (12 parameter sets + 3 adapter tops + burst AXI) + Yosys elaboration
-make rtl-test        # cocotb + Verilator regression against the cycle model (1,747 cases in 26 configs + golden-vector $readmemh test, ~170 s)
+make rtl-test        # cocotb + Verilator regression against the cycle model (1,749 cases in 27 configs + golden-vector $readmemh test, ~170 s)
 make rtl-coverage    # the same with Verilator line + toggle coverage, merged per file (build/rtl-cov/summary.md, ~7 min)
 make formal          # SymbiYosys: clock-gating, FIFO, AXI4-Lite & CV-X-IF proofs, AXI4 master (cover, burst BMC, unbounded prove/burst_prove), T=4 core split (typically 3–11 min, but PDR variance can exceed 30 min)
 make formal-nightly  # SymbiYosys: T=4 core (shared, ack, ack_split, panel) + lazy clear csa1 + AXI4 burst read data (burst_data) (3–10 min each)
@@ -40,6 +40,7 @@ Each configuration in `test_rtl.py` builds the DUT once (in `build/rtl/<name>/`)
 | `t8_mac1_csa_shared` | `MAC_PIPE = 1` + carry-save + shared port + panel buffer | 9 |
 | `t8_no_clock_gating` | `CLK_GATE = 0` (plain enable flops) | 74 |
 | `t8_axil` | `tq_top_axil`: AXI4-Lite slave register adapter + host/IRQ contract | 11 |
+| `t8_axil_prot` | `tq_top_axil` with `CHECK_PROT = 1`: privileged secure accesses work, unprivileged or non-secure ones get `SLVERR` and do not reach the registers | 2 |
 | `t8_xif` | `tq_top_xif`: CV-X-IF coprocessor instruction adapter (speculative/killed copies, random order, batched commit/kill) | 11 |
 | `t8_write_ack` | `WR_ACK = 1`, `WR_OUT_MAX = 2` with variable write-response latency | 30 |
 | `t8_write_ack_shared` | `WR_ACK = 1`, `WR_OUT_MAX = 1`, `SHARED_PORT = 1` | 9 |
@@ -48,7 +49,7 @@ Each configuration in `test_rtl.py` builds the DUT once (in `build/rtl/<name>/`)
 | `t32` | `T = 32` (1024 MACs/cycle, 512-bit ports) | 81 |
 | `t16` | `T = 16` (256 MACs/cycle, 256-bit ports) | 118 |
 | `t4` | `T = 4` (16 MACs/cycle, 64-bit ports) | 150 |
-| **Total** | **26 configurations** (+ `test_vectors_readmemh`) | **1,747** |
+| **Total** | **27 configurations** (+ `test_vectors_readmemh`) | **1,749** |
 
 Stalled cases are cycle-exact too: the testbench draws its grants from the model's `GrantSource` with the case's seed (`docs/golden-vectors.md`). It also checks OBI request stability: every ungranted request reappears unchanged the next cycle (except on `ABORT` or fatal error stop).
 

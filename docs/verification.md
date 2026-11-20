@@ -8,8 +8,8 @@ detailed commands and the per-configuration case list are in [`verif/README.md`]
 
 ## 1. Differential regression (RTL vs cycle model)
 
-`make rtl-test` builds `tq_top` (and the adapters) with Verilator for 26 configurations and runs
-**1,747 cases** (plus a standalone Verilator `$readmemh` golden-vector test). Each case drives a
+`make rtl-test` builds `tq_top` (and the adapters) with Verilator for 27 configurations and runs
+**1,749 cases** (plus a standalone Verilator `$readmemh` golden-vector test). Each case drives a
 real program through the register port, serves memory from a Python SRAM/bus model, records every
 read, write and MAC start, and compares the RTL with the cycle-model run:
 
@@ -73,11 +73,10 @@ post-route); T = 32 has no PPA record.
 ## 5. What is not covered yet
 
 - **Simulation coverage gaps.** `make rtl-coverage` (nightly CI, artifact `rtl-coverage`) reruns the
-  regression with Verilator line and toggle coverage: 96.6% of line points (341/353) and 94.3% of
-  toggle points under `rtl/` are hit across the 26 configurations (2026-11-20). The line points the
+  regression with Verilator line and toggle coverage: 97.2% of line points (343/353) and 94.3% of
+  toggle points under `rtl/` are hit across the 27 configurations (2026-11-20). The line points the
   regression never reaches are each covered by a formal proof but not in simulation: the burst line
-  buffer evicting a still-valid line (`tq_axi_mem`), the `CHECK_PROT` error responses of
-  `tq_axil_regs` (no configuration sets it), and two loop-reset paths in `tq_frontend`. The remaining misses cannot be reached in `tq_top*`: the `CLK_GATE` arms of gated
+  buffer evicting a still-valid line (`tq_axi_mem`) and two loop-reset paths in `tq_frontend`. The remaining misses cannot be reached in `tq_top*`: the `CLK_GATE` arms of gated
   register writes with gating on, and `tq_xif_regs` waiting for a register grant or response, which
   `tq_regs` gives at once and one cycle later. There is no branch or expression
   coverage, and coverage is a report, not a gate.

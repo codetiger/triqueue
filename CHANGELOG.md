@@ -41,7 +41,11 @@ All notable changes to the Tri-Queue project. This format follows
   `reserved_fence` (`model/tri_queue/programs.py`, model tests and `t8_edge_cases`): a non-zero
   reserved argument on each of these opcodes stops with `ERR_OPCODE` at the model's cycle. The
   first coverage run showed the regression never reached those checks (line coverage 94.9% →
-  96.3%). The regression is now 1,747 cases in 26 configurations.
+  96.3%).
+- `t8_axil_prot`: `tq_top_axil` with `CHECK_PROT = 1`. The AXI4-Lite testbench now issues privileged,
+  secure accesses (`AxPROT = 0b001`) and checks that unprivileged or non-secure writes and reads get
+  `SLVERR` and leave the registers unchanged; no configuration exercised `CHECK_PROT` before. Line
+  coverage 97.2%; the regression is 1,749 cases in 27 configurations.
 
 ### Fixed (SoC bench)
 

@@ -89,7 +89,7 @@ def first_diff(xs, ys):
     return f"length rtl {len(xs)} vs model {len(ys)}" if len(xs) != len(ys) else None
 
 
-async def check_host_contract(tb, dut, params, host, perf_off: bool):
+async def check_host_contract(tb, dut, params, host, perf_off: bool, check_prot: bool = False):
     assert await tb.reg_read(0x000) == 0x5451_0001
     hw = await tb.reg_read(0x004)
     assert (hw & 0xFF) == params["tile"]
@@ -150,6 +150,17 @@ async def check_host_contract(tb, dut, params, host, perf_off: bool):
         dut.s_awvalid_i.value = 0
         await tb._write_resp()
         assert await tb.reg_read(0x010) == 0x0
+
+    if check_prot:
+        # CHECK_PROT = 1: an unprivileged (AxPROT[0] = 0) or non-secure (AxPROT[1] = 1) access gets
+        # SLVERR and never reaches the registers; a privileged secure one works as before
+        await tb.reg_write(0x010, 0x1)
+        for prot in (0b000, 0b011, 0b010):
+            await tb._write_addr(0x010, 0x2, 0xF, prot=prot)
+            await tb._write_resp(expect=2)
+            assert await tb.reg_read(0x010, prot=prot, expect=2) == 0
+        assert await tb.reg_read(0x010) == 0x1
+        await tb.reg_write(0x010, 0x0)
 
     if host == "xif":
         xid = tb.next_id
@@ -226,6 +237,7 @@ async def check_burst_special(tb, dut, params):
 async def gemm_cases(dut):
     params = dict(json.loads(os.environ["TQ_PARAMS"]))
     perf_off = params.pop("perf_off", False)
+    check_prot = params.pop("check_prot", False)
     cases = json.loads(os.environ["TQ_CASES"])
     host = os.environ.get("TQ_HOST", "native")
     case_filter = os.environ.get("TQ_CASE")
@@ -235,7 +247,7 @@ async def gemm_cases(dut):
     )(dut, params["tile"], params.get("prog_bytes", 64))
     await tb.start()
     if not case_filter:
-        await check_host_contract(tb, dut, params, host, perf_off)
+        await check_host_contract(tb, dut, params, host, perf_off, check_prot)
         if burst:
             await check_burst_special(tb, dut, params)
     failures = []
