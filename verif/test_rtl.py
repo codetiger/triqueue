@@ -41,6 +41,19 @@ def signedness(t):
     return [case(t + 5, 2 * t + 3, 40, a, b) for a, b in itertools.product(("s8", "u8"), repeat=2)]
 
 
+# DS-CNN (bench/e2e) engine layers: op index -> GEMM m, n, k
+DSCNN = {0: (125, 64, 40), 2: (125, 64, 64), 4: (125, 64, 64), 6: (125, 64, 64), 8: (125, 64, 64),
+         11: (1, 12, 64)}
+
+
+def dscnn(op, seed, t, lat=2, stall=0.0, walk=None):
+    """A real DS-CNN layer (TFLite weights, activations and quantization) on the epilogue; the walk is
+    the driver's choice (columns with more than one tile row) unless given."""
+    m, n, k = DSCNN[op]
+    return dict(m=m, n=n, k=k, a="s8", b="s8", seed=seed, lat=lat, stall=stall, epi=True, layer=[op, seed],
+                walk=(m > t) if walk is None else walk)
+
+
 def latency_sweep(t, lats=(1, 2, 3, 5, 8, 13)):
     return [case(t + 3, 2 * t + 1, 27, lat=lat) for lat in lats]
 
@@ -230,6 +243,21 @@ CONFIGS = {
         dict(tile=4),
         [dict(c, epi=True) for c in edge_cases(4, (1, 8, 33))] + [dict(case(16, 16, 16), epi="clamp"),
                                                                  dict(case(17, 9, 40, lat=3, stall=0.5), epi=True)],
+    ),
+    "t8_dscnn": (
+        # DS-CNN keyword spotting (MLPerf Tiny, bench/e2e): every engine layer of one input, C equal
+        # to the TFLite interpreter's tensor; then latency, back-pressure and the other walk
+        dict(T=8),
+        dict(tile=8),
+        [dscnn(op, 1, 8) for op in DSCNN]
+        + [dscnn(0, 2, 8, lat=5, stall=0.3), dscnn(2, 3, 8, lat=3, stall=0.5), dscnn(4, 2, 8, walk=False),
+           dscnn(11, 3, 8, lat=9)],
+    ),
+    "t4_dscnn": (
+        # the same at T = 4 (the Tang Nano 20K size): first conv, one pointwise conv, the classifier
+        dict(T=4),
+        dict(tile=4),
+        [dscnn(0, 1, 4), dscnn(6, 2, 4, stall=0.3), dscnn(11, 1, 4)],
     ),
     "t8_mac1": (
         # MAC_PIPE = 1: no product register, multiply and accumulate in the beat's cycle

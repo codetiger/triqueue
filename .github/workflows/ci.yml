@@ -35,6 +35,8 @@ jobs:
         run: python -m pytest -q
       - name: Pytest suite (sw C driver against the model, no skips allowed)
         run: python -m pytest sw -q -rs -W error::pytest.PytestWarning
+      - name: DS-CNN end to end on the model, bit-exact against TFLite (bench/e2e)
+        run: python -m pytest bench/e2e -q
       - name: Golden-vector generator smoke check
         working-directory: model
         run: |
@@ -74,15 +76,16 @@ jobs:
           else
             python flow/check_lock.py
           fi
-      - name: Regenerate model/results.md, model/dse.md, bench/reference/amx/*.md, flow/results.md, and ui/data/traces_data.js
+      - name: Regenerate model/results.md, model/dse.md, bench/reference/amx/*.md, bench/e2e/results.md, flow/results.md, and ui/data/traces_data.js
         run: |
           cd model && python bench.py > /dev/null && python dse.py > /dev/null
           cd ../bench/reference/amx && python compare.py > /dev/null && python ablation.py > /dev/null
           cd ../../..
+          python bench/e2e/dscnn.py > /dev/null
           python flow/results.py > /dev/null
           python ui/pipeline/build_ui_data.py
       - name: Check committed files are up to date
-        run: git diff --exit-code model/results.md model/dse.md bench/reference/amx/results.md bench/reference/amx/ablation.md flow/results.md ui/data/traces_data.js
+        run: git diff --exit-code model/results.md model/dse.md bench/reference/amx/results.md bench/reference/amx/ablation.md bench/e2e/results.md flow/results.md ui/data/traces_data.js
       - name: Check hand-written docs quote flow/results.md (flop counts, comparison figures)
         run: python tools/check_doc_numbers.py
 

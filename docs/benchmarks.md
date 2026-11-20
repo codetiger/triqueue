@@ -30,7 +30,7 @@ Further tables in the source file: shared read/write port (79.8% at 64³), drain
 
 ## 2. RTL, T = 8
 
-Source: `verif/` (`make rtl-test`). The SystemVerilog core gives the same cycle count as the model for every one of **2,573 regression cases in 37 configurations** (T = 4, 8, 16, 32; shared port; minimal and reference queues; both accumulator forms; panel buffer; single-beat and burst AXI; CV-X-IF; and random memory back-pressure of 10–80%), including **4,130 cycles for 64³**. Results are bit-exact, and every memory transaction and MAC start happens on the same cycle as in the model. See [`docs/verification.md`](verification.md) for the matrix and the known coverage gaps.
+Source: `verif/` (`make rtl-test`). The SystemVerilog core gives the same cycle count as the model for every one of **2,586 regression cases in 39 configurations** (T = 4, 8, 16, 32; shared port; minimal and reference queues; both accumulator forms; panel buffer; single-beat and burst AXI; CV-X-IF; and random memory back-pressure of 10–80%), including **4,130 cycles for 64³**. Results are bit-exact, and every memory transaction and MAC start happens on the same cycle as in the model. See [`docs/verification.md`](verification.md) for the matrix and the known coverage gaps.
 
 ## 3. Tile size (cycle model)
 
@@ -121,3 +121,15 @@ It passes with 0 mismatches and the same 4,096 beats, 4,096 reads and 1,024 writ
 | Fixed-latency SRAM, 2 cycles (cycle model and RTL) | 4,130 | 99.2% |
 
 Read bursts take one round trip per line instead of per word and cut the cycles 2.25×; the panel buffer removes 44% of the reads and another 18% of the cycles. Deeper operand FIFOs change nothing, and neither did doubling the adapter's burst-buffer slots (an RTL experiment, not a parameter): the core and the adapter can keep more reads in flight than this SoC's TileLink path serves, about one 64-byte burst per 16.8 cycles (one word per 9.4 cycles without bursts). This is a memory-system result, not a core limit: the supported v1 integration is a low-latency SRAM or TCM. The single-beat run matches the pre-v1 result (38,295 cycles, 2026-11-08, `65815f3`).
+
+## 7. End-to-end network: DS-CNN keyword spotting (cycle model and RTL)
+
+Source: `bench/e2e/results.md` (`bench/e2e/dscnn.py`). MLPerf Tiny's int8 DS-CNN runs layer by layer, each layer consuming the previous one's output. The five convolutions and the classifier run on the core (host im2col and A packing, then GEMM + TFLite epilogue, `MODE[9]`); the four depthwise convolutions and the average pool run on the host. Every tensor is bit-exact with the TFLite interpreter (reference kernels) for 3 inputs, at T = 8 and T = 4, and the core layers give the same C and cycle count in RTL simulation (`t8_dscnn`, `t4_dscnn`).
+
+| | T = 8 | T = 4 |
+| --- | --- | --- |
+| Core cycles per inference (6 layers, 2.37 M MACs) | **38,339** | 151,048 |
+| Core utilization | **96.5%** | 98.0% |
+| Host work per inference | 51,144 bytes written, 288,000 depthwise MACs | 50,424 bytes, 288,000 MACs |
+
+The core does 89.2% of the network's MACs. The other 10.8%, the depthwise layers, are what a single-issue host spends most of its time on: at one byte and one MAC per host cycle (an assumption, not a simulation) the host's share is about 339,000 cycles, 8.8× the core's at T = 8.

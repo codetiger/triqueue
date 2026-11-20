@@ -29,3 +29,10 @@ path = [
 ]
 SPDX-FileCopyrightText = "2026 Harishankar Narayanan"
 SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+# Weights, quantization and reference tensors derived from MLCommons' MLPerf Tiny keyword-spotting
+# model (kws_ref_model.tflite, Apache-2.0) by bench/e2e/export_dscnn.py
+path = ["bench/e2e/dscnn_golden.npz"]
+SPDX-FileCopyrightText = ["2026 Harishankar Narayanan", "MLCommons"]
+SPDX-License-Identifier = "Apache-2.0"

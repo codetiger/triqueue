@@ -13,9 +13,9 @@ RTL       := $(shell cat rtl/files.f)
 LINT_CFGS := "" "-GCLK_GATE=0" "-GWR_ACK=1" "-GPANEL_BYTES=1024" "-GMAC_PIPE=1" "-GPERF=0" "-GT=4" "-GT=16" "-GT=32" "-GSHARED_PORT=1" "-GFIFO_DEPTH=2 -GMACQ_DEPTH=2" "-GACC_FORM=0"
 ACC_FORMS := cpa:1 csa:0
 
-.PHONY: all model-test sw-test model-results flow-results lock-check doc-check spdx-check rtl-lint rtl-test rtl-coverage formal formal-nightly synth-check fpga ui-data ui-serve dist clean
+.PHONY: all model-test sw-test e2e-test model-results flow-results lock-check doc-check spdx-check rtl-lint rtl-test rtl-coverage formal formal-nightly synth-check fpga ui-data ui-serve dist clean
 
-all: model-test sw-test spdx-check lock-check doc-check rtl-lint rtl-test formal synth-check
+all: model-test sw-test e2e-test spdx-check lock-check doc-check rtl-lint rtl-test formal synth-check
 
 VERSION ?= $(shell sed -n 's/^__version__ = "\(.*\)"/\1/p' model/tri_queue/__init__.py | head -1)
 
@@ -26,6 +26,10 @@ model-test:
 sw-test:
 	$(PYTHON) -m pytest sw -q
 
+# DS-CNN end to end on the cycle model, bit-exact against TFLite (bench/e2e)
+e2e-test:
+	$(PYTHON) -m pytest bench/e2e -q
+
 # Every checked-in source/config file carries an SPDX license identifier and consistent version
 spdx-check:
 	$(PYTHON) tools/check_spdx.py
@@ -33,6 +37,7 @@ spdx-check:
 
 model-results:
 	cd model && $(PYTHON) bench.py > /dev/null && $(PYTHON) dse.py > /dev/null
+	$(PYTHON) bench/e2e/dscnn.py > /dev/null
 
 # Rewrites flow/results.md from the committed run records (flow/records/). Running the physical
 # design flow itself is manual: flow/ppa.py, flow/power.py, then flow/results.py collect.

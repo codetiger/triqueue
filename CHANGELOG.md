@@ -67,6 +67,16 @@ All notable changes to the Tri-Queue project. This format follows
   has more than one tile row. New error `TQ_ERR_UNSUPPORTED` (22) when the core lacks the epilogue.
   `make sw-test` runs it end to end on the cycle model against `requant.requantize` (78 tests).
 
+- **End-to-end DS-CNN (`bench/e2e/`, roadmap C1).** MLPerf Tiny's int8 keyword-spotting DS-CNN
+  (`kws_ref_model.tflite`, MLCommons, Apache-2.0) runs layer by layer on the cycle model: convolutions
+  (host im2col padded with the input zero point) and the classifier as GEMM + epilogue on the core,
+  depthwise and average pool on the host, every tensor bit-exact with the TFLite interpreter's
+  reference kernels for 3 inputs at T = 8 and T = 4. T = 8: 38,339 core cycles per inference at 96.5%
+  utilization; the host's 288,000 depthwise MACs dominate a scalar host. `export_dscnn.py` (needs
+  `ai-edge-litert`, not a requirement) writes the checked-in `dscnn_golden.npz`; `dscnn.py` writes
+  `results.md` (CI checks it); `make e2e-test`. RTL: `t8_dscnn` and `t4_dscnn` run the same layers with
+  C compared against TFLite's tensors (2,586 cases in 39 configurations).
+
 ### Added (v1.1 studies, model only)
 
 - `Params.walk_cols`: a column-major tile walk (since promoted to `MODE[8]`, below); the panel buffer then keeps the B panel. `dse.md` §12:

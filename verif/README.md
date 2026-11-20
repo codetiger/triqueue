@@ -2,7 +2,7 @@
 
 ```
 make rtl-lint        # Verilator -Wall (12 parameter sets + 3 adapter tops + burst AXI) + Yosys elaboration
-make rtl-test        # cocotb + Verilator regression against the cycle model (2,573 cases in 37 configs + golden-vector $readmemh test, ~170 s)
+make rtl-test        # cocotb + Verilator regression against the cycle model (2,586 cases in 39 configs + golden-vector $readmemh test, ~170 s)
 make rtl-coverage    # the same with Verilator line + toggle coverage, merged per file (build/rtl-cov/summary.md, ~10 min)
 make formal          # SymbiYosys: clock-gating, FIFO, AXI4-Lite & CV-X-IF proofs, AXI4 master (cover, burst BMC, unbounded prove/burst_prove), T=4 core split (typically 3–11 min, but PDR variance can exceed 30 min)
 make formal-nightly  # SymbiYosys: T=4 core (shared, ack, ack_split, panel) + lazy clear csa1 + AXI4 burst read data (burst_data) (3–10 min each)
@@ -45,6 +45,8 @@ Each configuration in `test_rtl.py` builds the DUT once (in `build/rtl/<name>/`)
 | `t8_epi_l1` / `t8_epi_l8` | Epilogue with 1 and 8 lanes (`EPI_LANES`) | 6 + 6 |
 | `t8_epi_shared` | Epilogue on a shared port with `WR_ACK = 1` and back-pressure (the lanes hold while a row waits) | 9 |
 | `t4_epi` | Epilogue at T = 4 (2 lanes) | 110 |
+| `t8_dscnn` | Real DS-CNN layers (MLPerf Tiny, `bench/e2e`): all six engine layers of one input (im2col'd 10×4 conv, four 1×1 convs, the classifier), TFLite weights, activations and quantization; C equal to the TFLite interpreter's tensor; plus latency 3–9, back-pressure and the row walk | 10 |
+| `t4_dscnn` | The same at T = 4 (Tang Nano 20K size): first conv, one 1×1 conv with back-pressure, the classifier | 3 |
 | `t8_mac1` | 1-stage MAC (`MAC_PIPE = 1`, no product register) | 119 |
 | `t8_mac1_csa_shared` | `MAC_PIPE = 1` + carry-save + shared port + panel buffer | 9 |
 | `t8_no_clock_gating` | `CLK_GATE = 0` (plain enable flops) | 74 |
@@ -58,7 +60,7 @@ Each configuration in `test_rtl.py` builds the DUT once (in `build/rtl/<name>/`)
 | `t32` | `T = 32` (1024 MACs/cycle, 512-bit ports) | 81 |
 | `t16` | `T = 16` (256 MACs/cycle, 256-bit ports) | 118 |
 | `t4` | `T = 4` (16 MACs/cycle, 64-bit ports) | 150 |
-| **Total** | **37 configurations** (+ `test_vectors_readmemh`) | **2,573** |
+| **Total** | **39 configurations** (+ `test_vectors_readmemh`) | **2,586** |
 
 Stalled cases are cycle-exact too: the testbench draws its grants from the model's `GrantSource` with the case's seed (`docs/golden-vectors.md`). It also checks OBI request stability: every ungranted request reappears unchanged the next cycle (except on `ABORT` or fatal error stop).
 

@@ -8,8 +8,8 @@ detailed commands and the per-configuration case list are in [`verif/README.md`]
 
 ## 1. Differential regression (RTL vs cycle model)
 
-`make rtl-test` builds `tq_top` (and the adapters) with Verilator for 37 configurations and runs
-**2,573 cases** (plus a standalone Verilator `$readmemh` golden-vector test). Each case drives a
+`make rtl-test` builds `tq_top` (and the adapters) with Verilator for 39 configurations and runs
+**2,586 cases** (plus a standalone Verilator `$readmemh` golden-vector test). Each case drives a
 real program through the register port, serves memory from a Python SRAM/bus model, records every
 read, write and MAC start, and compares the RTL with the cycle-model run:
 

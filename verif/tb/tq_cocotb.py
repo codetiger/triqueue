@@ -30,15 +30,37 @@ from tri_queue import isa, requant  # noqa: E402
 from tri_queue.core import Params, TriQueueCore, build_gemm, read_c, reference  # noqa: E402
 from tri_queue.programs import edge_program  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bench" / "e2e"))
+
 from tq_tb import REG_CTRL, REG_PROG, REG_STATUS, TqTb, TqTbAxi, TqTbAxil, TqTbXif, val  # noqa: E402
 
 DT = {"s8": np.int8, "u8": np.uint8}
+
+
+_LAYERS = {}
+
+
+def layer_gemm(case):
+    """A case with "layer": [op, seed]: that DS-CNN layer's GEMM (A after im2col, B, epilogue) from
+    the TFLite golden reference (bench/e2e), fed with TFLite's own input tensor. Returns
+    (gemm, TFLite's output tensor as m x n)."""
+    import tflite_ref
+    if "net" not in _LAYERS:
+        _LAYERS["net"] = tflite_ref.load()
+    net = _LAYERS["net"]
+    op_i, seed = case["layer"]
+    op = net.ops[op_i]
+    g = tflite_ref.lower(net, op, net.golden(seed, op["inputs"][0]))
+    return g, net.golden(seed, op["outputs"][0]).reshape(g.a.shape[0], g.b.shape[1])
 
 
 def operands(case):
     """Uniform random operands, or with dist="relu" a synthetic inference-like distribution:
     A as post-ReLU activations (uint8, about half zeros, half-normal magnitudes) and B as
     Gaussian int8 weights. Not data from a real network; it bounds the uniform case from below."""
+    if "layer" in case:
+        g, _ = layer_gemm(case)
+        return g.a, g.b
     rng = np.random.default_rng(case["seed"])
 
     def rand(shape, dt):
@@ -59,6 +81,8 @@ def case_epi(case, n):
     bias, M0 and shift (with the edge values of the shift range), per-tensor zp and clamp."""
     if not case.get("epi"):
         return None
+    if "layer" in case:
+        return layer_gemm(case)[0].epi
     rng = np.random.default_rng(case["seed"] + 77)
     shift = rng.integers(-14, 3, n)
     shift[: min(n, 3)] = [-40, 31, 0][: min(n, 3)]            # clamped to [-31, 30] by the drain
@@ -285,12 +309,13 @@ async def gemm_cases(dut):
         p = Params(**params, mem_latency=case["lat"], gnt_stall=stall, gnt_seed=case["seed"],
                    **({"out_bytes": 1, "out_shift": case["shift"]} if "shift" in case else {}),
                    **({"out_bytes": 1} if case.get("epi") else {}),
+                   **({"walk_cols": case["walk"]} if "walk" in case else {}),
                    **({"wr_resp_latency": case["wr_lat"]} if "wr_lat" in case else {}))
         a, b = operands(case)
         mem0, prog, layout, mem_model, s, ev = model_run(a, b, p, case)
         mem = mem0.copy()
         name = f"{case['m']}x{case['n']}x{case['k']} {case['a']}/{case['b']} lat={case['lat']} seed={case['seed']}"
-        for key in ("prog", "misalign", "prog_poke", "shift", "epi", "dist", "bus_err", "rresp_err"):
+        for key in ("prog", "misalign", "prog_poke", "shift", "epi", "layer", "walk", "dist", "bus_err", "rresp_err"):
             if key in case:
                 name += f" {key}={case[key]}"
         if case.get("stall"):
@@ -323,6 +348,8 @@ async def gemm_cases(dut):
                     if p.out_bytes == 1 else reference(a, b))
         if not s.error and "misalign" not in case and not np.array_equal(read_c(mem, layout), want):
             errs.append("C differs from numpy")
+        if "layer" in case and not np.array_equal(read_c(mem, layout), layer_gemm(case)[1]):
+            errs.append("C differs from TFLite")
         if not np.array_equal(mem, mem_model):
             errs.append("final memory differs from model")
         if burst:
