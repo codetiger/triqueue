@@ -102,7 +102,8 @@ CONFIGS = {
          ("opcode", "reserved_arg", "reserved_vouter", "reserved_zero_c", "reserved_stream_a",
           "reserved_stream_b", "reserved_swap_c", "reserved_fence", "cfg_reg", "cfg_loop", "loop_depth", "loop_zero_body",
           "loop_nest_over", "second_loop_t", "pc", "pc_skip_loop", "cfg_val_k", "cfg_val_m",
-          "cfg_val_mode", "cfg_val_cld", "operand_leftover", "operand_starved", "cfg_after_swap",
+          "cfg_val_mode", "cfg_val_cld", "walk_after_stream", "walk_before_stream",
+          "operand_leftover", "operand_starved", "cfg_after_swap",
           "zero_in_drain")]
         + [dict(case(4, 4, 8), prog="loop_t_in_k"), dict(case(3, 2, 5, stall=0.3), prog="loop_t_in_k")]
         + [dict(case(14, 15, 27), prog="explicit_8x8"),
@@ -158,6 +159,36 @@ CONFIGS = {
         dict(T=4, PANEL_BYTES=256),
         dict(tile=4, panel_bytes=256),
         edge_cases(4, (1, 8, 64, 100)) + latency_sweep(4, (1, 2, 5)) + [case(16, 16, 16), case(1, 64, 48, stall=0.5)],
+    ),
+    "t8_walk_cols": (
+        # MODE[8]: LOOP_T walks down tile columns (spec 6.1); C, reads and cycles as the model
+        dict(T=8),
+        dict(tile=8, walk_cols=True),
+        edge_cases(8, (1, 9, 33)) + latency_sweep(8, (1, 2, 5)) + signedness(8)
+        + [case(64, 64, 64), case(65, 65, 65), case(64, 9, 40), case(5, 64, 33),
+           case(20, 24, 27, lat=3, stall=0.4), case(33, 40, 64, lat=7, stall=0.7)]
+        + [dict(case(37, 41, 16), shift=6), dict(case(64, 64, 8), shift=5)],
+    ),
+    "t8_walk_panel": (
+        # column walk + panel buffer: the buffer keeps the B panel down a tile column
+        dict(T=8, PANEL_BYTES=1024),
+        dict(tile=8, panel_bytes=1024, walk_cols=True),
+        edge_cases(8, (1, 9, 64, 200)) + latency_sweep(8, (1, 2, 3, 6, 13))
+        + [case(64, 16, 64), case(64, 64, 64), case(256, 32, 72), case(41, 9, 40), case(16, 64, 8)]
+        + [case(m, n, k, lat=lat, stall=st) for (m, n, k) in ((24, 20, 27), (40, 33, 64), (128, 1, 96))
+           for lat in (1, 2, 7) for st in (0.3, 0.7)]
+        + [dict(case(20, 24, 27), prog=pr) for pr in ("opcode", "zero_in_drain")],
+    ),
+    "t8_walk_panel_shared": (
+        dict(T=8, PANEL_BYTES=512, SHARED_PORT=1, WR_ACK=1, WR_OUT_MAX=2),
+        dict(tile=8, panel_bytes=512, shared_port=True, wr_ack=True, wr_out_max=2, walk_cols=True),
+        [dict(case(m, n, k, lat=lat, stall=st), wr_lat=wl) for (m, n, k) in ((24, 20, 27), (96, 1, 64), (40, 40, 40))
+         for lat, st, wl in ((1, 0.0, 0), (2, 0.4, 3), (5, 0.6, 9))],
+    ),
+    "t4_walk_panel": (
+        dict(T=4, PANEL_BYTES=256),
+        dict(tile=4, panel_bytes=256, walk_cols=True),
+        edge_cases(4, (1, 8, 64, 100)) + latency_sweep(4, (1, 2, 5)) + [case(16, 16, 16), case(64, 1, 48, stall=0.5)],
     ),
     "t8_mac1": (
         # MAC_PIPE = 1: no product register, multiply and accumulate in the beat's cycle

@@ -95,6 +95,7 @@ def main(argv=None):
     ap.add_argument("--mac-pipe", type=int, default=2, choices=(1, 2))
     ap.add_argument("--shared-port", action="store_true")
     ap.add_argument("--panel-bytes", type=int, default=0)
+    ap.add_argument("--walk-cols", action="store_true", help="column-major tile walk (MODE[8])")
     ap.add_argument("--out-int8", action="store_true", help="requantize C to int8")
     ap.add_argument("--out-shift", type=int, default=8)
     ap.add_argument("--wr-ack", action="store_true")
@@ -116,7 +117,7 @@ def main(argv=None):
                panel_bytes=args.panel_bytes, out_bytes=1 if args.out_int8 else 4,
                out_shift=args.out_shift, wr_ack=args.wr_ack,
                wr_resp_latency=args.wr_resp_latency, wr_out_max=args.wr_out_max,
-               gnt_stall=args.gnt_stall, gnt_seed=args.gnt_seed)
+               gnt_stall=args.gnt_stall, gnt_seed=args.gnt_seed, walk_cols=args.walk_cols)
     meta = export(a, b, p, args.out, seed=args.seed)
     e = meta["expected"]
     print(f"{args.out}: {e['cycles']} cycles, {e['instructions']} instructions, "

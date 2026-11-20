@@ -15,7 +15,7 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specifica
 | `SHARED_PORT` | 0 | 1: drain writes share the read port (single-port SRAM); the core never requests both in one cycle |
 | `PROG_BYTES` | 64 | Program buffer size (8 `CFG` + 10-byte kernel = 50 bytes) |
 | `WR_ACK` | 0 | 1: a write is complete at its `wr_done_i` pulse, not at its grant (AXI B). FENCE waits for every write response. 0: `wr_done_i` is ignored (tie it to 0 for an SRAM). |
-| `PANEL_BYTES` | 0 | A panel buffer (spec §10.9): an A panel of at most this many bytes is kept as it is read and replayed for the tile row's later tiles without the memory port. A multiple of 2T; 0 = none. Flops for now (`PANEL_BYTES <= 2048` unless `ALLOW_LARGE_FLOP_PANEL = 1`); same results, fewer reads, and cycles change only where the port was the limit. |
+| `PANEL_BYTES` | 0 | Panel buffer (spec §10.9): an A panel (B with the column walk, `MODE[8]`) of at most this many bytes is kept as it is read and replayed for the tile row's (column's) later tiles without the memory port. A multiple of 2T; 0 = none. Flops for now (`PANEL_BYTES <= 2048` unless `ALLOW_LARGE_FLOP_PANEL = 1`); same results, fewer reads, and cycles change only where the port was the limit. |
 | `MAC_PIPE` | 2 | 2: product register between multiply and accumulate. 1: none (the 64 × 17-bit register at T = 8 goes); multiply and accumulate in one cycle, a longer critical path. Model `mac_pipe`. |
 | `PERF` | 1 | 1: five 32-bit performance counters, clock-gated while idle. 0: counters omitted and tied to 0 for area-constrained MCUs. |
 | `WR_OUT_MAX` | 15 | With `WR_ACK`: most writes granted and not yet complete; the core holds back new writes at the limit. |
@@ -62,7 +62,7 @@ Requests never depend combinationally on `gnt`, and an ungranted request stays a
 | `common/tq_cg.sv` | Clock gate for one register group (`tq_icg`, or the clock itself when `EN = 0`) |
 | `common/tq_fifo.sv` | Ring-buffer FIFO, 1 push / up to 2 pops per cycle, optional per-entry clock gates. Formally proved (`verif/formal`). |
 | `core/tq_frontend.sv` | Decoder, 2-level zero-overhead loop stack, tile walker, stream command counters. No multipliers: tile addresses are running offsets. |
-| `core/tq_stream.sv` | A/B panel walkers, round-robin read arbitration with credits, response tags, shared-port arbitration, the optional A panel buffer |
+| `core/tq_stream.sv` | A/B panel walkers, round-robin read arbitration with credits, response tags, shared-port arbitration, the optional panel buffer (on its A side; with `MODE[8]` `tq_core` feeds B through that side) |
 | `core/tq_mac_array.sv` | Per-quadrant operand select, T² 9×9 multipliers, product register, accumulator cells (2 banks; 32-bit adders, or carry-save with T CPA lanes on the drain read port) |
 | `core/tq_drain.sv` | Drain sequencer: one CPA stage, staging register, aligned writes with byte enables, bank clear |
 | `core/tq_core.sv` | MAC command control (at most one `ZERO_C`/`SWAP_C` plus one `VOUTER_MAC` per cycle), halt detection, errors, performance counters |

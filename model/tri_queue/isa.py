@@ -23,6 +23,8 @@ MODE_A_SIGNED = 0x1
 MODE_B_SIGNED = 0x2
 MODE_OUT_INT8 = 0x4
 MODE_OUT_SHIFT = 3
+MODE_WALK_COLS = 0x100       # LOOP_T walks down tile columns; the panel buffer keeps B (spec 6.1)
+MODE_RESERVED_SHIFT = 9      # MODE[31:9] must be 0 (ERR_CFG_VAL)
 
 
 def mode_out_int8(shift: int = 0) -> int:

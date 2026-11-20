@@ -45,9 +45,9 @@ Modelling assumptions (stated in model/README.md):
     already packed as the next layer's A. A tile is contiguous; padding rows and columns are zero
     in the bank. chain_snapshot models a wide bank read (first word one cycle after the bank is
     stable); the default drain reads one row per cycle and needs T - 1 cycles.
-  * A column-major tile walk (walk_cols, model study for v1.1, dse.md section 12): LOOP_T walks
-    down tile columns, so consecutive tiles share the B panel; the panel buffer then keeps B
-    instead of A. Not in the RTL.
+  * A column-major tile walk (MODE[8], MODE_WALK_COLS; Params.walk_cols sets it in build_gemm;
+    dse.md section 12): LOOP_T walks down tile columns, so consecutive tiles share the B panel; the
+    panel buffer then keeps B instead of A.
   * Write completion: by default a write is complete when granted (SRAM). With wr_ack (an
     interconnect such as AXI, where a write completes at its B response) each granted write
     completes wr_resp_latency cycles later, FENCE waits until none is outstanding, and no new
@@ -103,9 +103,9 @@ class Params:
     # models a wide bank read that forms the first word one cycle after the bank is stable.
     chain_c: bool = False
     chain_snapshot: bool = False
-    # Column-major tile walk (model study for v1.1; not in the RTL): LOOP_T walks down tile columns
-    # instead of along tile rows, so consecutive tiles share the B panel (and per-column epilogue
-    # parameters). The panel buffer then keeps the B panel instead of the A panel.
+    # Column-major tile walk (MODE[8], spec 6.1): build_gemm sets MODE_WALK_COLS. LOOP_T walks down
+    # tile columns instead of along tile rows, so consecutive tiles share the B panel (and
+    # per-column epilogue parameters); the panel buffer then keeps the B panel instead of the A one.
     walk_cols: bool = False
 
     def __setattr__(self, name, value):
@@ -278,8 +278,7 @@ class TriQueueCore:
         self.inflight = deque()                 # (arrive_cycle, which, data)
         self.inflight_n = {"A": 0, "B": 0}      # bytes in flight (memory and panel buffer)
         self.pinflight = deque()                # panel-buffer reads: (arrive_cycle, data)
-        self.panel_key = None                   # (addr, bytes) of the panel in the buffer
-        self.ps = "B" if self.p.walk_cols else "A"   # the operand the panel buffer keeps
+        self.panel_key = None                   # (operand, addr, bytes) of the panel in the buffer
         self.panel_data = np.zeros(self.p.panel_bytes, np.uint8)
         self.rr = "A"
         # MAC + accumulator banks
@@ -309,11 +308,20 @@ class TriQueueCore:
         m, n, k = self.cfg[isa.M], self.cfg[isa.N], self.cfg[isa.K]
         return m, n, k, kp(k), -(-m // self.T), -(-n // self.T)
 
+    @property
+    def walk_cols(self):
+        return bool(self.cfg[isa.MODE] & isa.MODE_WALK_COLS)
+
+    @property
+    def ps(self):
+        """The operand the panel buffer keeps: A in the row walk, B in the column walk."""
+        return "B" if self.walk_cols else "A"
+
     def tile_coords(self, t):
         *_, ntm, ntn = self.dims
         if not ntn:
             return (0, 0)
-        if self.p.walk_cols:
+        if self.walk_cols:
             tj, ti = divmod(t, ntm)
             return ti, tj
         return divmod(t, ntn)
@@ -345,7 +353,11 @@ class TriQueueCore:
                 err = isa.ERR_CFG_LOOP
             elif (arg == isa.K and imm > ((0xFFFF_FFFF >> l2t) & ~7)) \
                     or (arg in (isa.M, isa.N) and imm > (0xFFFF << l2t)) \
-                    or (arg == isa.MODE and (imm >> 8) != 0):
+                    or (arg == isa.MODE and (imm >> isa.MODE_RESERVED_SHIFT) != 0) \
+                    or (arg == isa.MODE and (imm ^ self.cfg[isa.MODE]) & isa.MODE_WALK_COLS
+                        and (self.scmd_issued["A"] or self.scmd_issued["B"])):
+                # MODE[8] may change only before the run's first STREAM_A / STREAM_B: the stream
+                # engine's state (panels, reads in flight, FIFO credits) belongs to one walk order
                 err = isa.ERR_CFG_VAL
         elif op in (isa.STREAM_A, isa.STREAM_B, isa.ZERO_C, isa.FENCE):
             if arg != 0:
@@ -646,7 +658,7 @@ class TriQueueCore:
                 self.ev("se", "panel", s=s, tile=tile, addr=self.stream[s][0], bytes=self.stream[s][1])
                 nbytes = self.stream[s][1]
                 if s == self.ps and 0 < nbytes <= self.p.panel_bytes:
-                    key = (self.stream[s][0], nbytes)
+                    key = (s, self.stream[s][0], nbytes)
                     if key == self.panel_key:            # the buffered panel: replay it
                         self.stream[s][2] = "buf"
                         self.stats.panel_hits += 1
@@ -854,6 +866,8 @@ def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None):
     mode = (isa.MODE_A_SIGNED if a.dtype == np.int8 else 0) | (isa.MODE_B_SIGNED if b.dtype == np.int8 else 0)
     if p.out_bytes == 1:
         mode |= isa.mode_out_int8(p.out_shift)
+    if p.walk_cols:
+        mode |= isa.MODE_WALK_COLS
     prog = isa.gemm_config(a_base, b_base, c_base, c_ld, k, m, n, mode) + isa.gemm_kernel()
     layout = dict(m=m, n=n, k=k, a_base=a_base, b_base=b_base, c_base=c_base, c_ld=c_ld, mode=mode,
                   out_bytes=p.out_bytes)

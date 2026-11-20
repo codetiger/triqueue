@@ -44,6 +44,9 @@ module tq_stream #(
     input  logic          rst_ni,
     input  logic          clear_i,
     input  logic          run_i,           // 0: no new requests (stopped by an error until START)
+    // MODE[8] (column walk): tq_core feeds B on this module's A side (the buffered stream) and A on
+    // its B side; the round-robin order and the panel key stay in terms of the real operands
+    input  logic          swap_i,
     // stream commands from the front end
     input  logic          scmd_a_push_i,
     input  tq_pkg::scmd_t scmd_a_i,
@@ -99,7 +102,9 @@ module tq_stream #(
   assign scmd_b_full_o = (32'(cnt_b) - 32'(load_b)) >= SCMD_DEPTH;
 
   // ---------------------------------------------------------------- panel walkers
-  logic        act_a_q, act_b_q, rr_q;               // rr_q: 0 = A first, 1 = B first
+  logic        act_a_q, act_b_q, rr_q;               // rr_q: 0 = real A first, 1 = real B first
+  logic        rr;                                   // 1 = this module's B side first
+  assign rr = rr_q ^ swap_i;
   logic [31:0] addr_a_q, addr_b_q, vecs_a_q, vecs_b_q;
   logic [CRW-1:0] cred_a_q, cred_b_q;                // FIFO occupancy + reads in flight
   logic [IFW-1:0] infl_q, drop_q;                   // reads in flight; stale reads to discard
@@ -112,6 +117,7 @@ module tq_stream #(
 
   // panel buffer state (constant 0 without a buffer)
   logic           pk_v_q, a_fill_q, a_buf_q, pb_v_q;  // key valid; active A is a fill / a replay; replay read
+  logic           pk_sw_q;                            // the buffered panel's operand (swap_i at its fill)
   logic           a_first_q;                          // the active fill has issued no read yet
   logic [31:0]    pk_addr_q, pk_vecs_q;
   logic [IFW-1:0] infl_a_q;                           // A reads in flight (memory)
@@ -121,7 +127,7 @@ module tq_stream #(
   logic           a_fill;                             // (used only with a buffer)
   /* verilator lint_on UNUSEDSIGNAL */
   assign fill_h  = PB && ha.vecs != 0 && 32'(ha.vecs) <= PV;
-  assign hit_h   = fill_h && pk_v_q && ha.addr == pk_addr_q && ha.vecs == pk_vecs_q;
+  assign hit_h   = fill_h && pk_v_q && pk_sw_q == swap_i && ha.addr == pk_addr_q && ha.vecs == pk_vecs_q;
 
   logic avail_a, avail_b, space_a, space_b, cand_a, cand_b;
   // a zero-length panel (K = 0) is loaded and completes at once, without a read
@@ -138,11 +144,11 @@ module tq_stream #(
   // the first stream in round-robin order is always evaluated; the second only if the first
   // is not a candidate (model: the loop in _read_candidate returns early)
   logic sel_valid, sel_b, cand_first;
-  assign cand_first = rr_q ? cand_b : cand_a;
+  assign cand_first = rr ? cand_b : cand_a;
   assign sel_valid  = rd_hold_q || cand_a || cand_b;
-  assign sel_b      = rd_hold_q ? rd_hold_b_q : rr_q ? cand_b : !cand_a;
-  assign load_a     = !rd_hold_q && !act_a_q && (cnt_a != 0) && (!rr_q || !cand_first);
-  assign load_b     = !rd_hold_q && !act_b_q && (cnt_b != 0) && ( rr_q || !cand_first);
+  assign sel_b      = rd_hold_q ? rd_hold_b_q : rr ? cand_b : !cand_a;
+  assign load_a     = !rd_hold_q && !act_a_q && (cnt_a != 0) && (!rr || !cand_first);
+  assign load_b     = !rd_hold_q && !act_b_q && (cnt_b != 0) && ( rr || !cand_first);
 
   logic [31:0] cur_addr_a, cur_addr_b, cur_vecs_a, cur_vecs_b;
   assign cur_addr_a = act_a_q ? addr_a_q : ha.addr;
@@ -266,7 +272,7 @@ module tq_stream #(
       addr_a_q <= '0; addr_b_q <= '0; vecs_a_q <= '0; vecs_b_q <= '0;
       cred_a_q <= '0; cred_b_q <= '0; infl_q <= '0; drop_q <= '0;
       rd_hold_q <= 1'b0; rd_hold_b_q <= 1'b0; wr_hold_q <= 1'b0;
-      pk_v_q <= 1'b0; pk_addr_q <= '0; pk_vecs_q <= '0; a_fill_q <= 1'b0; a_buf_q <= 1'b0;
+      pk_v_q <= 1'b0; pk_sw_q <= 1'b0; pk_addr_q <= '0; pk_vecs_q <= '0; a_fill_q <= 1'b0; a_buf_q <= 1'b0;
       pb_v_q <= 1'b0; infl_a_q <= '0; a_first_q <= 1'b0;
     end else if (clear_i) begin
       act_a_q <= 1'b0; act_b_q <= 1'b0; rr_q <= 1'b0;
@@ -288,7 +294,7 @@ module tq_stream #(
         a_fill_q <= fill_h && !hit_h;
         a_first_q <= !fire_a;
         if (fill_h && !hit_h) begin                      // this panel becomes the buffered one
-          pk_v_q <= 1'b1; pk_addr_q <= ha.addr; pk_vecs_q <= ha.vecs;
+          pk_v_q <= 1'b1; pk_sw_q <= swap_i; pk_addr_q <= ha.addr; pk_vecs_q <= ha.vecs;
         end
       end
       if (!load_a && fire_a) a_first_q <= 1'b0;
@@ -298,7 +304,7 @@ module tq_stream #(
         addr_b_q <= fire_b ? cur_addr_b + 32'(W) : cur_addr_b;
         vecs_b_q <= fire_b ? cur_vecs_b - 32'd1  : cur_vecs_b;
       end
-      if (rd_fire_o) rr_q <= !sel_b;
+      if (rd_fire_o) rr_q <= !sel_b ^ swap_i;
       rd_hold_q   <= rd_req_o && !rd_gnt_i;
       rd_hold_b_q <= sel_b;
       wr_hold_q   <= wr_req_o && !wr_gnt_i;

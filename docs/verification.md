@@ -8,8 +8,8 @@ detailed commands and the per-configuration case list are in [`verif/README.md`]
 
 ## 1. Differential regression (RTL vs cycle model)
 
-`make rtl-test` builds `tq_top` (and the adapters) with Verilator for 27 configurations and runs
-**1,755 cases** (plus a standalone Verilator `$readmemh` golden-vector test). Each case drives a
+`make rtl-test` builds `tq_top` (and the adapters) with Verilator for 31 configurations and runs
+**2,210 cases** (plus a standalone Verilator `$readmemh` golden-vector test). Each case drives a
 real program through the register port, serves memory from a Python SRAM/bus model, records every
 read, write and MAC start, and compares the RTL with the cycle-model run:
 
@@ -40,7 +40,7 @@ queueing and error timing, for the tested configurations.
 | `tq_axi_mem.sby` (`prove`, `burst_prove`) | Unbounded AXI master rules, response routing, orphan tracking and legal use of the internal FIFOs at `W = 4`, `MAX_OUT = 3`: every property at `BURST_BEATS = 1` (`prove`); at `BURST_BEATS = 2` (`burst_prove`) every property except the read-data equality, which is bounded by `burst` | `make formal` |
 | `tq_axi_mem.sby burst_data` | Unbounded burst proof including read data at `BURST_BEATS = 2`, `MAX_OUT = 1` (one core read in flight; line buffer, hits, orphans, flush and write invalidation unrestricted) | `make formal-nightly` |
 | `tq_core.sby split` | T = 4 core (`FIFO_DEPTH = 2`, `MACQ_DEPTH = 2`, `PROG_BYTES = 8`), any program, START/ABORT at any time, any `gnt`, any read latency: no accumulate into the draining bank, no queue overflow/underflow, OBI request stability | `make formal` |
-| `tq_core.sby shared/ack/ack_split/panel` | The same unbounded core invariants for shared port (`shared`), `WR_ACK = 1` on shared (`ack`) and split (`ack_split`) ports, and panel buffer (`panel`, `PANEL_BYTES = 32`) | `make formal-nightly` |
+| `tq_core.sby shared/ack/ack_split/panel` | The same unbounded core invariants for shared port (`shared`), `WR_ACK = 1` on shared (`ack`) and split (`ack_split`) ports, and panel buffer (`panel`, `PANEL_BYTES = 32`). Every task includes the column walk (`MODE[8]`) except `ack_split`, which builds with `TQ_FORMAL_NO_WALK` (`MODE[8]` reserved): with the walk, PDR did not converge in 90 min | `make formal-nightly` |
 
 **What this does not prove:** arithmetic correctness. The core proof keeps only the input cone of the
 structural assertions, so the multipliers and accumulators drop out. Data correctness comes from the
@@ -73,8 +73,8 @@ post-route); T = 32 has no PPA record.
 ## 5. What is not covered yet
 
 - **Simulation coverage.** `make rtl-coverage` (nightly CI, artifact `rtl-coverage`) reruns the
-  regression with Verilator line and toggle coverage: 98.0% of line points (346/353) and 94.3% of
-  toggle points under `rtl/` are hit across the 27 configurations (2026-11-20). Every line point
+  regression with Verilator line and toggle coverage: 98.1% of line points (357/364) and 94.3% of
+  toggle points under `rtl/` are hit across the 31 configurations (2026-11-20). Every line point
   that can be reached in `tq_top*` is hit; the 7 misses cannot be: the `CLK_GATE` arms of gated
   register writes with gating on, and `tq_xif_regs` waiting for a register grant or response, which
   `tq_regs` gives at once and one cycle later (and that state machine's `default` arm). Toggle

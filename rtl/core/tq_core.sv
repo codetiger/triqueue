@@ -110,7 +110,7 @@ module tq_core #(
   // ---------------------------------------------------------------- operand FIFOs
   localparam int QCW = $clog2(FIFO_DEPTH + 1);
   logic          qa_push, qb_push;
-  logic [VB-1:0] q_data, qa_data, qa0, qa1, qb0, qb1;
+  logic [VB-1:0] qa_data, qb_data, qa0, qa1, qb0, qb1;
   logic [QCW-1:0] qa_cnt, qb_cnt;
   logic [1:0]    qa_pop, qb_pop;
 
@@ -118,7 +118,7 @@ module tq_core #(
       .clk_i, .rst_ni, .clear_i(clear), .push_i(qa_push), .data_i(qa_data), .pop_i(qa_pop),
       .head0_o(qa0), .head1_o(qa1), .count_o(qa_cnt));
   tq_fifo #(.WIDTH(VB), .DEPTH(FIFO_DEPTH), .CLK_GATE(CLK_GATE)) u_qb (
-      .clk_i, .rst_ni, .clear_i(clear), .push_i(qb_push), .data_i(q_data), .pop_i(qb_pop),
+      .clk_i, .rst_ni, .clear_i(clear), .push_i(qb_push), .data_i(qb_data), .pop_i(qb_pop),
       .head0_o(qb0), .head1_o(qb1), .count_o(qb_cnt));
 
   // ---------------------------------------------------------------- MAC unit control
@@ -250,17 +250,40 @@ module tq_core #(
   end
 
   // ---------------------------------------------------------------- stream engine + ports
+  // MODE[8] (column walk, spec 6.1): the panel buffer keeps B, so B goes through tq_stream's A side
+  // (the buffered one) and A through its B side. MODE changes only while everything is idle (CFG
+  // waits for that), so the crossover never switches with work in flight. Without a panel buffer
+  // both data sides are the read data, and only the push / command / pop routing remains.
+  logic          wc;
+  logic          st_a_push, st_b_push, st_a_full, st_b_full, st_qa_push, st_qb_push;
+  tq_pkg::scmd_t st_a_in, st_b_in;
+  logic [1:0]    st_qa_pop, st_qb_pop;
+  logic [VB-1:0] st_q_data, st_qa_data;
+  assign wc          = mode[tq_pkg::MODE_WALK_COLS];
+  assign st_a_push   = wc ? scmd_b_push : scmd_a_push;
+  assign st_a_in     = wc ? scmd_b_in   : scmd_a_in;
+  assign st_b_push   = wc ? scmd_a_push : scmd_b_push;
+  assign st_b_in     = wc ? scmd_a_in   : scmd_b_in;
+  assign scmd_a_full = wc ? st_b_full   : st_a_full;
+  assign scmd_b_full = wc ? st_a_full   : st_b_full;
+  assign st_qa_pop   = wc ? qb_pop      : qa_pop;
+  assign st_qb_pop   = wc ? qa_pop      : qb_pop;
+  assign qa_push     = wc ? st_qb_push  : st_qa_push;
+  assign qa_data     = wc ? st_q_data   : st_qa_data;
+  assign qb_push     = wc ? st_qa_push  : st_qb_push;
+  assign qb_data     = wc ? st_qa_data  : st_q_data;
+
   logic stream_idle, stream_pending, drop_busy, stream_align_err, rd_fire, wr_req;
   tq_stream #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .SCMD_DEPTH(SCMD_DEPTH), .SHARED_PORT(SHARED_PORT),
               .CLK_GATE(CLK_GATE), .PANEL_BYTES(PANEL_BYTES)) u_stream (
-      .clk_i, .rst_ni, .clear_i(clear), .run_i(running_q),
-      .scmd_a_push_i(scmd_a_push), .scmd_a_i(scmd_a_in),
-      .scmd_b_push_i(scmd_b_push), .scmd_b_i(scmd_b_in),
-      .scmd_a_full_o(scmd_a_full), .scmd_b_full_o(scmd_b_full),
-      .qa_pop_i(qa_pop), .qb_pop_i(qb_pop),
+      .clk_i, .rst_ni, .clear_i(clear), .run_i(running_q), .swap_i(wc),
+      .scmd_a_push_i(st_a_push), .scmd_a_i(st_a_in),
+      .scmd_b_push_i(st_b_push), .scmd_b_i(st_b_in),
+      .scmd_a_full_o(st_a_full), .scmd_b_full_o(st_b_full),
+      .qa_pop_i(st_qa_pop), .qb_pop_i(st_qb_pop),
       .wr_pending_i(wr_pending_room), .swap_wait_i(swap_wait || zero_wait), .wr_gnt_i, .wr_req_o(wr_req), .wr_fire_o(wr_fire),
       .rd_req_o, .rd_addr_o, .rd_gnt_i, .rd_rvalid_i, .rd_rdata_i, .rd_fire_o(rd_fire),
-      .qa_push_o(qa_push), .qb_push_o(qb_push), .q_data_o(q_data), .qa_data_o(qa_data),
+      .qa_push_o(st_qa_push), .qb_push_o(st_qb_push), .q_data_o(st_q_data), .qa_data_o(st_qa_data),
       .idle_o(stream_idle), .scmd_idle_o(scmd_idle),
       .pending_o(stream_pending), .drop_busy_o(drop_busy),
       .align_err_o(stream_align_err));

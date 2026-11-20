@@ -36,3 +36,14 @@ def test_walk_cols_reuses_the_b_panel():
 def test_walk_cols_rejects_chain_c():
     with pytest.raises(ValueError):
         Params(walk_cols=True, chain_c=True, out_bytes=1)
+
+
+def test_walk_is_mode_bit_8():
+    """Params.walk_cols only sets MODE[8] in the program; the core reads the walk from MODE."""
+    from tri_queue import isa
+    from tri_queue.core import build_gemm
+    a = np.zeros((9, 9), np.int8)
+    for walk in (False, True):
+        *_, L = build_gemm(a, a, Params(walk_cols=walk))
+        assert bool(L["mode"] & isa.MODE_WALK_COLS) == walk
+        assert L["mode"] >> isa.MODE_RESERVED_SHIFT == 0

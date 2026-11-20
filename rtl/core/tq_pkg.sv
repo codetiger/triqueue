@@ -37,6 +37,8 @@ package tq_pkg;
   localparam int MODE_B_SIGNED  = 1;
   localparam int MODE_OUT_INT8  = 2;   // 1: C written as int8, clip(acc >> shift, -128, 127), T lanes
   localparam int MODE_SHIFT_LSB = 3;   // MODE[7:3]: right shift (0..31) for int8 output
+  localparam int MODE_WALK_COLS = 8;   // 1: LOOP_T walks down tile columns; the panel buffer keeps B
+  localparam int MODE_RSVD_LSB  = 9;   // MODE[31:9] reserved (ERR_CFG_VAL)
 
   // ---- error codes (STATUS.err_code) ----
   localparam logic [3:0] ERR_NONE      = 4'd0;

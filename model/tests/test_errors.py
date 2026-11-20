@@ -39,6 +39,7 @@ def run(name, m=20, n=24, k=27, **cfg_over):
     ("cfg_val_k", isa.ERR_CFG_VAL),
     ("cfg_val_m", isa.ERR_CFG_VAL),
     ("cfg_val_mode", isa.ERR_CFG_VAL),
+    ("walk_after_stream", isa.ERR_CFG_VAL),
     ("cfg_val_cld", isa.ERR_CFG_VAL),
     ("loop_depth", isa.ERR_LOOP),
     ("loop_nest_over", isa.ERR_LOOP),
@@ -71,6 +72,12 @@ def test_misaligned_base_is_err_align(field):
     cfg = isa.gemm_config(L["a_base"], L["b_base"], L["c_base"], L["c_ld"], L["k"], L["m"], L["n"], L["mode"])
     s = TriQueueCore(mem, cfg + KERNEL, Params()).run(max_cycles=100_000)
     assert s.error == isa.ERR_ALIGN
+
+
+def test_walk_flip_before_any_stream_is_legal():
+    a, b, core, L, s = run("walk_before_stream")
+    assert s.error == 0 and core.walk_cols
+    assert np.array_equal(read_c(core.mem, L), reference(a, b))
 
 
 def test_loop_t_nested_in_a_loop_k_that_runs_once():

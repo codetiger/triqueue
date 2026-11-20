@@ -11,6 +11,8 @@
 #      sby -f tq_core.sby shared    (1-80 min, varies widely, nightly CI: make formal-nightly)
 #      sby -f tq_core.sby ack       (shared port, WR_ACK = 1, write responses at any latency; nightly)
 #      sby -f tq_core.sby panel     (A panel buffer of 32 bytes = 4 vectors at T = 4; nightly)
+# The column walk (MODE[8]) is in every task but ack_split, which reads the RTL with
+# TQ_FORMAL_NO_WALK (MODE[8] reserved): with it PDR did not converge in 90 min (was ~5).
 
 [tasks]
 split
@@ -26,6 +28,7 @@ mode prove
 abc pdr
 
 [script]
+ack_split: verilog_defines -DTQ_FORMAL_NO_WALK
 read_verilog -sv -formal -DSYNTHESIS -DTQ_FORMAL_CORE tq_pkg.sv tq_icg.sv tq_cg.sv tq_fifo.sv tq_frontend.sv tq_stream.sv tq_mac_array.sv tq_drain.sv tq_core.sv tq_core_env.sv
 split:     chparam -set KERNEL 0 -set SHARED_PORT 0 tq_core_env
 shared:    chparam -set KERNEL 0 -set SHARED_PORT 1 tq_core_env

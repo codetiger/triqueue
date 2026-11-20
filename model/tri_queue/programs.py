@@ -24,8 +24,10 @@ def edge_program(name: str, cfg: bytes) -> bytes:
     cfg_loop          a CFG inside LOOP_T's body                              -> ERR_CFG_LOOP
     cfg_val_k         a CFG K above the supported range                       -> ERR_CFG_VAL
     cfg_val_m         a CFG M above 65,535 tiles                              -> ERR_CFG_VAL
-    cfg_val_mode      a CFG MODE with non-zero reserved bits [31:8]           -> ERR_CFG_VAL
+    cfg_val_mode      a CFG MODE with non-zero reserved bits [31:9]           -> ERR_CFG_VAL
     cfg_val_cld       a CFG C_LD narrower than the row width                  -> ERR_CFG_VAL
+    walk_after_stream a CFG MODE that flips MODE[8] after a STREAM_A          -> ERR_CFG_VAL
+    walk_before_stream the same flip before any STREAM: legal, C is right (column walk)
     loop_depth        three nested LOOP_K                                     -> ERR_LOOP
     loop_zero_body    a LOOP_K with a zero-byte body (arg = 0)                -> ERR_LOOP
     loop_nest_over    an inner LOOP_K whose body extends past outer LOOP_T    -> ERR_LOOP
@@ -63,8 +65,13 @@ def edge_program(name: str, cfg: bytes) -> bytes:
         "cfg_loop": cfg + E(isa.ZERO_C) + E(isa.LOOP_T, 5) + isa.cfg(isa.K, 8) + E(isa.FENCE),
         "cfg_val_k": cfg[:20] + isa.cfg(isa.K, 0xFFFF_FFF8) + cfg[25:] + kernel,
         "cfg_val_m": cfg[:25] + isa.cfg(isa.M, 0x10_0000) + cfg[30:] + kernel,
-        "cfg_val_mode": cfg[:35] + isa.cfg(isa.MODE, 0x100) + kernel,
+        "cfg_val_mode": cfg[:35] + isa.cfg(isa.MODE, 0x200) + kernel,
         "cfg_val_cld": cfg[:15] + isa.cfg(isa.C_LD, 16) + cfg[20:] + kernel,
+        "walk_after_stream": cfg + E(isa.ZERO_C) + E(isa.STREAM_A)
+                             + isa.cfg(isa.MODE, int.from_bytes(cfg[36:40], "little") ^ isa.MODE_WALK_COLS)
+                             + E(isa.FENCE),
+        "walk_before_stream": cfg + isa.cfg(isa.MODE, int.from_bytes(cfg[36:40], "little") ^ isa.MODE_WALK_COLS)
+                              + kernel,
         "loop_depth": cfg + E(isa.LOOP_K, 3) + E(isa.LOOP_K, 2) + E(isa.LOOP_K, 1) + E(isa.NOP) + E(isa.FENCE),
         "loop_zero_body": cfg + E(isa.LOOP_K, 0) + E(isa.FENCE),
         "loop_nest_over": cfg + E(isa.LOOP_T, 2) + E(isa.LOOP_K, 3) + E(isa.NOP) * 3 + E(isa.FENCE),
@@ -100,6 +107,8 @@ EXPECTED_ERROR = {
     "cfg_val_m": isa.ERR_CFG_VAL,
     "cfg_val_mode": isa.ERR_CFG_VAL,
     "cfg_val_cld": isa.ERR_CFG_VAL,
+    "walk_after_stream": isa.ERR_CFG_VAL,
+    "walk_before_stream": 0,
     "loop_depth": isa.ERR_LOOP,
     "loop_zero_body": isa.ERR_LOOP,
     "loop_nest_over": isa.ERR_LOOP,

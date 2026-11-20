@@ -9,9 +9,27 @@ All notable changes to the Tri-Queue project. This format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Column-major tile walk (`MODE[8]`, decision D2).** `LOOP_T` and `STREAM_A`/`STREAM_B` walk down
+  tile columns; the panel buffer then keeps the B panel (the weights), and per-column epilogue
+  parameters stay constant down a column. Software picks the walk per GEMM; default 0 keeps every
+  existing program, result and cycle count (`model/results.md`, `model/dse.md` byte-identical).
+  RTL: the frontend's three tile walkers gain the column order; `tq_core` routes B through
+  `tq_stream`'s buffered side and A through the other (`tq_stream.swap_i`), with the round-robin
+  order and the panel key kept in terms of the real operands. `MODE[8]` may change only before the
+  run's first `STREAM_A`/`STREAM_B` (`ERR_CFG_VAL`): the core proof found that flipping it with
+  operands in flight overflowed QA. `MODE[31:9]` stays reserved (`cfg_val_mode` now sets bit 9).
+  Model `Params.walk_cols` sets the bit; `tri_queue.vectors --walk-cols`; regression
+  `t8_walk_cols`, `t8_walk_panel`, `t8_walk_panel_shared`, `t4_walk_panel` and the edge programs
+  `walk_after_stream` / `walk_before_stream` (2,210 cases in 31 configurations).
+  The core proofs cover the walk in `split`, `shared`, `ack` and `panel`; `ack_split` builds with
+  the formal-only `TQ_FORMAL_NO_WALK` (`MODE[8]` reserved), since with the walk PDR did not converge
+  in 90 min.
+
 ### Added (v1.1 studies, model only)
 
-- `Params.walk_cols`: a column-major tile walk; the panel buffer then keeps the B panel. `dse.md` §12:
+- `Params.walk_cols`: a column-major tile walk (since promoted to `MODE[8]`, below); the panel buffer then keeps the B panel. `dse.md` §12:
   utilization within 0.1 points of the row walk on every network, per-column epilogue parameters
   0.1–0.5% of the operand traffic instead of 2–6%, and 18% fewer SRAM bytes per MAC on ResNet-8.
 - `tri_queue/requant.py`: TFLite's int8 requantization (`MultiplyByQuantizedMultiplier`, double and

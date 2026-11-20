@@ -128,8 +128,20 @@ module tq_frontend #(
   assign fe_c_le_t = !fe_c_ge_t || ((n_hi == THW'(fe_tj_inc)) && n_lo_z);
   assign fe_last   = fe_r_le_t && fe_c_le_t;
 
+  // MODE[8]: LOOP_T walks down tile columns (row index inner) instead of along tile rows.
+  // TQ_FORMAL_NO_WALK (formal only, tq_core.sby ack_split): MODE[8] is reserved, so the walk never
+  // turns on; the other core proofs cover it.
+`ifdef TQ_FORMAL_NO_WALK
+  localparam int MODE_RSVD = tq_pkg::MODE_WALK_COLS;
+`else
+  localparam int MODE_RSVD = tq_pkg::MODE_RSVD_LSB;
+`endif
+  logic        wc;
+  assign wc = cfg_q[tq_pkg::CFG_MODE][tq_pkg::MODE_WALK_COLS];
+
   // stream counters: shared datapath for STREAM_A and STREAM_B
-  logic        is_sb, s_exh, s_cols_more, s_full;
+  logic        is_sb, s_exh, s_cols_more, s_rows_more, s_full;
+  logic [16:0] s_ti_inc17;
   logic [15:0] s_ti, s_tj;
   logic [31:0] s_base, s_off, s_addr, s_vecs, s_off_inc;
   assign is_sb       = (op == tq_pkg::OP_STREAM_B);
@@ -139,8 +151,10 @@ module tq_frontend #(
   assign s_tj_inc    = {1'b0, s_tj} + 17'd1;
   assign s_base      = is_sb ? cfg_q[tq_pkg::CFG_B_BASE] : cfg_q[tq_pkg::CFG_A_BASE];
   assign s_off       = {is_sb ? sb_off_q[31:L2T+3] : sa_off_q[31:L2T+3], {(L2T+3){1'b0}}};
-  assign s_exh       = (tpos(s_ti) >= m) || (n == 0);
+  assign s_ti_inc17  = {1'b0, s_ti} + 17'd1;
+  assign s_exh       = wc ? ((tpos(s_tj) >= n) || (m == 0)) : ((tpos(s_ti) >= m) || (n == 0));
   assign s_cols_more = (n_hi != THW'(s_tj)) && !((n_hi == THW'(s_tj_inc)) && n_lo_z);
+  assign s_rows_more = (m_hi != THW'(s_ti)) && !((m_hi == THW'(s_ti_inc17)) && m_lo_z);
   assign s_full      = is_sb ? ((n_hi != THW'(s_tj)) || n_lo_gt_h)
                              : ((m_hi != THW'(s_ti)) || m_lo_gt_h);
   assign s_addr      = s_base + s_off;
@@ -179,6 +193,7 @@ module tq_frontend #(
   logic           loop_is_t;
   logic           fe_advance, fe_reset;
   logic           lt_seen_q, lt_seen_n;   // a LOOP_T has run: a second one is ERR_LOOP (spec 6.1)
+  logic           st_seen_q, st_seen_n;   // a STREAM_A/B has run: MODE[8] may no longer change
 
   always_comb begin
     pc_n       = pc_q;
@@ -198,6 +213,7 @@ module tq_frontend #(
     loop_is_t  = (op == tq_pkg::OP_LOOP_T);
     loop_count = 32'd0;
     lt_seen_n  = lt_seen_q;
+    st_seen_n  = st_seen_q;
 
     macq_push_o   = 1'b0;
     macq_data_o   = '0;
@@ -220,7 +236,11 @@ module tq_frontend #(
           else if (sp_q != 0)  begin err = 1'b1; err_code = tq_pkg::ERR_CFG_LOOP; end
           else if ((arg == 4'(tq_pkg::CFG_K) && imm > ((32'hFFFF_FFFF >> L2T) & ~32'd7)) ||
                    ((arg == 4'(tq_pkg::CFG_M) || arg == 4'(tq_pkg::CFG_N)) && imm > (32'hFFFF << L2T)) ||
-                   (arg == 4'(tq_pkg::CFG_MODE) && imm[31:8] != 24'd0)) begin
+                   (arg == 4'(tq_pkg::CFG_MODE) && imm[31:MODE_RSVD] != '0) ||
+                   // MODE[8] may change only before the run's first STREAM: the stream engine's
+                   // state (panels, reads in flight, FIFO credits) belongs to one walk order
+                   (arg == 4'(tq_pkg::CFG_MODE) && st_seen_q &&
+                    imm[tq_pkg::MODE_WALK_COLS] != cfg_q[tq_pkg::CFG_MODE][tq_pkg::MODE_WALK_COLS])) begin
             err = 1'b1; err_code = tq_pkg::ERR_CFG_VAL;
           end else begin
             cfg_we = !err;
@@ -229,11 +249,21 @@ module tq_frontend #(
         tq_pkg::OP_STREAM_A: begin
           if (arg != 4'h0) begin
             err = 1'b1; err_code = tq_pkg::ERR_OPCODE;
-          end else if (!s_exh) begin
+          end else st_seen_n = 1'b1;
+          if (arg == 4'h0 && !s_exh) begin
             scmd_a_push_o      = !err;
             scmd_a_data_o.addr = s_addr;
             scmd_a_data_o.vecs = s_vecs;
-            if (s_cols_more) sa_tj_n = s_tj_inc[15:0];
+            if (wc) begin                                // column walk: next tile row, same column
+              if (s_rows_more) begin
+                sa_ti_n  = s_ti_inc;
+                sa_off_n = s_off_inc;
+              end else begin
+                sa_ti_n  = '0;
+                sa_off_n = '0;
+                sa_tj_n  = s_tj_inc[15:0];
+              end
+            end else if (s_cols_more) sa_tj_n = s_tj_inc[15:0];
             else begin
               sa_tj_n  = '0;
               sa_ti_n  = s_ti_inc;
@@ -244,11 +274,19 @@ module tq_frontend #(
         tq_pkg::OP_STREAM_B: begin
           if (arg != 4'h0) begin
             err = 1'b1; err_code = tq_pkg::ERR_OPCODE;
-          end else if (!s_exh) begin
+          end else st_seen_n = 1'b1;
+          if (arg == 4'h0 && !s_exh) begin
             scmd_b_push_o      = !err;
             scmd_b_data_o.addr = s_addr;
             scmd_b_data_o.vecs = s_vecs;
-            if (s_cols_more) begin
+            if (wc) begin                                // column walk: the B panel repeats down a column
+              if (s_rows_more) sb_ti_n = s_ti_inc;
+              else begin
+                sb_ti_n  = '0;
+                sb_tj_n  = s_tj_inc[15:0];
+                sb_off_n = s_off_inc;
+              end
+            end else if (s_cols_more) begin
               sb_tj_n  = s_tj_inc[15:0];
               sb_off_n = s_off_inc;
             end else begin
@@ -356,6 +394,15 @@ module tq_frontend #(
       fe_ti_n   = '0;
       fe_tj_n   = '0;
       fe_crow_n = '0;
+    end else if (fe_advance && wc) begin              // column walk: down the tile column
+      if (!fe_r_le_t) begin
+        fe_ti_n   = fe_ti_inc[15:0];
+        fe_crow_n = {fe_crow_q[31:L2T] + cfg_q[tq_pkg::CFG_C_LD][31-L2T:0], {L2T{1'b0}}};
+      end else begin
+        fe_ti_n   = '0;
+        fe_tj_n   = fe_tj_inc[15:0];
+        fe_crow_n = '0;
+      end
     end else if (fe_advance) begin
       if (!fe_c_le_t) fe_tj_n = fe_tj_inc[15:0];
       else begin
@@ -369,7 +416,7 @@ module tq_frontend #(
   // ---------------------------------------------------------------- registers
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      pc_q <= '0; fence_q <= 1'b0; sp_q <= '0; lt_seen_q <= 1'b0;
+      pc_q <= '0; fence_q <= 1'b0; sp_q <= '0; lt_seen_q <= 1'b0; st_seen_q <= 1'b0;
       f0_t_q <= 1'b0; f1_t_q <= 1'b0;
       f0_start_q <= '0; f0_end_q <= '0; f1_start_q <= '0; f1_end_q <= '0;
       f0_rem_q <= '0; f1_rem_q <= '0;
@@ -377,13 +424,13 @@ module tq_frontend #(
       sa_ti_q <= '0; sa_tj_q <= '0; sa_off_q <= '0;
       sb_ti_q <= '0; sb_tj_q <= '0; sb_off_q <= '0;
     end else if (start_i) begin
-      pc_q <= '0; fence_q <= 1'b0; sp_q <= '0; lt_seen_q <= 1'b0;
+      pc_q <= '0; fence_q <= 1'b0; sp_q <= '0; lt_seen_q <= 1'b0; st_seen_q <= 1'b0;
       f0_t_q <= 1'b0; f1_t_q <= 1'b0;
       fe_ti_q <= '0; fe_tj_q <= '0; fe_crow_q <= '0;
       sa_ti_q <= '0; sa_tj_q <= '0; sa_off_q <= '0;
       sb_ti_q <= '0; sb_tj_q <= '0; sb_off_q <= '0;
     end else begin
-      pc_q <= pc_n; fence_q <= fence_n; sp_q <= sp_n; lt_seen_q <= lt_seen_n;
+      pc_q <= pc_n; fence_q <= fence_n; sp_q <= sp_n; lt_seen_q <= lt_seen_n; st_seen_q <= st_seen_n;
       f0_t_q <= f0_t_n; f1_t_q <= f1_t_n;
       f0_start_q <= f0_start_n; f0_end_q <= f0_end_n; f1_start_q <= f1_start_n; f1_end_q <= f1_end_n;
       f0_rem_q <= f0_rem_n; f1_rem_q <= f1_rem_n;
