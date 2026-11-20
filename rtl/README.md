@@ -65,7 +65,8 @@ Requests never depend combinationally on `gnt`, and an ungranted request stays a
 | `core/tq_frontend.sv` | Decoder, 2-level zero-overhead loop stack, tile walker, stream command counters. No multipliers: tile addresses are running offsets. |
 | `core/tq_stream.sv` | A/B panel walkers, round-robin read arbitration with credits, response tags, shared-port arbitration, the optional panel buffer (on its A side; with `MODE[8]` `tq_core` feeds B through that side) |
 | `core/tq_mac_array.sv` | Per-quadrant operand select, T² 9×9 multipliers, product register, accumulator cells (2 banks; 32-bit adders, or carry-save with T CPA lanes on the drain read port) |
-| `core/tq_drain.sv` | Drain sequencer: the TFLite epilogue lanes (`MODE[9]`: two stages into a T-byte row buffer, held while a row waits for `gnt`), one CPA stage, staging register, aligned writes with byte enables, bank clear |
+| `core/tq_requant_pre.sv`, `core/tq_requant_post.sv` | One TFLite epilogue lane, before and after its 32 × 32 multiply (bias add, shift clamp and left shift; rounding high multiply, rounding right shift, zero point, clamp). Proved equal to TFLite's output stage (`verif/formal/tq_requant.sby`) |
+| `core/tq_drain.sv` | Drain sequencer: the TFLite epilogue lanes (`MODE[9]`: two stages, `tq_requant_pre` + multiply, then `tq_requant_post`, into a T-byte row buffer, held while a row waits for `gnt`), one CPA stage, staging register, aligned writes with byte enables, bank clear |
 | `core/tq_core.sv` | Epilogue parameter fetch (a tile column's 5 port words into a T × 9-byte register, ahead of A/B reads; a tile-column FIFO beside the MAC command queue), MAC command control (at most one `ZERO_C`/`SWAP_C` plus one `VOUTER_MAC` per cycle), halt detection, errors, performance counters |
 | `core/tq_regs.sv` | Register port and program buffer |
 | `core/tq_top.sv` | Registers + core |

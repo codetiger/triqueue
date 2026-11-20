@@ -33,6 +33,7 @@ queueing and error timing, for the tested configurations.
 | --- | --- | --- |
 | `tq_cg.sby` + `check_cg_pattern.py` | Every gated register uses the `tq_cg` template; the ICG latch model equals an enable flop, with and without async reset, and so does a two-level gate whose enable implies its parent's; no gated clock rises without the clock | `make formal` |
 | `tq_mac_array.sby cpa2/cpa1/csa2` (`csa1` nightly) | T = 4 array, any inputs: the lazy accumulator clear is the eager clear (every quadrant holds the eager value or is zero-flagged with an eager value of zero, and the drain read returns the eager value), both accumulator forms and both `MAC_PIPE` values | `make formal` / `make formal-nightly` |
+| `tq_requant.sby pre/post` | The TFLite epilogue lane (`tq_requant_pre`, `tq_requant_post`) equals TFLite's int8 output stage for every input, as a combinational equivalence (one SMT step is a complete proof, ~10 s): `pre` against `MultiplyByQuantizedMultiplier`'s `x * (1 << left_shift)` (int32 wrap) and shift split, with the shift clamped to [−31, 30]; `post`, for every 64-bit product of two int32 values, against `SaturatingRoundingDoublingHighMul` as TFLite writes it (C++ division by 2³¹), rounding divide by 2^right defined as round half away from zero, + zero point, `max(act_min)` then `min(act_max)`. Mutants (logical instead of arithmetic shift, wrong nudge, no negative threshold, no clamp, clamp to 31) all fail. The 32 × 32 multiply between the stages is the `*` operator | `make formal` |
 | `tq_fifo.sby` | Occupancy invariant, no overflow/underflow under legal use, in-order data, depths 2/3/4/8/16 | `make formal` |
 | `tq_axil_regs.sby` | AXI4-Lite slave: handshake rules, response stability, one open transaction, OBI request stability | `make formal` |
 | `tq_xif_regs.sby` | CV-X-IF adapter: commit-gated register access, one result per committed instruction, killed/speculative instructions have no effect | `make formal` |
@@ -42,9 +43,10 @@ queueing and error timing, for the tested configurations.
 | `tq_core.sby split` | T = 4 core (`FIFO_DEPTH = 2`, `MACQ_DEPTH = 2`, `PROG_BYTES = 8`), any program, START/ABORT at any time, any `gnt`, any read latency: no accumulate into the draining bank, no queue overflow/underflow, OBI request stability | `make formal` |
 | `tq_core.sby shared/ack/ack_split/panel` | The same unbounded core invariants for shared port (`shared`), `WR_ACK = 1` on shared (`ack`) and split (`ack_split`) ports, and panel buffer (`panel`, `PANEL_BYTES = 32`). Every task includes the column walk (`MODE[8]`) except `ack_split`, which builds with `TQ_FORMAL_NO_WALK` (`MODE[8]` reserved): with the walk, PDR did not converge in 90 min. With the TFLite epilogue (`MODE[9]`: parameter fetch ahead of A/B reads, third response tag) the core invariants are checked to depth 16 (`epi_bmc`, nightly), which found the read-tag FIFO overflow fixed in v1.1; the other tasks, `split` included, build with `TQ_FORMAL_NO_EPI` (`MODE[9]` reserved), since with it `split` did not converge in 60 min | `make formal-nightly` |
 
-**What this does not prove:** arithmetic correctness. The core proof keeps only the input cone of the
-structural assertions, so the multipliers and accumulators drop out. Data correctness comes from the
-differential regression. The unbounded core proof is at T = 4; larger T values are simulation-only.
+**What this does not prove:** arithmetic correctness of the GEMM. The core proof keeps only the input
+cone of the structural assertions, so the multipliers and accumulators drop out. Data correctness
+comes from the differential regression; the one arithmetic stage proved equal to its reference is
+the epilogue lane (`tq_requant.sby`). The unbounded core proof is at T = 4; larger T values are simulation-only.
 The AXI proof covers the shipped adapter (`W = 4`, `MAX_OUT = 3`, `BURST_BEATS = 1` and `2`), not a
 user wrapper or larger `BURST_BEATS` values (which are covered by simulation).
 

@@ -184,46 +184,21 @@ module tq_drain #(
   logic [L*5-1:0]  a_right_n;
   logic [L-1:0]    a_sat_n;
   for (genvar l = 0; l < L; l++) begin : g_epa
-    logic [31:0]        acc, bias, m0, s, xs;
-    logic signed [7:0]  sh8;
-    logic signed [7:0]  shc;
-    logic [4:0]         left, right;
-    assign acc   = rd_val_i[(32'(eg) * L + l) * 32 +: 32];
-    assign bias  = par_bias_i[(32'(eg) * L + l) * 32 +: 32];
-    assign m0    = par_m0_i[(32'(eg) * L + l) * 32 +: 32];
-    assign sh8   = par_shift_i[(32'(eg) * L + l) * 8 +: 8];
-    assign shc   = (sh8 < -8'sd31) ? -8'sd31 : (sh8 > 8'sd30) ? 8'sd30 : sh8;
-    assign left  = shc[7] ? 5'd0 : shc[4:0];
-    assign right = shc[7] ? 5'(-shc) : 5'd0;
-    assign s     = acc + bias;                                   // int32 wrap, as TFLite
-    assign xs    = s << left;
+    logic [31:0] m0, xs;
+    assign m0 = par_m0_i[(32'(eg) * L + l) * 32 +: 32];
+    tq_requant_pre u_pre (
+        .acc_i(rd_val_i[(32'(eg) * L + l) * 32 +: 32]), .bias_i(par_bias_i[(32'(eg) * L + l) * 32 +: 32]),
+        .shift_i(par_shift_i[(32'(eg) * L + l) * 8 +: 8]), .xs_o(xs), .right_o(a_right_n[l*5 +: 5]));
     assign a_prod_n[l*64 +: 64] = 64'($signed(xs) * $signed(m0));
-    assign a_right_n[l*5 +: 5]  = right;
     assign a_sat_n[l]           = (xs == 32'h8000_0000) && (m0 == 32'h8000_0000);
   end
 
   // stage B: SaturatingRoundingDoublingHighMul, RoundingDivideByPOT, + zp, clamp (model: requant)
   logic [L*8-1:0] b_q8;
   for (genvar l = 0; l < L; l++) begin : g_epb
-    logic signed [63:0] ab, q;
-    logic signed [31:0] hi, hs, res;
-    logic [31:0]        mask, rem, thr;
-    logic signed [32:0] o;
-    logic signed [32:0] lo_c;
-    logic [4:0]         right;
-    assign ab    = $signed(a_prod_q[l*64 +: 64]);
-    assign q     = ab + (ab[63] ? (64'sd1 - 64'sd1073741824) : 64'sd1073741824);
-    assign hi    = a_sat_q[l] ? 32'sh7fff_ffff
-                 : (q[63] ? -(32'(64'(-q) >> 31)) : 32'(q >> 31));   // truncate toward zero
-    assign right = a_right_q[l*5 +: 5];
-    assign mask  = (32'd1 << right) - 32'd1;
-    assign rem   = hi & mask;
-    assign thr   = (mask >> 1) + 32'(hi[31]);
-    assign hs    = hi >>> right;                                    // arithmetic (hi is signed)
-    assign res   = hs + $signed({31'd0, rem > thr});
-    assign o     = 33'(res) + 33'(zp);
-    assign lo_c  = (o < 33'(act_lo)) ? 33'(act_lo) : o;
-    assign b_q8[l*8 +: 8] = (lo_c > 33'(act_hi)) ? act_hi : lo_c[7:0];
+    tq_requant_post u_post (
+        .prod_i(a_prod_q[l*64 +: 64]), .sat_i(a_sat_q[l]), .right_i(a_right_q[l*5 +: 5]),
+        .zp_i(zp), .act_lo_i(act_lo), .act_hi_i(act_hi), .q_o(b_q8[l*8 +: 8]));
   end
 
   logic gclk_ea, gclk_eb;

@@ -97,7 +97,9 @@ for dir in \
   verif/formal/tq_cg/ \
   verif/formal/tq_cg_*/ \
   verif/formal/tq_mac_array/ \
-  verif/formal/tq_mac_array_*/
+  verif/formal/tq_mac_array_*/ \
+  verif/formal/tq_requant/ \
+  verif/formal/tq_requant_*/
 do
   [ -d "$dir" ] && add_target "$dir"
 done

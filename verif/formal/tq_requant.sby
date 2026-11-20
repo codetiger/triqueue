@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 Harishankar Narayanan
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+#
+# The TFLite epilogue lane (rtl/core/tq_requant_pre.sv, tq_requant_post.sv) equals TFLite's int8
+# output stage for every input (tq_requant_check.sv). Combinational, so one step is a full proof.
+#   sby -f tq_requant.sby pre post
+
+[tasks]
+pre
+post
+
+[options]
+mode bmc
+depth 1
+
+[engines]
+smtbmc yices
+
+[script]
+pre:  read_verilog -sv -formal -DTQ_REQUANT_PRE tq_requant_pre.sv tq_requant_check.sv
+post: read_verilog -sv -formal -DTQ_REQUANT_POST tq_requant_post.sv tq_requant_check.sv
+prep -top tq_requant_check
+
+[files]
+../../rtl/core/tq_requant_pre.sv
+../../rtl/core/tq_requant_post.sv
+tq_requant_check.sv

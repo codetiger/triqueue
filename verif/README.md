@@ -4,7 +4,7 @@
 make rtl-lint        # Verilator -Wall (12 parameter sets + 3 adapter tops + burst AXI) + Yosys elaboration
 make rtl-test        # cocotb + Verilator regression against the cycle model (2,586 cases in 39 configs + golden-vector $readmemh test, ~170 s)
 make rtl-coverage    # the same with Verilator line + toggle coverage, merged per file (build/rtl-cov/summary.md, ~10 min)
-make formal          # SymbiYosys: clock-gating, FIFO, AXI4-Lite & CV-X-IF proofs, AXI4 master (cover, burst BMC, unbounded prove/burst_prove), T=4 core split (typically 3–11 min, but PDR variance can exceed 30 min)
+make formal          # SymbiYosys: clock-gating, FIFO, AXI4-Lite & CV-X-IF proofs, AXI4 master (cover, burst BMC, unbounded prove/burst_prove), epilogue lane vs TFLite (tq_requant), T=4 core split (typically 3–11 min, but PDR variance can exceed 30 min)
 make formal-nightly  # SymbiYosys: T=4 core (shared, ack, ack_split, panel) + lazy clear csa1 + AXI4 burst read data (burst_data) (3–10 min each)
 make synth-check     # generic Yosys synthesis, both ACC_FORMs: no unintended latches, loops or undriven nets
 python3 -m pytest verif -q -k t16    # selects t16 and t16_panel; use -k "t16 and not panel" for one
@@ -68,6 +68,8 @@ Stalled cases are cycle-exact too: the testbench draws its grants from the model
 
 **`tq_cg.sby`** (with `check_cg_pattern.py`) checks that every gated register in `rtl/` uses the `tq_cg` template, and proves (multiclock) that the `tq_icg` latch model is equal to an ungated enable flop with and without async reset.
 
+**`tq_requant.sby`** (`pre`, `post`, ~10 s) proves the TFLite epilogue lane equal to TFLite's int8 output stage for every input: `tq_requant_pre` (bias add, shift clamp to [−31, 30], left shift) against `MultiplyByQuantizedMultiplier`'s `x * (1 << left_shift)`, and `tq_requant_post`, for every 64-bit product of two int32 values, against `SaturatingRoundingDoublingHighMul` as written in TFLite (C++ division), an independent round-half-away-from-zero divide by 2^right, the zero point and the clamp (`tq_requant_check.sv`). It is combinational, so one SMT step is the whole proof.
+
 **`tq_fifo.sby`** proves by k-induction (unbounded), at depths 2, 3, 4, 8 and 16: the occupancy invariant, no overflow or underflow under legal use, and that every entry is stored and popped in order with its data intact. Every queue in the core is an instance of this FIFO.
 
 **`tq_axil_regs.sby`**, **`tq_xif_regs.sby`** and **`tq_axi_mem.sby`** prove the AXI4-Lite register slave, CV-X-IF instruction adapter and AXI4 memory master (`tq_axi_mem.sby`, all in `make formal`: `cover`; bounded `burst` BMC depth 10 at `W = 4`, `MAX_OUT = 3`, `BURST_BEATS = 2`, including read data; the unbounded `prove` at `BURST_BEATS = 1`; and the unbounded `burst_prove` at `BURST_BEATS = 2` with every property except the read-data equality, which PDR does not prove at `MAX_OUT = 3` without strengthening invariants; `make formal-nightly` runs `burst_data`, the unbounded burst proof including read data at `MAX_OUT = 1`. In burst mode the environment follows one arbitrary address (`sym_a`) through the line buffer instead of carrying full addresses as data. Like `tq_core.sby`, it reads `tq_fifo` with `TQ_FORMAL_CORE`, so the FIFOs' legal use is asserted).
@@ -80,7 +82,7 @@ Before solving, the script keeps only the input cone of the assertions and assum
 
 - **Coverage metrics.** The regression is a directed/random functional suite; it does not publish line, toggle or branch coverage. Adding `verilator --coverage` to CI is an open task (`docs/verification.md`).
 - **Unbounded coverage-guided program fuzzing.** `t8_edge_cases` runs seeded random valid and illegal programs, but there is no coverage-guided generator.
-- **Data correctness in formal.** `tq_core.sby` proves structural invariants, not the arithmetic result; data correctness comes from the cycle-exact differential regression.
+- **Data correctness in formal.** `tq_core.sby` proves structural invariants, not the arithmetic result; data correctness comes from the cycle-exact differential regression. The exception is the epilogue lane (`tq_requant.sby`).
 - **T > 4 formal.** The unbounded core proof is at T = 4; T = 8/16/32 are covered by simulation only.
 - **Real silicon.** CV-X-IF has not run on a real CVA6/CV32E40X, and there is no post-silicon test.
 

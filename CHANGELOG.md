@@ -77,6 +77,15 @@ All notable changes to the Tri-Queue project. This format follows
   `results.md` (CI checks it); `make e2e-test`. RTL: `t8_dscnn` and `t4_dscnn` run the same layers with
   C compared against TFLite's tensors (2,586 cases in 39 configurations).
 
+- **Epilogue lane proved equal to TFLite (`verif/formal/tq_requant.sby`, roadmap C3).** The lane
+  moved from `tq_drain`'s generate loops into `tq_requant_pre` (bias add, shift clamp, left shift)
+  and `tq_requant_post` (rounding high multiply, rounding right shift, zero point, clamp), with the
+  32 × 32 multiply between them left in `tq_drain`; same logic, same cycles. A combinational
+  equivalence proves them, for every input, against TFLite's `MultiplyByQuantizedMultiplier` code
+  (`x * (1 << left_shift)`; `SaturatingRoundingDoublingHighMul` with its C++ division, for every
+  product of two int32 values), round half away from zero for the right shift, the zero point and
+  the max-then-min clamp. ~10 s, in `make formal`; mutants of each step fail it.
+
 ### Added (v1.1 studies, model only)
 
 - `Params.walk_cols`: a column-major tile walk (since promoted to `MODE[8]`, below); the panel buffer then keeps the B panel. `dse.md` §12:

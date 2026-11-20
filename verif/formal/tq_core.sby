@@ -45,7 +45,7 @@ split:     verilog_defines -DTQ_FORMAL_NO_EPI
 shared:    verilog_defines -DTQ_FORMAL_NO_EPI
 ack:       verilog_defines -DTQ_FORMAL_NO_EPI
 panel:     verilog_defines -DTQ_FORMAL_NO_EPI
-read_verilog -sv -formal -DSYNTHESIS -DTQ_FORMAL_CORE tq_pkg.sv tq_icg.sv tq_cg.sv tq_fifo.sv tq_frontend.sv tq_stream.sv tq_mac_array.sv tq_drain.sv tq_core.sv tq_core_env.sv
+read_verilog -sv -formal -DSYNTHESIS -DTQ_FORMAL_CORE tq_pkg.sv tq_icg.sv tq_cg.sv tq_fifo.sv tq_frontend.sv tq_stream.sv tq_mac_array.sv tq_requant_pre.sv tq_requant_post.sv tq_drain.sv tq_core.sv tq_core_env.sv
 split:     chparam -set KERNEL 0 -set SHARED_PORT 0 tq_core_env
 shared:    chparam -set KERNEL 0 -set SHARED_PORT 1 tq_core_env
 ack:       chparam -set KERNEL 0 -set SHARED_PORT 1 -set WR_ACK 1 tq_core_env
@@ -71,6 +71,8 @@ setundef -anyseq
 ../../rtl/core/tq_frontend.sv
 ../../rtl/core/tq_stream.sv
 ../../rtl/core/tq_mac_array.sv
+../../rtl/core/tq_requant_pre.sv
+../../rtl/core/tq_requant_post.sv
 ../../rtl/core/tq_drain.sv
 ../../rtl/core/tq_core.sv
 tq_core_env.sv

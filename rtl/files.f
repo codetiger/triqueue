@@ -4,6 +4,8 @@ rtl/common/tq_cg.sv
 rtl/common/tq_fifo.sv
 rtl/core/tq_frontend.sv
 rtl/core/tq_mac_array.sv
+rtl/core/tq_requant_pre.sv
+rtl/core/tq_requant_post.sv
 rtl/core/tq_drain.sv
 rtl/core/tq_stream.sv
 rtl/core/tq_core.sv
