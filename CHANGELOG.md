@@ -43,6 +43,13 @@ All notable changes to the Tri-Queue project. This format follows
   first coverage run showed the regression never reached those checks (line coverage 94.9% →
   96.3%). The regression is now 1,747 cases in 26 configurations.
 
+### Fixed (testbench)
+
+- `TqTbXif` drew a 0–2 cycle `x_result_ready_i` delay but counted it from before the result was
+  valid, so it always ran out first and `t8_xif` never back-pressured a CV-X-IF result. The delay
+  now counts cycles with a valid result (coverage: `S_RESULT` held 619 cycles for 315 results;
+  line coverage 96.6%).
+
 ### Changed
 
 - `docs/benchmarks.md` §3: T = 32 has utilization results only, no place-and-route record.

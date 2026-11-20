@@ -524,14 +524,16 @@ class TqTbXif(TqTb):
                 assert not val(xif.reg_req_o)
                 await FallingEdge(d.clk_i)
             return None
-        wait = int(self.rng.integers(0, 3))
+        wait = int(self.rng.integers(0, 3))     # cycles x_result_ready_i stays low on a valid result
+        held = 0
         for n in range(40):
-            d.x_result_ready_i.value = int(n >= wait)
+            d.x_result_ready_i.value = int(held >= wait)
             await ReadOnly()
             if val(d.x_result_valid_o):
                 assert val(d.x_result_id_o) == xid and val(d.x_result_we_o) == int(read)
                 assert not read or val(d.x_result_rd_o) == 10
-                if n >= wait:
+                held += 1
+                if held > wait:
                     out = val(d.x_result_data_o)
                     await FallingEdge(d.clk_i)
                     d.x_result_ready_i.value = 0
