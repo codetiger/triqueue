@@ -41,7 +41,7 @@ module tq_core #(
     output logic                    done_o,      // pulse when a run ends (normally or on error)
     output logic                    error_o,     // sticky until the next start
     output logic [3:0]              err_code_o,
-    output logic [8*32-1:0]         cfg_o,       // configuration registers, CFG[0] in the low bits
+    output logic [tq_pkg::NUM_CFG*32-1:0] cfg_o,       // configuration registers, CFG[0] in the low bits
     // performance counters (cleared at start)
     output logic [31:0]             perf_cycles_o,
     output logic [31:0]             perf_instret_o,
@@ -93,7 +93,7 @@ module tq_core #(
       .fence_o(fence), .macq_stall_o(fe_macq_stall),
       .retire_o(retire), .error_o(fe_err), .err_code_o(fe_err_code));
 
-  assign cfg_o = {mode, cfg_n, cfg_m, cfg_k, c_ld, c_base, b_base, a_base};
+  assign cfg_o = {epi_out, epi_base, mode, cfg_n, cfg_m, cfg_k, c_ld, c_base, b_base, a_base};
 
   // ---------------------------------------------------------------- MAC command queue
   localparam int MCW = $clog2(MACQ_DEPTH + 1);

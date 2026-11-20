@@ -18,6 +18,7 @@ module tq_top_axil #(
     parameter int PANEL_BYTES = 0,
     parameter int MAC_PIPE    = 2,
     parameter bit PERF        = 1'b1,
+    parameter int EPI_LANES   = T / 2,
     parameter int ADDR_W      = 12,
     parameter bit CHECK_PROT  = 1'b0,
     localparam int W  = 2 * T,
@@ -81,7 +82,8 @@ module tq_top_axil #(
   tq_top #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
            .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
            .CLK_GATE(CLK_GATE), .WR_ACK(WR_ACK), .WR_OUT_MAX(WR_OUT_MAX),
-           .PANEL_BYTES(PANEL_BYTES), .MAC_PIPE(MAC_PIPE), .PERF(PERF)) u_tq (
+           .PANEL_BYTES(PANEL_BYTES), .MAC_PIPE(MAC_PIPE), .PERF(PERF),
+           .EPI_LANES(EPI_LANES)) u_tq (
       .clk_i, .rst_ni,
       .reg_req_i(reg_req), .reg_gnt_o(reg_gnt), .reg_addr_i(reg_addr), .reg_we_i(reg_we),
       .reg_be_i(reg_be), .reg_wdata_i(reg_wdata), .reg_rvalid_o(reg_rvalid), .reg_rdata_o(reg_rdata),

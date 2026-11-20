@@ -62,6 +62,16 @@ int tq_probe(volatile uint32_t *base, tq_info *info) {
     info->macq_depth = (hw >> 16) & 0xFu;
     info->shared_port = (hw >> 20) & 0x1u;
     info->prog_bytes = 4u * ((hw >> 24) & 0xFFu);
+    uint32_t hw2 = RD(base, TQ_REG_HW_CONFIG2);           // 0 on cores before v1.1
+    info->walk_cols = hw2 & 0x1u;
+    info->epilogue = (hw2 >> 1) & 0x1u;
+    info->epi_lanes = info->epilogue ? 1u << ((hw2 >> 16) & 0xFu) : 0u;
+    info->perf = hw2 ? (hw2 >> 4) & 0x1u : 1u;           // v1.0: counters unless built with PERF = 0
+    info->wr_ack = (hw2 >> 5) & 0x1u;
+    info->acc_csa = (hw2 >> 6) & 0x1u;
+    info->mac_pipe = ((hw2 >> 7) & 0x1u) ? 1u : 2u;
+    info->wr_out_max = (hw2 >> 8) & 0xFFu;
+    info->panel_bytes = ((hw2 >> 20) & 0xFFFu) * info->port_bytes;
     return valid_info(info) ? TQ_OK : TQ_ERR_ARG;
 }
 
@@ -199,11 +209,13 @@ size_t tq_gemm_program(uint8_t *out, size_t cap, const tq_gemm *g) {
         ENC(OP_SWAP_C, 0),                          //   drain the finished tile in the background
         ENC(OP_FENCE, 0),
     };
-    const uint32_t cfg[8] = {g->a_base, g->b_base, g->c_base, g->c_ld, g->k, g->m, g->n, g->mode};
-    if (cap < TQ_GEMM_PROGRAM_BYTES)
+    const uint32_t cfg[10] = {g->a_base, g->b_base, g->c_base, g->c_ld, g->k, g->m, g->n, g->mode,
+                              g->epi_base, g->epi_out};
+    const uint32_t ncfg = (g->mode & TQ_MODE_EPI) ? 10u : 8u;
+    if (cap < 5u * ncfg + sizeof kernel)
         return 0;
     size_t pc = 0;
-    for (uint32_t r = 0; r < 8; r++) {
+    for (uint32_t r = 0; r < ncfg; r++) {
         out[pc++] = ENC(OP_CFG, r);
         for (uint32_t b = 0; b < 4; b++)
             out[pc++] = (uint8_t)(cfg[r] >> (8u * b));
@@ -213,13 +225,62 @@ size_t tq_gemm_program(uint8_t *out, size_t cap, const tq_gemm *g) {
     return pc;
 }
 
+// ---- epilogue (spec 10.1) ----
+
+size_t tq_epi_table_bytes(uint32_t n, uint32_t tile) {
+    if (!valid_tile(tile))
+        return 0u;
+    uint64_t b = ((uint64_t)n + tile - 1u) / tile * TQ_EPI_WORDS * 2u * tile;
+    return b <= 0xFFFFFFFFull ? (size_t)b : 0u;
+}
+
+static void put32(uint8_t *p, uint32_t v) {
+    for (uint32_t i = 0; i < 4u; i++)
+        p[i] = (uint8_t)(v >> (8u * i));
+}
+
+void tq_pack_epi(uint8_t *dst, const tq_requant *rq, uint32_t n, uint32_t tile) {
+    if (!dst || !rq || (n > 0u && (!rq->m0 || !rq->shift)) || !valid_tile(tile))
+        return;
+    for (uint64_t c0 = 0; c0 < (uint64_t)n; c0 += tile) {
+        for (uint32_t i = 0; i < tile; i++) {
+            uint64_t j = c0 + i;
+            int in = j < (uint64_t)n;
+            int32_t s = in ? rq->shift[j] : 0;
+            put32(dst + 4u * i, in && rq->bias ? (uint32_t)rq->bias[j] : 0u);
+            put32(dst + 4u * (tile + i), in ? (uint32_t)rq->m0[j] : 0u);
+            dst[8u * tile + i] = (uint8_t)(int8_t)(s < -128 ? -128 : s > 127 ? 127 : s);
+        }
+        for (uint32_t i = 9u * tile; i < TQ_EPI_WORDS * 2u * tile; i++)
+            dst[i] = 0u;
+        dst += TQ_EPI_WORDS * 2u * tile;
+    }
+}
+
+uint32_t tq_epi_out(int8_t zp_out, int8_t act_min, int8_t act_max) {
+    return (uint32_t)(uint8_t)zp_out | (uint32_t)(uint8_t)act_min << 8 | (uint32_t)(uint8_t)act_max << 16;
+}
+
+void tq_fold_input_zp(int32_t *bias_out, const int32_t *bias, const int8_t *b, size_t ldb,
+                      uint32_t k, uint32_t n, int32_t zp_in) {
+    if (!bias_out || (!b && k > 0u))
+        return;
+    for (uint32_t j = 0; j < n; j++) {
+        uint32_t sum = 0u;                                  // wrapping int32 arithmetic
+        for (uint32_t kk = 0; kk < k; kk++)
+            sum += (uint32_t)(int32_t)b[(size_t)kk * ldb + j];
+        bias_out[j] = (int32_t)((bias ? (uint32_t)bias[j] : 0u) - (uint32_t)zp_in * sum);
+    }
+}
+
 // ---- GEMM API ----
 
 static uint64_t align_up(uint64_t x, uint32_t a) {
     return (x + (uint64_t)a - 1ull) & ~((uint64_t)a - 1ull);
 }
 
-static int workspace_layout(uint32_t m, uint32_t n, uint32_t k, uint32_t tile,
+// int8 = 0: packed A, packed B, int32 C. int8 = 1: packed A, packed B, int8 C, epilogue table.
+static int workspace_layout(uint32_t m, uint32_t n, uint32_t k, uint32_t tile, int int8,
                             uint64_t *pa_out, uint64_t *pb_out, uint32_t *cld_out, uint64_t *tot_out) {
     if (!valid_tile(tile) || m == 0u || n == 0u)
         return 0;
@@ -231,13 +292,13 @@ static int workspace_layout(uint32_t m, uint32_t n, uint32_t k, uint32_t tile,
     uint32_t al = w > 64u ? w : 64u;
     uint64_t pa_raw = packed_bytes_u64(m, k, tile);
     uint64_t pb_raw = packed_bytes_u64(n, k, tile);
-    uint32_t c_ld = tq_c_ld(n, w);
+    uint32_t c_ld = int8 ? tq_c_ld_int8(n, w) : tq_c_ld(n, w);
     if (pa_raw == UINT64_MAX || pb_raw == UINT64_MAX || c_ld == 0u)
         return 0;
     uint64_t pa = align_up(pa_raw, al);
     uint64_t pb = align_up(pb_raw, al);
     uint64_t cb = (uint64_t)m * (uint64_t)c_ld;
-    uint64_t tot = pa + pb + cb;
+    uint64_t tot = pa + pb + (int8 ? align_up(cb, al) + tq_epi_table_bytes(n, tile) : cb);
     if (tot > 0xFFFFFFFFull || tot > (uint64_t)SIZE_MAX)
         return 0;
     *pa_out = pa;
@@ -250,7 +311,7 @@ static int workspace_layout(uint32_t m, uint32_t n, uint32_t k, uint32_t tile,
 size_t tq_gemm_workspace_bytes(uint32_t m, uint32_t n, uint32_t k, uint32_t tile) {
     uint64_t pa, pb, tot;
     uint32_t c_ld;
-    if (!workspace_layout(m, n, k, tile, &pa, &pb, &c_ld, &tot))
+    if (!workspace_layout(m, n, k, tile, 0, &pa, &pb, &c_ld, &tot))
         return 0u;
     return (size_t)tot;
 }
@@ -267,11 +328,12 @@ int tq_gemm_prepare(tq_gemm_plan *plan, uint8_t *ws, uint32_t ws_addr, const tq_
         return TQ_ERR_ARG;
     uint64_t pa, pb, tot;
     uint32_t c_ld;
-    if (!workspace_layout(m, n, k, info->tile, &pa, &pb, &c_ld, &tot))
+    if (!workspace_layout(m, n, k, info->tile, 0, &pa, &pb, &c_ld, &tot))
         return TQ_ERR_ARG;
     if ((uint64_t)ws_addr + tot > 0x100000000ull)
         return TQ_ERR_ARG;
     uint32_t t = info->tile;
+    plan->epi_off = 0u;
     plan->a_off = 0u;
     plan->b_off = (uint32_t)pa;
     plan->c_off = (uint32_t)(pa + pb);
@@ -323,4 +385,85 @@ int tq_gemm_run(volatile uint32_t *base, const tq_info *info, uint8_t *ws, uint3
             uint32_t m, uint32_t n, uint32_t k, int a_signed, int b_signed) {
     return tq_gemm_run_timeout(base, info, ws, ws_addr, a, lda, b, ldb, c, ldc,
                                m, n, k, a_signed, b_signed, 0);
+}
+
+// ---- int8 layer API ----
+
+size_t tq_layer_workspace_bytes(uint32_t m, uint32_t n, uint32_t k, uint32_t tile) {
+    uint64_t pa, pb, tot;
+    uint32_t c_ld;
+    if (!workspace_layout(m, n, k, tile, 1, &pa, &pb, &c_ld, &tot))
+        return 0u;
+    return (size_t)tot;
+}
+
+int tq_layer_prepare(tq_gemm_plan *plan, uint8_t *ws, uint32_t ws_addr, const tq_info *info,
+                     const int8_t *a, size_t lda, const int8_t *b, size_t ldb,
+                     uint32_t m, uint32_t n, uint32_t k, const tq_requant *rq) {
+    if (!plan || !ws || !valid_info(info) || !rq || !rq->m0 || !rq->shift || rq->act_min > rq->act_max)
+        return TQ_ERR_ARG;
+    if (!info->epilogue)
+        return TQ_ERR_UNSUPPORTED;
+    if (info->prog_bytes < TQ_GEMM_EPI_PROGRAM_BYTES)
+        return TQ_ERR_PROG_SIZE;
+    if (k > 0u && (!a || !b || lda < (size_t)k || ldb < (size_t)n))
+        return TQ_ERR_ARG;
+    uint32_t al = info->port_bytes > 64u ? info->port_bytes : 64u;
+    if ((ws_addr & (al - 1u)) != 0u)
+        return TQ_ERR_ARG;
+    uint64_t pa, pb, tot;
+    uint32_t c_ld;
+    if (!workspace_layout(m, n, k, info->tile, 1, &pa, &pb, &c_ld, &tot))
+        return TQ_ERR_ARG;
+    if ((uint64_t)ws_addr + tot > 0x100000000ull)
+        return TQ_ERR_ARG;
+    uint32_t t = info->tile;
+    plan->a_off = 0u;
+    plan->b_off = (uint32_t)pa;
+    plan->c_off = (uint32_t)(pa + pb);
+    plan->c_ld = c_ld;
+    plan->epi_off = (uint32_t)(pa + pb + align_up((uint64_t)m * c_ld, al));
+    tq_pack_a(ws + plan->a_off, (const uint8_t *)a, m, k, lda, t);
+    tq_pack_b(ws + plan->b_off, (const uint8_t *)b, k, n, ldb, t);
+    tq_pack_epi(ws + plan->epi_off, rq, n, t);
+    if (g_cache_clean) {
+        if (plan->c_off > 0u)
+            g_cache_clean(ws, plan->c_off);
+        g_cache_clean(ws + plan->epi_off, tq_epi_table_bytes(n, t));
+    }
+    TQ_WMB();
+    int cols = info->walk_cols && m > t;
+    tq_gemm g = {.m = m, .n = n, .k = k, .a_base = ws_addr + plan->a_off, .b_base = ws_addr + plan->b_off,
+                 .c_base = ws_addr + plan->c_off, .c_ld = plan->c_ld,
+                 .mode = TQ_MODE_A_SIGNED | TQ_MODE_B_SIGNED | TQ_MODE_OUT_INT8 | TQ_MODE_EPI
+                         | (cols ? TQ_MODE_WALK_COLS : 0u),
+                 .epi_base = ws_addr + plan->epi_off,
+                 .epi_out = tq_epi_out(rq->zp_out, rq->act_min, rq->act_max)};
+    plan->prog_len = (uint32_t)tq_gemm_program(plan->prog, sizeof plan->prog, &g);
+    return plan->prog_len ? TQ_OK : TQ_ERR_ARG;
+}
+
+void tq_layer_finish(const tq_gemm_plan *plan, const uint8_t *ws, int8_t *c, size_t ldc,
+                     uint32_t m, uint32_t n) {
+    if (!plan || !ws || !c)
+        return;
+    TQ_RMB();
+    if (g_cache_invalidate && m > 0u && n > 0u)
+        g_cache_invalidate(ws + plan->c_off, (size_t)m * plan->c_ld);
+    for (uint32_t i = 0; i < m; i++)
+        for (uint32_t j = 0; j < n; j++)
+            c[(size_t)i * ldc + j] = (int8_t)ws[plan->c_off + (size_t)i * plan->c_ld + j];
+}
+
+int tq_layer_run(volatile uint32_t *base, const tq_info *info, uint8_t *ws, uint32_t ws_addr,
+                 const int8_t *a, size_t lda, const int8_t *b, size_t ldb, int8_t *c, size_t ldc,
+                 uint32_t m, uint32_t n, uint32_t k, const tq_requant *rq, uint32_t max_polls) {
+    tq_gemm_plan plan;
+    int rc = tq_layer_prepare(&plan, ws, ws_addr, info, a, lda, b, ldb, m, n, k, rq);
+    if (rc != TQ_OK)
+        return rc;
+    rc = tq_run(base, info, plan.prog, plan.prog_len, max_polls);
+    if (rc == TQ_OK)
+        tq_layer_finish(&plan, ws, c, ldc, m, n);
+    return rc;
 }

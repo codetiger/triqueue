@@ -102,6 +102,16 @@ def first_diff(xs, ys):
     return f"length rtl {len(xs)} vs model {len(ys)}" if len(xs) != len(ys) else None
 
 
+def hw_config2(rtl: dict, host: str) -> int:
+    """HW_CONFIG2 (spec 6.4) for these RTL parameters; tq_top_axi builds the core with WR_ACK = 1."""
+    t, axi = rtl.get("T", 8), host in ("axi", "axi_burst")
+    wr_out = rtl.get("WR_OUT_MAX", rtl.get("MAX_OUT", 16) if axi else 15)
+    return (0b11 | rtl.get("PERF", 1) << 4 | (1 if axi else rtl.get("WR_ACK", 0)) << 5
+            | int(rtl.get("ACC_FORM", 1) == 0) << 6 | int(rtl.get("MAC_PIPE", 2) == 1) << 7
+            | min(wr_out, 255) << 8 | (rtl.get("EPI_LANES", t // 2).bit_length() - 1) << 16
+            | rtl.get("PANEL_BYTES", 0) // (2 * t) << 20)
+
+
 async def check_host_contract(tb, dut, params, host, perf_off: bool, check_prot: bool = False):
     assert await tb.reg_read(0x000) == 0x5451_0001
     hw = await tb.reg_read(0x004)
@@ -110,6 +120,9 @@ async def check_host_contract(tb, dut, params, host, perf_off: bool, check_prot:
     assert ((hw >> 16) & 0xF) == params.get("mac_queue_depth", 4)
     assert ((hw >> 20) & 0x1) == int(params.get("shared_port", False))
     assert ((hw >> 24) & 0xFF) * 4 == params.get("prog_bytes", 64)
+    hw2 = await tb.reg_read(0x018)
+    want2 = hw_config2(json.loads(os.environ.get("TQ_RTL_PARAMS", "{}")), host)
+    assert hw2 == want2, f"HW_CONFIG2 {hw2:#010x}, expected {want2:#010x}"
     if host != "xif":
         assert await tb.reg_read(0x000 + 2) == 0x5451_0001
         assert await tb.reg_read(0x004 + 1) == hw
@@ -117,11 +130,14 @@ async def check_host_contract(tb, dut, params, host, perf_off: bool, check_prot:
     await tb.reg_write(0x010, 0x0)
     await tb.reg_write(0x014, 0x3)
     tiny_mem = np.zeros(tb.W, dtype=np.uint8)
-    tiny_prog = isa.cfg(isa.A_BASE, 0x12340) + isa.enc(isa.FENCE)
+    tiny_prog = (isa.cfg(isa.A_BASE, 0x12340) + isa.cfg(isa.EPI_BASE, 0x5670)
+                 + isa.cfg(isa.EPI_OUT, 0x7F80F3) + isa.enc(isa.FENCE))
     wr_lat = 1 if params.get("wr_ack") else None
     await tb.run(tiny_mem, tiny_prog, 1, wr_resp_latency=wr_lat)
     assert await tb.reg_read(0x014) == 0x1 and val(dut.irq_o) == 0
     assert await tb.reg_read(0x040) == 0x12340
+    assert await tb.reg_read(0x060) == 0x5670 and await tb.reg_read(0x064) == 0x7F80F3   # CFG 8, 9
+    assert await tb.reg_read(0x068) == 0                                                 # unmapped
     await tb.reg_write(REG_CTRL, 2)
     assert await tb.reg_read(0x040) == 0x12340
 

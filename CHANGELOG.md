@@ -52,6 +52,21 @@ All notable changes to the Tri-Queue project. This format follows
   the formal-only `TQ_FORMAL_NO_WALK` (`MODE[8]` reserved), since with the walk PDR did not converge
   in 90 min.
 
+- **Capability discovery (`HW_CONFIG2`, `0x018`).** Reports the features (`[0]` column-major
+  walk, `[1]` epilogue) and the build options software could not read before: `PERF`, `WR_ACK`,
+  carry-save `ACC_FORM`, `MAC_PIPE = 1`, `WR_OUT_MAX`, log2 `EPI_LANES` and `PANEL_BYTES / W`. A
+  core before v1.1 reads 0 (neither feature). `CFG` 8 and 9 read back at `0x060` / `0x064`.
+  `tq_probe` decodes it into new `tq_info` fields; the adapter tops forward `EPI_LANES`. Every
+  regression configuration checks `HW_CONFIG2` against its parameters and the `CFG` 8/9 readback.
+
+- **Driver (`sw/`) for the v1.1 modes.** `TQ_MODE_WALK_COLS` / `TQ_MODE_EPI`; `tq_gemm_program`
+  emits `CFG` 8/9 with the epilogue (60 bytes); `tq_pack_epi` / `tq_epi_table_bytes` /
+  `tq_epi_out` build the parameter table and `EPI_OUT` from TFLite's per-channel multiplier and
+  shift; `tq_fold_input_zp` folds the input zero point into the bias; and the int8 layer API
+  (`tq_layer_prepare` / `finish` / `run`) runs one quantized layer, picking the column walk when A
+  has more than one tile row. New error `TQ_ERR_UNSUPPORTED` (22) when the core lacks the epilogue.
+  `make sw-test` runs it end to end on the cycle model against `requant.requantize` (78 tests).
+
 ### Added (v1.1 studies, model only)
 
 - `Params.walk_cols`: a column-major tile walk (since promoted to `MODE[8]`, below); the panel buffer then keeps the B panel. `dse.md` §12:
@@ -76,6 +91,11 @@ All notable changes to the Tri-Queue project. This format follows
 
 ### Fixed (docs)
 
+- `docs/integration.md` and the v1.0.1 notes described `HW_CONFIG[26:21]` (`PANEL_BYTES / 64`) and
+  `HW_CONFIG[27]` (`MAC_PIPE`), and `STATUS[12]` as `PENDING`. The RTL never had those fields
+  (`[31:24]` is the program-buffer size) and `PENDING` is `STATUS[4]`; the panel size and
+  `MAC_PIPE` are now in `HW_CONFIG2`. `sw/README.md` no longer says `tq_probe` decoded them from
+  `HW_CONFIG`, and `verif/README.md` gives `t8_mcu_custom`'s real `PROG_BYTES` (120).
 - Spec §1, §2.1, §7, §9, README and the architecture figure quoted 8,562 flip-flops (8,563 shared
   port, 12,530 carry-save) and spec §10.2 / §10.8 the v1.0.0 accumulator-form and clock-gating
   deltas; they now quote the v1.0.2 records (8,571 / 8,572 / 12,539; plain adder −20.9% / −16.9%

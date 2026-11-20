@@ -19,6 +19,7 @@ module tq_top_axi #(
     parameter int PANEL_BYTES = 0,
     parameter int MAC_PIPE    = 2,
     parameter bit PERF        = 1'b1,
+    parameter int EPI_LANES   = T / 2,
     parameter int BURST_BEATS = 1,       // read burst beats (power of two, >= 1)
     parameter int ID_W        = 1,       // AXI ID width (constant 0)
     parameter logic [2:0] AXPROT  = 3'b000,
@@ -99,7 +100,7 @@ module tq_top_axi #(
   tq_top_axil #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SCMD_DEPTH(SCMD_DEPTH),
                 .SHARED_PORT(SHARED_PORT), .PROG_BYTES(PROG_BYTES), .ACC_FORM(ACC_FORM),
                 .CLK_GATE(CLK_GATE), .WR_ACK(1'b1), .WR_OUT_MAX(WR_OUT_MAX), .PANEL_BYTES(PANEL_BYTES),
-                .MAC_PIPE(MAC_PIPE), .PERF(PERF), .ADDR_W(ADDR_W), .CHECK_PROT(CHECK_PROT)) u_tq (
+                .MAC_PIPE(MAC_PIPE), .PERF(PERF), .EPI_LANES(EPI_LANES), .ADDR_W(ADDR_W), .CHECK_PROT(CHECK_PROT)) u_tq (
       .clk_i, .rst_ni,
       .s_awaddr_i, .s_awprot_i, .s_awvalid_i, .s_awready_o,
       .s_wdata_i, .s_wstrb_i, .s_wvalid_i, .s_wready_o,

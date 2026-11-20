@@ -54,11 +54,13 @@ module tq_top #(
   logic                    start, abort, busy, core_pending, done, error;
   logic [3:0]              err_code;
   logic [PROG_BYTES*8-1:0] prog;
-  logic [8*32-1:0]         cfg;
+  logic [tq_pkg::NUM_CFG*32-1:0] cfg;
   logic [31:0]             p_cyc, p_ret, p_beat, p_rd, p_wr;
 
   tq_regs #(.T(T), .FIFO_DEPTH(FIFO_DEPTH), .MACQ_DEPTH(MACQ_DEPTH), .SHARED_PORT(SHARED_PORT),
-            .PROG_BYTES(PROG_BYTES), .CLK_GATE(CLK_GATE)) u_regs (
+            .PROG_BYTES(PROG_BYTES), .CLK_GATE(CLK_GATE), .ACC_FORM(ACC_FORM), .WR_ACK(WR_ACK),
+            .WR_OUT_MAX(WR_OUT_MAX), .PANEL_BYTES(PANEL_BYTES), .MAC_PIPE(MAC_PIPE), .PERF(PERF),
+            .EPI_LANES(EPI_LANES)) u_regs (
       .clk_i, .rst_ni,
       .reg_req_i, .reg_gnt_o, .reg_addr_i, .reg_we_i, .reg_be_i, .reg_wdata_i,
       .reg_rvalid_o, .reg_rdata_o, .irq_o,
@@ -101,6 +103,9 @@ module tq_top #(
     end
     if (WR_OUT_MAX < 1) begin : g_bad_wrout
       $error("tq_top: WR_OUT_MAX must be at least 1");
+    end
+    if (PANEL_BYTES / (2 * T) > 4095) begin : g_bad_panel_rep
+      $error("tq_top: PANEL_BYTES / 2T must fit HW_CONFIG2[31:20] (at most 4095)");
     end
     if (MAC_PIPE != 1 && MAC_PIPE != 2) begin : g_bad_macpipe
       $error("tq_top: MAC_PIPE must be 1 or 2");

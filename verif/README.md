@@ -31,7 +31,7 @@ Each configuration in `test_rtl.py` builds the DUT once (in `build/rtl/<name>/`)
 | `t8_reference_queues` | Physical-design reference queues (`FIFO_DEPTH = 4`, `MACQ_DEPTH = 3`) | 42 |
 | `t8_edge_cases` | Illegal programs (error codes & exact stop cycle), `ZERO_C` during drain, `K = 0`, `PROG` writes while busy, mid-run `ABORT`/error restart, seeded random valid/invalid programs, `LOOP_T` nested in a once-running `LOOP_K`, register/IRQ/W1C contract | 47 |
 | `t8_edge_shared` | Illegal/edge-case programs and mid-run `ABORT`/error restart with `SHARED_PORT = 1` and `WR_ACK = 1` | 11 |
-| `t8_mcu_custom` | `PERF = 0` (counters tie to 0), `PROG_BYTES = 128` (`HW_CONFIG[20:10]`, programs > 64 B, PC wrap at 128 B) | 4 |
+| `t8_mcu_custom` | `PERF = 0` (counters tie to 0), `PROG_BYTES = 120` (`HW_CONFIG[31:24]`, programs > 64 B) | 4 |
 | `t8_panel` | `A` panel buffer (`PANEL_BYTES = 1024`, spec §10.9): replay hits, K overflow fallback, stalls, errors | 175 |
 | `t8_panel_shared` | `A` panel buffer (`PANEL_BYTES = 512`) + shared port + `WR_ACK = 1` | 9 |
 | `t16_panel` | `T = 16` with `PANEL_BYTES = 2048` | 77 |

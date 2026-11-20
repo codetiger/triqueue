@@ -354,6 +354,7 @@ def test_rtl(name):
     )
     extra_env = {
         "TQ_PARAMS": json.dumps(model_params),
+        "TQ_RTL_PARAMS": json.dumps(rtl_params),
         "TQ_CASES": json.dumps(cases),
         "TQ_HOST": host,
     }

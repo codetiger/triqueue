@@ -6,6 +6,10 @@
 //   0x000 ID          RO  0x5451_0001 ("TQ", register-map version 1)
 //   0x004 HW_CONFIG   RO  [7:0] T, [15:8] FIFO_DEPTH, [19:16] MACQ_DEPTH, [20] SHARED_PORT,
 //                         [31:24] PROG_BYTES / 4.  Port width W = 2T bytes.
+//   0x018 HW_CONFIG2  RO  build options and features (0 on cores before v1.1): [0] column walk
+//                         (MODE[8]), [1] epilogue (MODE[9]), [4] PERF, [5] WR_ACK, [6] carry-save
+//                         (ACC_FORM), [7] MAC_PIPE = 1, [15:8] WR_OUT_MAX, [19:16] log2 EPI_LANES,
+//                         [31:20] PANEL_BYTES / W.  Other bits 0.
 //   0x008 CTRL        WO  bit 0 START, bit 1 ABORT
 //   0x00C STATUS      RO  bit 0 BUSY, bit 1 DONE (sticky until START), bit 2 ERROR, bit 3 BUS_ERR
 //                         (an interconnect error response since START, sticky), bit 4 PENDING
@@ -13,7 +17,7 @@
 //   0x010 IRQ_EN      RW  bit 0 done, bit 1 error, bit 2 bus error
 //   0x014 IRQ_STATUS  RW1C bit 0 done, bit 1 error, bit 2 bus error
 //   0x020 PERF_CYCLES, 0x024 PERF_INSTRET, 0x028 PERF_BEATS, 0x02C PERF_READS, 0x030 PERF_WRITES   RO
-//   0x040-0x05C CFG[0..7]   RO  configuration registers as last written by the program
+//   0x040-0x064 CFG[0..9]   RO  configuration registers as last written by the program
 //   0x100-       PROG        WO  program buffer (PROG_BYTES bytes, byte enables honoured; ignored while BUSY)
 
 module tq_regs #(
@@ -22,7 +26,15 @@ module tq_regs #(
     parameter int MACQ_DEPTH  = 4,
     parameter bit SHARED_PORT = 1'b0,
     parameter int PROG_BYTES  = 64,
-    parameter bit CLK_GATE    = 1'b1     // one clock gate per program-buffer byte (tq_cg)
+    parameter bit CLK_GATE    = 1'b1,    // one clock gate per program-buffer byte (tq_cg)
+    // reported in HW_CONFIG2 only
+    parameter int ACC_FORM    = tq_pkg::ACC_CPA,
+    parameter bit WR_ACK      = 1'b0,
+    parameter int WR_OUT_MAX  = 15,
+    parameter int PANEL_BYTES = 0,
+    parameter int MAC_PIPE    = 2,
+    parameter bit PERF        = 1'b1,
+    parameter int EPI_LANES   = T / 2
 ) (
     input  logic                    clk_i,
     input  logic                    rst_ni,
@@ -46,12 +58,16 @@ module tq_regs #(
     input  logic                    error_i,
     input  logic [3:0]              err_code_i,
     input  logic                    bus_err_i,   // pulse: an error response from the interconnect
-    input  logic [8*32-1:0]         cfg_i,
+    input  logic [tq_pkg::NUM_CFG*32-1:0] cfg_i,
     input  logic [5*32-1:0]         perf_i       // {writes, reads, beats, instret, cycles}
 );
   localparam logic [31:0] ID = 32'h5451_0001;
   localparam logic [31:0] HW_CONFIG = {8'(PROG_BYTES / 4), 3'b0, SHARED_PORT, 4'(MACQ_DEPTH),
                                        8'(FIFO_DEPTH), 8'(T)};
+  localparam int WR_OUT_REP = WR_OUT_MAX > 255 ? 255 : WR_OUT_MAX;
+  localparam logic [31:0] HW_CONFIG2 = {12'(PANEL_BYTES / (2 * T)), 4'($clog2(EPI_LANES)),
+                                        8'(WR_OUT_REP), MAC_PIPE == 1, ACC_FORM == tq_pkg::ACC_CSA,
+                                        WR_ACK, PERF, 2'b00, 1'b1, 1'b1};
 
   logic [PROG_BYTES*8-1:0] prog_q;
   logic       done_q, bus_err_q;
@@ -78,13 +94,15 @@ module tq_regs #(
       12'h00C: rdata = {20'd0, err_code_i, 3'd0, pending_i, bus_err_q, error_i, done_q, busy_i};
       12'h010: rdata = {29'd0, irq_en_q};
       12'h014: rdata = {29'd0, irq_st_q};
+      12'h018: rdata = HW_CONFIG2;
       12'h020: rdata = perf_i[0*32 +: 32];
       12'h024: rdata = perf_i[1*32 +: 32];
       12'h028: rdata = perf_i[2*32 +: 32];
       12'h02C: rdata = perf_i[3*32 +: 32];
       12'h030: rdata = perf_i[4*32 +: 32];
       default: begin
-        if (addr_w >= 12'h040 && addr_w < 12'h060) rdata = cfg_i[32'(addr_w[4:2]) * 32 +: 32];
+        if (addr_w >= 12'h040 && 32'(addr_w) < 32'h40 + 4 * tq_pkg::NUM_CFG)
+          rdata = cfg_i[32'(addr_w[5:2]) * 32 +: 32];
       end
     endcase
   end

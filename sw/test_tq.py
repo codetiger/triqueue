@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Checks the C driver (sw/tq.c) against the cycle model's host side, byte for byte:
 program (isa.gemm_config + gemm_kernel), packing (packing.pack_a / pack_b), C row stride
-(core.build_gemm), and the register sequence of tq_probe / tq_run on a fake register file.
+(core.build_gemm), the epilogue table (core.epi_table), and the register sequence of tq_probe /
+tq_run on a fake register file; the GEMM and int8 layer APIs run end to end on the cycle model.
 
     python3 -m pytest sw -q
 """
@@ -18,8 +19,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "model"))
-from tri_queue import isa  # noqa: E402
-from tri_queue.core import Params, build_gemm  # noqa: E402
+from tri_queue import isa, requant  # noqa: E402
+from tri_queue.core import Params, TriQueueCore, build_gemm, epi_table, reference  # noqa: E402
 from tri_queue.packing import kp, pack_a, pack_b  # noqa: E402
 
 CC = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
@@ -27,12 +28,27 @@ FLAGS = ["-std=c99", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic"]
 
 
 class Gemm(ctypes.Structure):
-    _fields_ = [(f, ctypes.c_uint32) for f in ("m", "n", "k", "a_base", "b_base", "c_base", "c_ld", "mode")]
+    _fields_ = [(f, ctypes.c_uint32) for f in ("m", "n", "k", "a_base", "b_base", "c_base", "c_ld", "mode",
+                                                "epi_base", "epi_out")]
 
 
 class Info(ctypes.Structure):
     _fields_ = [(f, ctypes.c_uint32) for f in
-                ("tile", "port_bytes", "fifo_depth", "macq_depth", "shared_port", "prog_bytes")]
+                ("tile", "port_bytes", "fifo_depth", "macq_depth", "shared_port", "prog_bytes",
+                 "walk_cols", "epilogue", "epi_lanes", "perf", "wr_ack", "wr_out_max", "acc_csa",
+                 "mac_pipe", "panel_bytes")]
+
+
+class Requant(ctypes.Structure):
+    _fields_ = [("bias", ctypes.POINTER(ctypes.c_int32)), ("m0", ctypes.POINTER(ctypes.c_int32)),
+                ("shift", ctypes.POINTER(ctypes.c_int32)), ("zp_out", ctypes.c_int8),
+                ("act_min", ctypes.c_int8), ("act_max", ctypes.c_int8)]
+
+
+class Plan(ctypes.Structure):
+    _fields_ = [("a_off", ctypes.c_uint32), ("b_off", ctypes.c_uint32), ("c_off", ctypes.c_uint32),
+                ("c_ld", ctypes.c_uint32), ("prog_len", ctypes.c_uint32), ("prog", ctypes.c_uint8 * 60),
+                ("epi_off", ctypes.c_uint32)]
 
 
 @pytest.fixture(scope="module")
@@ -55,6 +71,20 @@ def lib(tmp_path_factory):
     so.tq_probe.argtypes = [ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(Info)]
     so.tq_run.argtypes = [ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(Info), u8p, ctypes.c_size_t,
                           ctypes.c_uint32]
+    so.tq_epi_out.argtypes = [ctypes.c_int8] * 3
+    so.tq_epi_out.restype = ctypes.c_uint32
+    so.tq_epi_table_bytes.argtypes = [ctypes.c_uint32] * 2
+    so.tq_epi_table_bytes.restype = so.tq_layer_workspace_bytes.restype = ctypes.c_size_t
+    so.tq_pack_epi.argtypes = [u8p, ctypes.POINTER(Requant), ctypes.c_uint32, ctypes.c_uint32]
+    i32p = ctypes.POINTER(ctypes.c_int32)
+    so.tq_fold_input_zp.argtypes = [i32p, i32p, u8p, ctypes.c_size_t, ctypes.c_uint32, ctypes.c_uint32,
+                                    ctypes.c_int32]
+    so.tq_layer_workspace_bytes.argtypes = [ctypes.c_uint32] * 4
+    so.tq_layer_prepare.argtypes = [ctypes.POINTER(Plan), u8p, ctypes.c_uint32, ctypes.POINTER(Info), u8p,
+                                    ctypes.c_size_t, u8p, ctypes.c_size_t] + [ctypes.c_uint32] * 3 \
+        + [ctypes.POINTER(Requant)]
+    so.tq_layer_finish.argtypes = [ctypes.POINTER(Plan), u8p, u8p, ctypes.c_size_t, ctypes.c_uint32,
+                                   ctypes.c_uint32]
     return so
 
 
@@ -90,6 +120,15 @@ def test_program_and_layout(lib, tile):
         size = lib.tq_gemm_program(ptr(out), 64, ctypes.byref(g))
         assert bytes(out[:size]) == prog
         assert lib.tq_gemm_program(ptr(out), 49, ctypes.byref(g)) == 0
+        for walk in (False, True):                              # epilogue program: 10 CFG + kernel
+            epi = dict(bias=np.zeros(n, np.int32), m0=np.zeros(n, np.int32), shift=np.zeros(n, np.int8),
+                       zp=-3, act_min=-100, act_max=90)
+            _, prog_e, Le = build_gemm(a, b, Params(tile=tile, out_bytes=1, walk_cols=walk), epi)
+            ge = Gemm(m, n, k, Le["a_base"], Le["b_base"], Le["c_base"], Le["c_ld"], Le["mode"],
+                      Le["epi_base"], lib.tq_epi_out(-3, -100, 90))
+            size_e = lib.tq_gemm_program(ptr(out), 64, ctypes.byref(ge))
+            assert size_e == 60 and bytes(out[:size_e]) == prog_e
+            assert lib.tq_gemm_program(ptr(out), 59, ctypes.byref(ge)) == 0
     assert bytes(prog[-10:]) == isa.gemm_kernel()
 
 
@@ -120,6 +159,12 @@ def test_probe_and_run(lib):
     assert lib.tq_probe(regs, ctypes.byref(info)) == 0
     assert (info.tile, info.port_bytes, info.fifo_depth, info.macq_depth, info.shared_port, info.prog_bytes) \
         == (8, 16, 4, 3, 1, 64)
+    assert (info.walk_cols, info.epilogue, info.epi_lanes, info.wr_ack, info.panel_bytes) == (0, 0, 0, 0, 0)
+    regs[6] = 64 << 20 | 2 << 16 | 16 << 8 | 1 << 7 | 1 << 6 | 1 << 5 | 1 << 4 | 0b11   # HW_CONFIG2
+    assert lib.tq_probe(regs, ctypes.byref(info)) == 0
+    assert (info.walk_cols, info.epilogue, info.epi_lanes, info.perf, info.wr_ack, info.wr_out_max,
+            info.acc_csa, info.mac_pipe, info.panel_bytes) == (1, 1, 4, 1, 1, 16, 1, 1, 1024)
+    regs[6] = 0
     regs[1] = (16 << 24) | (1 << 20) | (3 << 16) | (4 << 8) | 3                # T = 3: not a power of two
     assert lib.tq_probe(regs, ctypes.byref(info)) == 19
     regs[1] = (12 << 24) | (1 << 20) | (3 << 16) | (4 << 8) | 8                # PROG = 48 < 50
@@ -152,18 +197,12 @@ def test_probe_and_run(lib):
     assert lib.tq_run(regs, ctypes.byref(info), ptr(big), 65, 10) == 17
 
 
-class Plan(ctypes.Structure):
-    _fields_ = [("a_off", ctypes.c_uint32), ("b_off", ctypes.c_uint32), ("c_off", ctypes.c_uint32),
-                ("c_ld", ctypes.c_uint32), ("prog_len", ctypes.c_uint32), ("prog", ctypes.c_uint8 * 50)]
-
-
 @pytest.mark.parametrize("tile", [4, 8, 16, 32])
 @pytest.mark.parametrize("m,n,k,sa,sb", [(1, 1, 1, 1, 1), (20, 24, 27, 1, 0), (64, 64, 64, 0, 1), (9, 13, 0, 1, 1),
                                          (37, 5, 100, 0, 0)])
 def test_gemm_api_end_to_end(lib, tile, m, n, k, sa, sb):
     """C prepares the workspace, the cycle model runs that memory image and program, C finishes:
     the result equals numpy."""
-    from tri_queue.core import TriQueueCore, reference
     u8p = ctypes.POINTER(ctypes.c_uint8)
     lib.tq_gemm_workspace_bytes.restype = ctypes.c_size_t
     lib.tq_gemm_workspace_bytes.argtypes = [ctypes.c_uint32] * 4
@@ -239,4 +278,104 @@ def test_driver_hardening_and_cache_hooks(lib):
         assert events == [("clean", int(plan.c_off)), ("inval", int(8 * plan.c_ld))]
     finally:
         lib.tq_set_cache_ops(CB(0), CB(0))
+
+
+def i32p(x: np.ndarray):
+    return x.ctypes.data_as(ctypes.POINTER(ctypes.c_int32))
+
+
+def requant_args(rng, n, clamp=False):
+    shift = rng.integers(-14, 3, n).astype(np.int32)
+    shift[: min(n, 3)] = [-40, 31, 0][: min(n, 3)]             # clamped to [-31, 30] by the core
+    lo, hi = sorted(int(v) for v in rng.integers(-128, 128, 2)) if clamp else (-128, 127)
+    return dict(bias=rng.integers(-20000, 20000, n).astype(np.int32),
+                m0=rng.integers(1 << 30, 1 << 31, n).astype(np.int32), shift=shift,
+                zp=int(rng.integers(-20, 21)), act_min=lo, act_max=hi)
+
+
+def make_requant(e):
+    keep = [np.ascontiguousarray(e[x], np.int32) for x in ("bias", "m0", "shift")]
+    rq = Requant(*(k.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)) for k in keep), e["zp"], e["act_min"],
+                 e["act_max"])
+    return rq, keep
+
+
+@pytest.mark.parametrize("tile", [4, 8, 16])
+@pytest.mark.parametrize("n", [1, 7, 8, 9, 33])
+def test_epilogue_table_and_out_word(lib, tile, n):
+    rng = np.random.default_rng(tile * 100 + n)
+    e = requant_args(rng, n)
+    rq, _keep = make_requant(e)
+    size = lib.tq_epi_table_bytes(n, tile)
+    want = epi_table(e, n, tile, 2 * tile)
+    assert size == len(want)
+    dst = np.full(size + 8, 0xAA, np.uint8)
+    lib.tq_pack_epi(ptr(dst), ctypes.byref(rq), n, tile)
+    assert bytes(dst[:size]) == want and np.all(dst[size:] == 0xAA)
+    rq.bias = ctypes.POINTER(ctypes.c_int32)()                 # NULL bias = 0
+    lib.tq_pack_epi(ptr(dst), ctypes.byref(rq), n, tile)
+    assert bytes(dst[:size]) == epi_table(dict(e, bias=np.zeros(n, np.int32)), n, tile, 2 * tile)
+    for zp, lo, hi in ((0, -128, 127), (-3, -100, 90), (127, 0, 6)):
+        assert lib.tq_epi_out(zp, lo, hi) == isa.epi_out(zp, lo, hi)
+
+
+def test_fold_input_zp(lib):
+    rng = np.random.default_rng(5)
+    k, n, ldb = 37, 11, 13
+    b = rng.integers(-128, 128, (k, ldb)).astype(np.int8)
+    bias = rng.integers(-(1 << 31), 1 << 31, n, dtype=np.int64).astype(np.int32)
+    for zp in (0, -128, 5, 127):
+        out = np.zeros(n, np.int32)
+        lib.tq_fold_input_zp(i32p(out), i32p(bias), ptr(b), ldb, k, n, zp)
+        want = (bias.astype(np.int64) - zp * b[:, :n].astype(np.int64).sum(0) + (1 << 31)) % (1 << 32) - (1 << 31)
+        assert np.array_equal(out, want.astype(np.int32))
+
+
+@pytest.mark.parametrize("tile", [4, 8, 16])
+@pytest.mark.parametrize("m,n,k,clamp", [(1, 24, 64, False), (20, 24, 27, True), (64, 9, 40, False),
+                                         (33, 40, 16, True), (5, 1, 3, False)])
+@pytest.mark.parametrize("walk", [0, 1])
+def test_layer_api_end_to_end(lib, tile, m, n, k, clamp, walk):
+    """C prepares the int8 layer workspace (A, B, the epilogue table), the cycle model runs it, C
+    finishes: the result equals TFLite's requantization of the int32 GEMM."""
+    rng = np.random.default_rng(m * 7 + n * 3 + k + tile + walk)
+    a = rng.integers(-128, 128, (m, k)).astype(np.int8)
+    b = rng.integers(-128, 128, (k, n)).astype(np.int8)
+    e = requant_args(rng, n, clamp)
+    rq, _keep = make_requant(e)
+    info = Info(tile, 2 * tile, 4, 3, 0, 64, walk, 1, tile // 2, 1, 0, 0, 0, 2, 0)
+    ws = np.zeros(lib.tq_layer_workspace_bytes(m, n, k, tile) + 64, np.uint8)
+    plan = Plan()
+    assert lib.tq_layer_prepare(ctypes.byref(plan), ptr(ws), 0, ctypes.byref(info), ptr(a), k, ptr(b), n,
+                                m, n, k, ctypes.byref(rq)) == 0
+    prog = bytes(plan.prog[:plan.prog_len])
+    mode = int.from_bytes(prog[36:40], "little")
+    assert bool(mode & isa.MODE_WALK_COLS) == bool(walk and m > tile)
+    if not walk:                                               # the same image and program as the model's
+        mem_m, prog_m, _ = build_gemm(a, b, Params(tile=tile, out_bytes=1, out_shift=0), e)
+        assert prog == prog_m and bytes(ws[:len(mem_m) - 64]) == bytes(mem_m[:len(mem_m) - 64])
+    core = TriQueueCore(ws, prog, Params(tile=tile))
+    assert core.run().error == 0
+    ldc = n + 5
+    c = np.full((m, ldc), 0x55, np.uint8)
+    lib.tq_layer_finish(ctypes.byref(plan), ptr(core.mem), ptr(c), ldc, m, n)
+    want = requant.requantize(reference(a, b), e["bias"], e["m0"], np.clip(e["shift"], -31, 30), e["zp"],
+                              e["act_min"], e["act_max"])
+    assert np.array_equal(c[:, :n].view(np.int8), want) and np.all(c[:, n:] == 0x55)
+
+
+def test_layer_api_needs_the_epilogue(lib):
+    rq, _keep = make_requant(requant_args(np.random.default_rng(1), 8))
+    a = np.zeros((8, 8), np.int8)
+    ws = np.zeros(lib.tq_layer_workspace_bytes(8, 8, 8, 8), np.uint8)
+    plan = Plan()
+    args = (ptr(ws), 0, None, ptr(a), 8, ptr(a), 8, 8, 8, 8, ctypes.byref(rq))
+    for info, rc in ((Info(8, 16, 4, 3, 0, 64), 22),                          # v1.0 core: no epilogue
+                     (Info(8, 16, 4, 3, 0, 56, 1, 1, 4), 17),                  # 60-byte program > 56
+                     (Info(8, 16, 4, 3, 0, 64, 1, 1, 4), 0)):
+        assert lib.tq_layer_prepare(ctypes.byref(plan), args[0], args[1], ctypes.byref(info), *args[3:]) == rc
+    bad = Requant(rq.bias, rq.m0, rq.shift, 0, 10, -10)                       # act_min > act_max
+    info = Info(8, 16, 4, 3, 0, 64, 1, 1, 4)
+    assert lib.tq_layer_prepare(ctypes.byref(plan), ptr(ws), 0, ctypes.byref(info), ptr(a), 8, ptr(a), 8,
+                                8, 8, 8, ctypes.byref(bad)) == 19
 

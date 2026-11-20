@@ -30,7 +30,7 @@ interrupt. There is no register file, no compiler, and no operating-system inter
   reset release to `clk_i` in the SoC. In `tq_top_axi`, `tq_axi_mem` must be reset in the same
   domain as the AXI interconnect; resetting `tq_axi_mem` alone while an AXI transaction is in flight
   violates the AXI handshake rules.
-- `tq_core` is idle and has no transactions in flight when `STATUS.PENDING = 0` (`STATUS[12] = 0`,
+- `tq_core` is idle and has no transactions in flight when `STATUS.PENDING = 0` (`STATUS[4] = 0`,
   which requires `BUSY = 0`, all read tags drained, all `WR_ACK` write responses returned, and
   `ext_pending_i = 0`). If you want to gate the core clock externally, gate only when
   `STATUS.PENDING = 0`, and split `tq_top` into `tq_regs` (always clocked) and `tq_core` (gated when
@@ -57,21 +57,21 @@ with `SLVERR` (`2'b10`) without forwarding `reg_req_o`.
 Software sequence:
 
 1. Read `ID` (`0x000`); expect `0x5451_0001`.
-2. Read `HW_CONFIG` (`0x004`) to get T, FIFO depth, MAC queue depth, shared port, program-buffer
-   size, panel-buffer size (`PANEL_BYTES / 64` in `[26:21]`) and `MAC_PIPE` (`[27]`). Do not
-   hard-code these.
+2. Read `HW_CONFIG` (`0x004`) to get T, FIFO depth, MAC queue depth, shared port and program-buffer
+   size, and `HW_CONFIG2` (`0x018`) for the features and build options (below). Do not hard-code
+   these.
 3. Write the program to `PROG` (`0x100`). Writes while `BUSY` are ignored.
 4. Write `CTRL.START` (`0x008`). `START` clears `STATUS` (and pulses `flush_o` to invalidate any
    adapter read line buffer), but does **not** clear `IRQ_STATUS`; clear stale `IRQ_STATUS` bits
    (`0x014`, W1C) before unmasking `IRQ_EN` if a previous run left them set.
 5. Poll `STATUS.DONE` or wait for `irq_o` (`IRQ_EN` bit 0).
 6. Read `STATUS.ERROR` and `STATUS[11:8]`; read `STATUS.BUS_ERR` separately.
-7. Read C only after `DONE`, `STATUS.PENDING = 0` (`STATUS[12] = 0`), and no error/bus error. With
+7. Read C only after `DONE`, `STATUS.PENDING = 0` (`STATUS[4] = 0`), and no error/bus error. With
    `WR_ACK = 1`, `DONE` also means all core writes have their responses.
 
 `START` while `BUSY` or `PENDING` is ignored by the C driver (`TQ_ERR_BUSY`). `ABORT` clears `BUSY`
 and pulses `flush_o`, but does not set `DONE`. After an error or `ABORT`, poll `STATUS.PENDING = 0`
-(`STATUS[12] = 0`) so all in-flight read tags, `WR_ACK` write responses, and adapter transactions
+(`STATUS[4] = 0`) so all in-flight read tags, `WR_ACK` write responses, and adapter transactions
 have drained before starting a new run or reusing A/B/C memory. Performance counters (`PERF_*`,
 `0x020`–`0x030`) are 32-bit wrapping counters cleared at `START`.
 
@@ -84,11 +84,16 @@ the end of a run, both bit 1 and bit 0 latch). A typical handler reads `STATUS`,
 
 ### Capability discovery
 
-`HW_CONFIG` reports `T`, `FIFO_DEPTH`, `MACQ_DEPTH`, `SHARED_PORT`, `PROG_BYTES`, `PANEL_BYTES / 64`
-and `MAC_PIPE`. Int8 output (`MODE[2]`, with shift `MODE[7:3]`) is always present and is selected per
-run in the program's `MODE` register. `PERF`, `ACC_FORM` and `WR_ACK` remain build-time synthesis
-choices not reported in `HW_CONFIG`. Record the exact git tag/commit and synthesis parameter set in
-your SoC ROM or device tree so system software can identify the build profile.
+`HW_CONFIG` reports `T`, `FIFO_DEPTH`, `MACQ_DEPTH`, `SHARED_PORT` and `PROG_BYTES`. `HW_CONFIG2`
+(v1.1) reports the features (`[0]` column-major walk, `MODE[8]`; `[1]` TFLite epilogue, `MODE[9]`)
+and the build options `PERF` (`[4]`), `WR_ACK` (`[5]`), `ACC_FORM` (`[6]`, 1 = carry-save),
+`MAC_PIPE = 1` (`[7]`), `WR_OUT_MAX` (`[15:8]`), log2 `EPI_LANES` (`[19:16]`) and `PANEL_BYTES / W`
+(`[31:20]`). A core before v1.1 reads 0 there, which correctly reports neither feature; its build
+options are unknown. Int8 output (`MODE[2]`, with shift `MODE[7:3]`) is always present and is
+selected per run in the program's `MODE` register. `tq_probe` decodes both registers into
+`tq_info`. Still record the exact git tag/commit and synthesis parameter set in your SoC ROM or
+device tree, since `CLK_GATE`, queue depths other than the two reported and adapter parameters are
+not readable.
 
 ## 4. Memory ports
 
