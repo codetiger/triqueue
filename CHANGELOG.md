@@ -86,6 +86,13 @@ All notable changes to the Tri-Queue project. This format follows
   matches TFLite's reference kernels, with the classifiers in single rounding (below).
   RTL: `t8_resnet8` and `t4_resnet8`.
 
+- **Int8 layers on the Chipyard SoC.** `bench/soc/chipyard/tq_layer_test.c` runs DS-CNN's 1×1
+  convolution (125×64×64, double rounding, column walk) and ResNet-8's classifier (1×10×64, single
+  rounding) through `tq_layer_run` on the Rocket SoC, every int8 output equal to TFLite's tensor
+  (`export_layers.py` writes the data from the e2e golden files and checks that the other rounding
+  would change outputs). Prints the core's counters and the host's prepare/finish cycles. `run.sh`
+  runs every program in `TESTS` and regenerates the simulator when the inlined RTL changes (make
+  does not track it).
 - **Epilogue single rounding (`MODE[10]`, decision D3).** TFLite's int8 kernels do not agree on
   one rounding. LiteRT's reference `FULLY_CONNECTED` (ai-edge-litert 2.1.6) uses the
   `TFLITE_SINGLE_ROUNDING` form, measured over 2,000 inputs per network; so do TFLite's
