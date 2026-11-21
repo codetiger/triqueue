@@ -102,6 +102,7 @@ enum tq_err {
 #define TQ_MODE_OUT_SHIFT(s) (((uint32_t)(s) & 0x1Fu) << 3)
 #define TQ_MODE_WALK_COLS    0x100u  // v1.1: LOOP_T walks down tile columns (panel buffer keeps B)
 #define TQ_MODE_EPI          0x200u  // v1.1: TFLite epilogue (needs TQ_MODE_OUT_INT8; CFG 8, 9)
+#define TQ_MODE_ROUND1       0x400u  // v1.1: epilogue single rounding, TFLITE_SINGLE_ROUNDING (needs TQ_MODE_EPI)
 
 // Size of the program tq_gemm_program builds: 8 x CFG (5 bytes) + 10-byte kernel, and with
 // TQ_MODE_EPI 10 x CFG + kernel.
@@ -126,6 +127,7 @@ typedef struct {
     uint32_t acc_csa;       // 1: carry-save accumulator (ACC_FORM); same results
     uint32_t mac_pipe;      // MAC pipeline stages (1 or 2; same results)
     uint32_t panel_bytes;   // panel buffer size (spec 10.9), 0 = none
+    uint32_t round1;        // MODE[10] epilogue single rounding (TQ_ROUND_SINGLE)
 } tq_info;
 
 typedef struct {
@@ -141,11 +143,18 @@ typedef struct {
 //   out = clamp(MultiplyByQuantizedMultiplier(acc + bias[j], m0[j], shift[j]) + zp_out, act_min, act_max)
 // m0 / shift are TFLite's per-channel output_multiplier / output_shift (> 0 left); the core clamps
 // shift to [-31, 30]. Fold the input zero point into bias with tq_fold_input_zp.
+// rounding: TQ_ROUND_DOUBLE is TFLite's default MultiplyByQuantizedMultiplier (CMSIS-NN, TFLite
+// Micro, TFLite's reference CONV_2D); TQ_ROUND_SINGLE is the TFLITE_SINGLE_ROUNDING form (MODE[10],
+// tq_info.round1), which LiteRT's reference int8 FULLY_CONNECTED uses. Match the kernel to be
+// bit-exact with.
+#define TQ_ROUND_DOUBLE 0u
+#define TQ_ROUND_SINGLE 1u
 typedef struct {
     const int32_t *bias;    // n values, or NULL for 0
     const int32_t *m0;      // n values
     const int32_t *shift;   // n values
     int8_t zp_out, act_min, act_max;
+    uint8_t rounding;       // TQ_ROUND_DOUBLE or TQ_ROUND_SINGLE
 } tq_requant;
 
 typedef struct {
@@ -220,7 +229,8 @@ int tq_gemm_run_timeout(volatile uint32_t *base, const tq_info *info, uint8_t *w
             uint32_t m, uint32_t n, uint32_t k, int a_signed, int b_signed, uint32_t max_polls);
 
 // ---- int8 layer API (v1.1): C[m][n] (int8) = requant(A[m][k] x B[k][n]), A and B int8 ----
-// Needs a core with the epilogue (tq_info.epilogue, else TQ_ERR_UNSUPPORTED) and a program buffer
+// Needs a core with the epilogue (tq_info.epilogue, and tq_info.round1 for TQ_ROUND_SINGLE, else
+// TQ_ERR_UNSUPPORTED) and a program buffer
 // of at least TQ_GEMM_EPI_PROGRAM_BYTES. The workspace holds packed A, packed B, int8 C and the
 // epilogue table. The tile walk is by columns (each column's parameters read once) when the core
 // has it and A has more than one tile row; otherwise by rows (a GEMV keeps reusing its A panel).

@@ -74,11 +74,10 @@ def run(net: tr.Net, seed: int, tile: int):
             assert s.error == 0
             if not np.array_equal(c, tr.gemm_reference(g)):
                 bad.append((k, "core vs requant reference"))
-            want, rdiff = tr.core_expected(op, g, net.golden(seed, o))
-            if not np.array_equal(c, want):
-                bad.append((k, f"{op['kind']} vs TFLite"))
             y = c.reshape(g.out_shape)
-            row.update(where="core", m=m, n=n, k=kk, macs=m * n * kk, cycles=s.cycles, rounding=rdiff,
+            if not np.array_equal(y, net.golden(seed, o)):
+                bad.append((k, f"{op['kind']} vs TFLite"))
+            row.update(where="core", m=m, n=n, k=kk, macs=m * n * kk, cycles=s.cycles, rounding=g.epi["rounding"],
                        util=m * n * kk / (s.cycles * tile * tile), walk="cols" if p.walk_cols else "rows",
                        host_bytes=g.im2col_bytes + len(pack_a(g.a, kp(kk), tile)))
         else:
@@ -128,33 +127,24 @@ def section(name: str, net: tr.Net) -> list:
         results = [run(net, s, tile) for s in net.seeds]
         bad = [b for _, bb in results for b in bb]
         rows = results[0][0]
-        fc = [r for rr, _ in results for r in rr if r["kind"] == "FULLY_CONNECTED"]
-        rdiff, fc_out = sum(r["rounding"] for r in fc), sum(r["m"] * r["n"] for r in fc)
         tensors = sum(len(r) for r, _ in results)
-        if bad:
-            status = f"**NO: {bad}**"
-        elif rdiff:
-            status = (f"**yes**, {tensors} tensors over {len(net.seeds)} inputs, except {rdiff} of the {fc_out} "
-                      "fully connected outputs, one LSB apart: TFLite's reference FULLY_CONNECTED rounds "
-                      "once, the core twice (see Notes).")
-        else:
-            status = f"**yes**, {tensors} tensors over {len(net.seeds)} inputs."
+        status = f"**NO: {bad}**" if bad else f"**yes**, {tensors} tensors over {len(net.seeds)} inputs."
         out += [f"### T = {tile} ({tile * tile} MACs/cycle), default build", "",
                 f"Bit-exact with TFLite: {status}", "",
-                "| # | Op | Runs on | GEMM m × n × k | MACs | Walk | Core cycles | Utilization "
+                "| # | Op | Runs on | GEMM m × n × k | MACs | Walk | Rounding | Core cycles | Utilization "
                 "| Host bytes (im2col + pack A) | Host MACs | Host element ops |",
-                "| --- | --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |"]
+                "| --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |"]
         for r in rows:
             core = r["where"] == "core"
             out.append(f"| {r['idx']} | {conv_label(net, net.ops[r['idx']])} | {r['where']} | "
                        + (f"{r['m']} × {r['n']} × {r['k']}" if core else "–")
-                       + f" | {r['macs']:,} | {r.get('walk', '–')} | "
+                       + f" | {r['macs']:,} | {r.get('walk', '–')} | {r.get('rounding', '–')} | "
                        + (f"{r['cycles']:,} | {100 * r['util']:.1f}%" if core else "– | –")
                        + f" | {r['host_bytes']:,} | {r['host_macs']:,} | {r['host_elems']:,} |")
         cyc = sum(r.get("cycles", 0) for r in rows)
         cmacs = sum(r["macs"] for r in rows if r["where"] == "core")
         hb, hm, he = (sum(r[f] for r in rows) for f in ("host_bytes", "host_macs", "host_elems"))
-        out += [f"| | **total** | | | {cmacs + hm:,} | | **{cyc:,}** | "
+        out += [f"| | **total** | | | {cmacs + hm:,} | | | **{cyc:,}** | "
                 f"**{100 * cmacs / (cyc * tile * tile):.1f}%** | {hb:,} | {hm:,} | {he:,} |", "",
                 f"The core does {100 * cmacs / (cmacs + hm):.1f}% of the network's MACs in {cyc:,} cycles. "
                 + host_text(hb, hm, he, cyc), ""]
@@ -175,18 +165,18 @@ def report(names=tr.NETS) -> str:
     for name in names:
         out += section(name, tr.load(name))
     out += ["## Notes", "",
-            "**Rounding.** The core's epilogue rounds like TFLite's default "
+            "**Rounding.** TFLite's reference int8 kernels do not all round the same way: in the "
+            "LiteRT build used here (ai-edge-litert 2.1.6) `CONV_2D` uses the default "
             "`MultiplyByQuantizedMultiplier` (a rounding doubling high multiply, then a rounding "
-            "right shift), as the reference `CONV_2D` kernel does: every convolution output above is "
-            "TFLite's. The reference int8 `FULLY_CONNECTED` kernel of the LiteRT build used here "
-            "(ai-edge-litert 2.1.6) rounds once instead (one 64-bit product, round half up, the "
-            "`TFLITE_SINGLE_ROUNDING` form): over 2,000 random inputs per network, every classifier "
-            "output where the two roundings differ (82 for DS-CNN, 284 for ResNet-8) follows the "
-            "single rounding. Those outputs differ by one LSB. The check is exact either way: TFLite's "
-            "tensor must equal the single-rounded reference and the core's the double-rounded one, "
-            "element for element. TFLite's other kernel paths round differently again (the optimized "
-            "`CONV_2D` rounds once; XNNPACK matches neither form exactly), so a bit-exact claim names "
-            "the kernel.", "",
+            "right shift) and `FULLY_CONNECTED` the `TFLITE_SINGLE_ROUNDING` form (one 64-bit "
+            "product, round half up). Over 2,000 random inputs per network every output where the "
+            "two forms differ follows that split (82 classifier outputs for DS-CNN, 284 for "
+            "ResNet-8, and thousands per convolution). The core does both (`MODE[10]` selects the "
+            "single rounding), so each layer runs with its kernel's form (the Rounding column). "
+            "With double rounding throughout, about 0.3% (DS-CNN) and 1.4% (ResNet-8) of the "
+            "classifier outputs would be one LSB off. TFLite's optimized kernels round differently "
+            "again (the optimized `CONV_2D` rounds once; XNNPACK matches neither form exactly), so "
+            "a bit-exact claim names the kernel.", "",
             "Inputs are uniform random int8 (`export.py`, seeds 1, 2, 3), not audio features or "
             "images: bit-exactness does not depend on the data, and the cycle counts depend only on "
             "the shapes. The model's `mem_latency`, FIFO and queue depths are the defaults; no panel "

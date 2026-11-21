@@ -36,13 +36,13 @@ class Info(ctypes.Structure):
     _fields_ = [(f, ctypes.c_uint32) for f in
                 ("tile", "port_bytes", "fifo_depth", "macq_depth", "shared_port", "prog_bytes",
                  "walk_cols", "epilogue", "epi_lanes", "perf", "wr_ack", "wr_out_max", "acc_csa",
-                 "mac_pipe", "panel_bytes")]
+                 "mac_pipe", "panel_bytes", "round1")]
 
 
 class Requant(ctypes.Structure):
     _fields_ = [("bias", ctypes.POINTER(ctypes.c_int32)), ("m0", ctypes.POINTER(ctypes.c_int32)),
                 ("shift", ctypes.POINTER(ctypes.c_int32)), ("zp_out", ctypes.c_int8),
-                ("act_min", ctypes.c_int8), ("act_max", ctypes.c_int8)]
+                ("act_min", ctypes.c_int8), ("act_max", ctypes.c_int8), ("rounding", ctypes.c_uint8)]
 
 
 class Plan(ctypes.Structure):
@@ -160,10 +160,10 @@ def test_probe_and_run(lib):
     assert (info.tile, info.port_bytes, info.fifo_depth, info.macq_depth, info.shared_port, info.prog_bytes) \
         == (8, 16, 4, 3, 1, 64)
     assert (info.walk_cols, info.epilogue, info.epi_lanes, info.wr_ack, info.panel_bytes) == (0, 0, 0, 0, 0)
-    regs[6] = 64 << 20 | 2 << 16 | 16 << 8 | 1 << 7 | 1 << 6 | 1 << 5 | 1 << 4 | 0b11   # HW_CONFIG2
+    regs[6] = 64 << 20 | 2 << 16 | 16 << 8 | 1 << 7 | 1 << 6 | 1 << 5 | 1 << 4 | 0b111  # HW_CONFIG2
     assert lib.tq_probe(regs, ctypes.byref(info)) == 0
-    assert (info.walk_cols, info.epilogue, info.epi_lanes, info.perf, info.wr_ack, info.wr_out_max,
-            info.acc_csa, info.mac_pipe, info.panel_bytes) == (1, 1, 4, 1, 1, 16, 1, 1, 1024)
+    assert (info.walk_cols, info.epilogue, info.round1, info.epi_lanes, info.perf, info.wr_ack, info.wr_out_max,
+            info.acc_csa, info.mac_pipe, info.panel_bytes) == (1, 1, 1, 4, 1, 1, 16, 1, 1, 1024)
     regs[6] = 0
     regs[1] = (16 << 24) | (1 << 20) | (3 << 16) | (4 << 8) | 3                # T = 3: not a power of two
     assert lib.tq_probe(regs, ctypes.byref(info)) == 19
@@ -284,19 +284,19 @@ def i32p(x: np.ndarray):
     return x.ctypes.data_as(ctypes.POINTER(ctypes.c_int32))
 
 
-def requant_args(rng, n, clamp=False):
-    shift = rng.integers(-14, 3, n).astype(np.int32)
+def requant_args(rng, n, clamp=False, rounding="double"):
+    shift = (rng.integers(-31, 31, n) if rounding == "single" else rng.integers(-14, 3, n)).astype(np.int32)
     shift[: min(n, 3)] = [-40, 31, 0][: min(n, 3)]             # clamped to [-31, 30] by the core
     lo, hi = sorted(int(v) for v in rng.integers(-128, 128, 2)) if clamp else (-128, 127)
     return dict(bias=rng.integers(-20000, 20000, n).astype(np.int32),
                 m0=rng.integers(1 << 30, 1 << 31, n).astype(np.int32), shift=shift,
-                zp=int(rng.integers(-20, 21)), act_min=lo, act_max=hi)
+                zp=int(rng.integers(-20, 21)), act_min=lo, act_max=hi, rounding=rounding)
 
 
 def make_requant(e):
     keep = [np.ascontiguousarray(e[x], np.int32) for x in ("bias", "m0", "shift")]
     rq = Requant(*(k.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)) for k in keep), e["zp"], e["act_min"],
-                 e["act_max"])
+                 e["act_max"], int(e.get("rounding") == "single"))
     return rq, keep
 
 
@@ -335,15 +335,16 @@ def test_fold_input_zp(lib):
 @pytest.mark.parametrize("m,n,k,clamp", [(1, 24, 64, False), (20, 24, 27, True), (64, 9, 40, False),
                                          (33, 40, 16, True), (5, 1, 3, False)])
 @pytest.mark.parametrize("walk", [0, 1])
-def test_layer_api_end_to_end(lib, tile, m, n, k, clamp, walk):
+@pytest.mark.parametrize("rounding", ["double", "single"])
+def test_layer_api_end_to_end(lib, tile, m, n, k, clamp, walk, rounding):
     """C prepares the int8 layer workspace (A, B, the epilogue table), the cycle model runs it, C
-    finishes: the result equals TFLite's requantization of the int32 GEMM."""
+    finishes: the result equals TFLite's requantization of the int32 GEMM, in either rounding."""
     rng = np.random.default_rng(m * 7 + n * 3 + k + tile + walk)
     a = rng.integers(-128, 128, (m, k)).astype(np.int8)
     b = rng.integers(-128, 128, (k, n)).astype(np.int8)
-    e = requant_args(rng, n, clamp)
+    e = requant_args(rng, n, clamp, rounding)
     rq, _keep = make_requant(e)
-    info = Info(tile, 2 * tile, 4, 3, 0, 64, walk, 1, tile // 2, 1, 0, 0, 0, 2, 0)
+    info = Info(tile, 2 * tile, 4, 3, 0, 64, walk, 1, tile // 2, 1, 0, 0, 0, 2, 0, 1)
     ws = np.zeros(lib.tq_layer_workspace_bytes(m, n, k, tile) + 64, np.uint8)
     plan = Plan()
     assert lib.tq_layer_prepare(ctypes.byref(plan), ptr(ws), 0, ctypes.byref(info), ptr(a), k, ptr(b), n,
@@ -351,6 +352,7 @@ def test_layer_api_end_to_end(lib, tile, m, n, k, clamp, walk):
     prog = bytes(plan.prog[:plan.prog_len])
     mode = int.from_bytes(prog[36:40], "little")
     assert bool(mode & isa.MODE_WALK_COLS) == bool(walk and m > tile)
+    assert bool(mode & isa.MODE_ROUND1) == (rounding == "single")
     if not walk:                                               # the same image and program as the model's
         mem_m, prog_m, _ = build_gemm(a, b, Params(tile=tile, out_bytes=1, out_shift=0), e)
         assert prog == prog_m and bytes(ws[:len(mem_m) - 64]) == bytes(mem_m[:len(mem_m) - 64])
@@ -360,7 +362,7 @@ def test_layer_api_end_to_end(lib, tile, m, n, k, clamp, walk):
     c = np.full((m, ldc), 0x55, np.uint8)
     lib.tq_layer_finish(ctypes.byref(plan), ptr(core.mem), ptr(c), ldc, m, n)
     want = requant.requantize(reference(a, b), e["bias"], e["m0"], np.clip(e["shift"], -31, 30), e["zp"],
-                              e["act_min"], e["act_max"])
+                              e["act_min"], e["act_max"], rounding)
     assert np.array_equal(c[:, :n].view(np.int8), want) and np.all(c[:, n:] == 0x55)
 
 
@@ -376,6 +378,14 @@ def test_layer_api_needs_the_epilogue(lib):
         assert lib.tq_layer_prepare(ctypes.byref(plan), args[0], args[1], ctypes.byref(info), *args[3:]) == rc
     bad = Requant(rq.bias, rq.m0, rq.shift, 0, 10, -10)                       # act_min > act_max
     info = Info(8, 16, 4, 3, 0, 64, 1, 1, 4)
+    assert lib.tq_layer_prepare(ctypes.byref(plan), ptr(ws), 0, ctypes.byref(info), ptr(a), 8, ptr(a), 8,
+                                8, 8, 8, ctypes.byref(bad)) == 19
+    single = Requant(rq.bias, rq.m0, rq.shift, 0, -128, 127, 1)
+    for round1, rc in ((0, 22), (1, 0)):                                       # single rounding needs MODE[10]
+        info = Info(8, 16, 4, 3, 0, 64, 1, 1, 4, 1, 0, 0, 0, 2, 0, round1)
+        assert lib.tq_layer_prepare(ctypes.byref(plan), ptr(ws), 0, ctypes.byref(info), ptr(a), 8, ptr(a), 8,
+                                    8, 8, 8, ctypes.byref(single)) == rc
+    bad = Requant(rq.bias, rq.m0, rq.shift, 0, -128, 127, 2)                   # unknown rounding
     assert lib.tq_layer_prepare(ctypes.byref(plan), ptr(ws), 0, ctypes.byref(info), ptr(a), 8, ptr(a), 8,
                                 8, 8, 8, ctypes.byref(bad)) == 19
 

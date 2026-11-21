@@ -7,6 +7,7 @@ import pytest
 
 import network
 import tflite_ref as tr
+from tri_queue.core import Params, run_gemm
 
 NETS = {name: tr.load(name) for name in tr.NETS}
 
@@ -22,8 +23,7 @@ def test_host_reference_matches_tflite(name):
             gold = net.golden(seed, op["outputs"][0])
             if op["kind"] in network.ENGINE:
                 g = tr.lower(net, op, x[0])
-                want, _ = tr.core_expected(op, g, gold)
-                assert np.array_equal(tr.gemm_reference(g), want), op["kind"]
+                assert np.array_equal(tr.gemm_reference(g).reshape(gold.shape), gold), op["kind"]
             else:
                 assert np.array_equal(network.host_op(net, op, x), gold), op["kind"]
 
@@ -36,16 +36,36 @@ def test_network_on_the_core_is_bit_exact(name, tile, seed, core_ops):
     assert [r["where"] for r in rows].count("core") == core_ops
 
 
-def test_fully_connected_rounding_difference():
-    """ResNet-8, input 2: one classifier output is a tie after the core's first rounding (-106.499
-    real), where TFLite's single-rounding FULLY_CONNECTED gives -82 and the core -83."""
+def test_fully_connected_rounds_once():
+    """ResNet-8, input 2: one classifier output is a tie after the first of two roundings (-106.499
+    real). TFLite's FULLY_CONNECTED rounds once (-82), as the core does with MODE[10]; double
+    rounding would give -83."""
     net = NETS["resnet8"]
     op = net.ops[14]
     g = tr.lower(net, op, net.golden(2, op["inputs"][0]))
     gold = net.golden(2, op["outputs"][0])
-    want, diff = tr.core_expected(op, g, gold)
-    assert diff == 1 and want[0, 9] == -83 and gold[0, 9] == -82
-    assert np.array_equal(gold, tr.gemm_reference(g, "single"))
+    assert g.epi["rounding"] == "single" and gold[0, 9] == -82
+    assert np.array_equal(tr.gemm_reference(g), gold)
+    double = tr.gemm_reference(g, "double")
+    assert double[0, 9] == -83 and (double != gold).sum() == 1
+    c, s = run_gemm(g.a, g.b, Params(tile=8, out_bytes=1, out_shift=0), epi=g.epi)
+    assert s.error == 0 and np.array_equal(c, gold)
+
+
+@pytest.mark.parametrize("name", tr.NETS)
+def test_convolutions_round_twice(name):
+    """The convolutions need the double rounding: it gives every checked-in output, the single one
+    misses some in almost every layer."""
+    net = NETS[name]
+    single_misses = []
+    for op in net.ops:
+        if op["kind"] == "CONV_2D":
+            g = tr.lower(net, op, net.golden(1, op["inputs"][0]))
+            gold = net.golden(1, op["outputs"][0]).reshape(g.a.shape[0], -1)
+            assert g.epi["rounding"] == "double"
+            assert np.array_equal(tr.gemm_reference(g), gold)
+            single_misses.append(int((tr.gemm_reference(g, "single") != gold).sum()))
+    assert sum(m > 0 for m in single_misses) >= len(single_misses) - 1, single_misses
 
 
 def test_input_zero_point_padding():

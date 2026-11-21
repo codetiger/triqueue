@@ -12,22 +12,22 @@ Host im2col and packing are counted as two passes (build the im2col rows, then p
 
 Bit-exact with TFLite: **yes**, 39 tensors over 3 inputs.
 
-| # | Op | Runs on | GEMM m × n × k | MACs | Walk | Core cycles | Utilization | Host bytes (im2col + pack A) | Host MACs | Host element ops |
-| --- | --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 0 | conv 10×4 s2 | core | 125 × 64 × 40 | 320,000 | cols | 5,188 | 96.4% | 10,120 | 0 | 0 |
-| 1 | depthwise | host | – | 72,000 | – | – | – | 0 | 72,000 | 0 |
-| 2 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | 8,260 | 96.9% | 8,192 | 0 | 0 |
-| 3 | depthwise | host | – | 72,000 | – | – | – | 0 | 72,000 | 0 |
-| 4 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | 8,260 | 96.9% | 8,192 | 0 | 0 |
-| 5 | depthwise | host | – | 72,000 | – | – | – | 0 | 72,000 | 0 |
-| 6 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | 8,260 | 96.9% | 8,192 | 0 | 0 |
-| 7 | depthwise | host | – | 72,000 | – | – | – | 0 | 72,000 | 0 |
-| 8 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | 8,260 | 96.9% | 8,192 | 0 | 0 |
-| 9 | average pool | host | – | 0 | – | – | – | 0 | 0 | 8,000 |
-| 10 | reshape | host | – | 0 | – | – | – | 0 | 0 | 0 |
-| 11 | fully connected | core | 1 × 12 × 64 | 768 | rows | 111 | 10.8% | 256 | 0 | 0 |
-| 12 | softmax | host | – | 0 | – | – | – | 0 | 0 | 0 |
-| | **total** | | | 2,656,768 | | **38,339** | **96.5%** | 43,144 | 288,000 | 8,000 |
+| # | Op | Runs on | GEMM m × n × k | MACs | Walk | Rounding | Core cycles | Utilization | Host bytes (im2col + pack A) | Host MACs | Host element ops |
+| --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | conv 10×4 s2 | core | 125 × 64 × 40 | 320,000 | cols | double | 5,188 | 96.4% | 10,120 | 0 | 0 |
+| 1 | depthwise | host | – | 72,000 | – | – | – | – | 0 | 72,000 | 0 |
+| 2 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | double | 8,260 | 96.9% | 8,192 | 0 | 0 |
+| 3 | depthwise | host | – | 72,000 | – | – | – | – | 0 | 72,000 | 0 |
+| 4 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | double | 8,260 | 96.9% | 8,192 | 0 | 0 |
+| 5 | depthwise | host | – | 72,000 | – | – | – | – | 0 | 72,000 | 0 |
+| 6 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | double | 8,260 | 96.9% | 8,192 | 0 | 0 |
+| 7 | depthwise | host | – | 72,000 | – | – | – | – | 0 | 72,000 | 0 |
+| 8 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | double | 8,260 | 96.9% | 8,192 | 0 | 0 |
+| 9 | average pool | host | – | 0 | – | – | – | – | 0 | 0 | 8,000 |
+| 10 | reshape | host | – | 0 | – | – | – | – | 0 | 0 | 0 |
+| 11 | fully connected | core | 1 × 12 × 64 | 768 | rows | single | 111 | 10.8% | 256 | 0 | 0 |
+| 12 | softmax | host | – | 0 | – | – | – | – | 0 | 0 | 0 |
+| | **total** | | | 2,656,768 | | | **38,339** | **96.5%** | 43,144 | 288,000 | 8,000 |
 
 The core does 89.2% of the network's MACs in 38,339 cycles. Per inference the host writes 43,144 bytes (im2col and A packing; weights, B packing and the epilogue tables are offline) and does 288,000 depthwise MACs and 8,000 element ops (residual adds, average pool). At an assumed scalar host rate of one byte, MAC or element op per cycle that is about 339,144 host cycles, 8.8× the core's, most of it the depthwise convolutions (85%).
 
@@ -35,22 +35,22 @@ The core does 89.2% of the network's MACs in 38,339 cycles. Per inference the ho
 
 Bit-exact with TFLite: **yes**, 39 tensors over 3 inputs.
 
-| # | Op | Runs on | GEMM m × n × k | MACs | Walk | Core cycles | Utilization | Host bytes (im2col + pack A) | Host MACs | Host element ops |
-| --- | --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 0 | conv 10×4 s2 | core | 125 × 64 × 40 | 320,000 | cols | 20,420 | 97.9% | 10,040 | 0 | 0 |
-| 1 | depthwise | host | – | 72,000 | – | – | – | 0 | 72,000 | 0 |
-| 2 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | 32,612 | 98.1% | 8,064 | 0 | 0 |
-| 3 | depthwise | host | – | 72,000 | – | – | – | 0 | 72,000 | 0 |
-| 4 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | 32,612 | 98.1% | 8,064 | 0 | 0 |
-| 5 | depthwise | host | – | 72,000 | – | – | – | 0 | 72,000 | 0 |
-| 6 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | 32,612 | 98.1% | 8,064 | 0 | 0 |
-| 7 | depthwise | host | – | 72,000 | – | – | – | 0 | 72,000 | 0 |
-| 8 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | 32,612 | 98.1% | 8,064 | 0 | 0 |
-| 9 | average pool | host | – | 0 | – | – | – | 0 | 0 | 8,000 |
-| 10 | reshape | host | – | 0 | – | – | – | 0 | 0 | 0 |
-| 11 | fully connected | core | 1 × 12 × 64 | 768 | rows | 180 | 26.7% | 128 | 0 | 0 |
-| 12 | softmax | host | – | 0 | – | – | – | 0 | 0 | 0 |
-| | **total** | | | 2,656,768 | | **151,048** | **98.0%** | 42,424 | 288,000 | 8,000 |
+| # | Op | Runs on | GEMM m × n × k | MACs | Walk | Rounding | Core cycles | Utilization | Host bytes (im2col + pack A) | Host MACs | Host element ops |
+| --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | conv 10×4 s2 | core | 125 × 64 × 40 | 320,000 | cols | double | 20,420 | 97.9% | 10,040 | 0 | 0 |
+| 1 | depthwise | host | – | 72,000 | – | – | – | – | 0 | 72,000 | 0 |
+| 2 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | double | 32,612 | 98.1% | 8,064 | 0 | 0 |
+| 3 | depthwise | host | – | 72,000 | – | – | – | – | 0 | 72,000 | 0 |
+| 4 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | double | 32,612 | 98.1% | 8,064 | 0 | 0 |
+| 5 | depthwise | host | – | 72,000 | – | – | – | – | 0 | 72,000 | 0 |
+| 6 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | double | 32,612 | 98.1% | 8,064 | 0 | 0 |
+| 7 | depthwise | host | – | 72,000 | – | – | – | – | 0 | 72,000 | 0 |
+| 8 | conv 1×1 | core | 125 × 64 × 64 | 512,000 | cols | double | 32,612 | 98.1% | 8,064 | 0 | 0 |
+| 9 | average pool | host | – | 0 | – | – | – | – | 0 | 0 | 8,000 |
+| 10 | reshape | host | – | 0 | – | – | – | – | 0 | 0 | 0 |
+| 11 | fully connected | core | 1 × 12 × 64 | 768 | rows | single | 180 | 26.7% | 128 | 0 | 0 |
+| 12 | softmax | host | – | 0 | – | – | – | – | 0 | 0 | 0 |
+| | **total** | | | 2,656,768 | | | **151,048** | **98.0%** | 42,424 | 288,000 | 8,000 |
 
 The core does 89.2% of the network's MACs in 151,048 cycles. Per inference the host writes 42,424 bytes (im2col and A packing; weights, B packing and the epilogue tables are offline) and does 288,000 depthwise MACs and 8,000 element ops (residual adds, average pool). At an assumed scalar host rate of one byte, MAC or element op per cycle that is about 338,424 host cycles, 2.2× the core's, most of it the depthwise convolutions (85%).
 
@@ -58,58 +58,58 @@ The core does 89.2% of the network's MACs in 151,048 cycles. Per inference the h
 
 ### T = 8 (64 MACs/cycle), default build
 
-Bit-exact with TFLite: **yes**, 48 tensors over 3 inputs, except 1 of the 30 fully connected outputs, one LSB apart: TFLite's reference FULLY_CONNECTED rounds once, the core twice (see Notes).
+Bit-exact with TFLite: **yes**, 48 tensors over 3 inputs.
 
-| # | Op | Runs on | GEMM m × n × k | MACs | Walk | Core cycles | Utilization | Host bytes (im2col + pack A) | Host MACs | Host element ops |
-| --- | --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 0 | conv 3×3 | core | 1024 × 16 × 27 | 442,368 | cols | 8,236 | 83.9% | 60,416 | 0 | 0 |
-| 1 | conv 3×3 | core | 1024 × 16 × 144 | 2,359,296 | cols | 36,908 | 99.9% | 294,912 | 0 | 0 |
-| 2 | conv 3×3 | core | 1024 × 16 × 144 | 2,359,296 | cols | 36,908 | 99.9% | 294,912 | 0 | 0 |
-| 3 | add | host | – | 0 | – | – | – | 0 | 0 | 16,384 |
-| 4 | conv 3×3 s2 | core | 256 × 32 × 144 | 1,179,648 | cols | 18,486 | 99.7% | 73,728 | 0 | 0 |
-| 5 | conv 3×3 | core | 256 × 32 × 288 | 2,359,296 | cols | 36,918 | 99.9% | 147,456 | 0 | 0 |
-| 6 | conv 1×1 s2 | core | 256 × 32 × 16 | 131,072 | cols | 2,366 | 86.6% | 8,192 | 0 | 0 |
-| 7 | add | host | – | 0 | – | – | – | 0 | 0 | 8,192 |
-| 8 | conv 3×3 s2 | core | 64 × 64 × 288 | 1,179,648 | cols | 18,506 | 99.6% | 36,864 | 0 | 0 |
-| 9 | conv 3×3 | core | 64 × 64 × 576 | 2,359,296 | cols | 36,938 | 99.8% | 73,728 | 0 | 0 |
-| 10 | conv 1×1 s2 | core | 64 × 64 × 32 | 131,072 | cols | 2,122 | 96.5% | 4,096 | 0 | 0 |
-| 11 | add | host | – | 0 | – | – | – | 0 | 0 | 4,096 |
-| 12 | average pool | host | – | 0 | – | – | – | 0 | 0 | 4,096 |
-| 13 | reshape | host | – | 0 | – | – | – | 0 | 0 | 0 |
-| 14 | fully connected | core | 1 × 10 × 64 | 640 | rows | 111 | 9.0% | 256 | 0 | 0 |
-| 15 | softmax | host | – | 0 | – | – | – | 0 | 0 | 0 |
-| | **total** | | | 12,501,632 | | **197,499** | **98.9%** | 994,560 | 0 | 32,768 |
+| # | Op | Runs on | GEMM m × n × k | MACs | Walk | Rounding | Core cycles | Utilization | Host bytes (im2col + pack A) | Host MACs | Host element ops |
+| --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | conv 3×3 | core | 1024 × 16 × 27 | 442,368 | cols | double | 8,236 | 83.9% | 60,416 | 0 | 0 |
+| 1 | conv 3×3 | core | 1024 × 16 × 144 | 2,359,296 | cols | double | 36,908 | 99.9% | 294,912 | 0 | 0 |
+| 2 | conv 3×3 | core | 1024 × 16 × 144 | 2,359,296 | cols | double | 36,908 | 99.9% | 294,912 | 0 | 0 |
+| 3 | add | host | – | 0 | – | – | – | – | 0 | 0 | 16,384 |
+| 4 | conv 3×3 s2 | core | 256 × 32 × 144 | 1,179,648 | cols | double | 18,486 | 99.7% | 73,728 | 0 | 0 |
+| 5 | conv 3×3 | core | 256 × 32 × 288 | 2,359,296 | cols | double | 36,918 | 99.9% | 147,456 | 0 | 0 |
+| 6 | conv 1×1 s2 | core | 256 × 32 × 16 | 131,072 | cols | double | 2,366 | 86.6% | 8,192 | 0 | 0 |
+| 7 | add | host | – | 0 | – | – | – | – | 0 | 0 | 8,192 |
+| 8 | conv 3×3 s2 | core | 64 × 64 × 288 | 1,179,648 | cols | double | 18,506 | 99.6% | 36,864 | 0 | 0 |
+| 9 | conv 3×3 | core | 64 × 64 × 576 | 2,359,296 | cols | double | 36,938 | 99.8% | 73,728 | 0 | 0 |
+| 10 | conv 1×1 s2 | core | 64 × 64 × 32 | 131,072 | cols | double | 2,122 | 96.5% | 4,096 | 0 | 0 |
+| 11 | add | host | – | 0 | – | – | – | – | 0 | 0 | 4,096 |
+| 12 | average pool | host | – | 0 | – | – | – | – | 0 | 0 | 4,096 |
+| 13 | reshape | host | – | 0 | – | – | – | – | 0 | 0 | 0 |
+| 14 | fully connected | core | 1 × 10 × 64 | 640 | rows | single | 111 | 9.0% | 256 | 0 | 0 |
+| 15 | softmax | host | – | 0 | – | – | – | – | 0 | 0 | 0 |
+| | **total** | | | 12,501,632 | | | **197,499** | **98.9%** | 994,560 | 0 | 32,768 |
 
 The core does 100.0% of the network's MACs in 197,499 cycles. Per inference the host writes 994,560 bytes (im2col and A packing; weights, B packing and the epilogue tables are offline) and does 32,768 element ops (residual adds, average pool). At an assumed scalar host rate of one byte, MAC or element op per cycle that is about 1,027,328 host cycles, 5.2× the core's, most of it im2col and A packing (97%).
 
 ### T = 4 (16 MACs/cycle), default build
 
-Bit-exact with TFLite: **yes**, 48 tensors over 3 inputs, except 1 of the 30 fully connected outputs, one LSB apart: TFLite's reference FULLY_CONNECTED rounds once, the core twice (see Notes).
+Bit-exact with TFLite: **yes**, 48 tensors over 3 inputs.
 
-| # | Op | Runs on | GEMM m × n × k | MACs | Walk | Core cycles | Utilization | Host bytes (im2col + pack A) | Host MACs | Host element ops |
-| --- | --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 0 | conv 3×3 | core | 1024 × 16 × 27 | 442,368 | cols | 32,814 | 84.3% | 60,416 | 0 | 0 |
-| 1 | conv 3×3 | core | 1024 × 16 × 144 | 2,359,296 | cols | 147,502 | 100.0% | 294,912 | 0 | 0 |
-| 2 | conv 3×3 | core | 1024 × 16 × 144 | 2,359,296 | cols | 147,502 | 100.0% | 294,912 | 0 | 0 |
-| 3 | add | host | – | 0 | – | – | – | 0 | 0 | 16,384 |
-| 4 | conv 3×3 s2 | core | 256 × 32 × 144 | 1,179,648 | cols | 73,794 | 99.9% | 73,728 | 0 | 0 |
-| 5 | conv 3×3 | core | 256 × 32 × 288 | 2,359,296 | cols | 147,522 | 100.0% | 147,456 | 0 | 0 |
-| 6 | conv 1×1 s2 | core | 256 × 32 × 16 | 131,072 | cols | 8,258 | 99.2% | 8,192 | 0 | 0 |
-| 7 | add | host | – | 0 | – | – | – | 0 | 0 | 8,192 |
-| 8 | conv 3×3 s2 | core | 64 × 64 × 288 | 1,179,648 | cols | 73,834 | 99.9% | 36,864 | 0 | 0 |
-| 9 | conv 3×3 | core | 64 × 64 × 576 | 2,359,296 | cols | 147,562 | 99.9% | 73,728 | 0 | 0 |
-| 10 | conv 1×1 s2 | core | 64 × 64 × 32 | 131,072 | cols | 8,298 | 98.7% | 4,096 | 0 | 0 |
-| 11 | add | host | – | 0 | – | – | – | 0 | 0 | 4,096 |
-| 12 | average pool | host | – | 0 | – | – | – | 0 | 0 | 4,096 |
-| 13 | reshape | host | – | 0 | – | – | – | 0 | 0 | 0 |
-| 14 | fully connected | core | 1 × 10 × 64 | 640 | rows | 164 | 24.4% | 128 | 0 | 0 |
-| 15 | softmax | host | – | 0 | – | – | – | 0 | 0 | 0 |
-| | **total** | | | 12,501,632 | | **787,250** | **99.3%** | 994,432 | 0 | 32,768 |
+| # | Op | Runs on | GEMM m × n × k | MACs | Walk | Rounding | Core cycles | Utilization | Host bytes (im2col + pack A) | Host MACs | Host element ops |
+| --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | conv 3×3 | core | 1024 × 16 × 27 | 442,368 | cols | double | 32,814 | 84.3% | 60,416 | 0 | 0 |
+| 1 | conv 3×3 | core | 1024 × 16 × 144 | 2,359,296 | cols | double | 147,502 | 100.0% | 294,912 | 0 | 0 |
+| 2 | conv 3×3 | core | 1024 × 16 × 144 | 2,359,296 | cols | double | 147,502 | 100.0% | 294,912 | 0 | 0 |
+| 3 | add | host | – | 0 | – | – | – | – | 0 | 0 | 16,384 |
+| 4 | conv 3×3 s2 | core | 256 × 32 × 144 | 1,179,648 | cols | double | 73,794 | 99.9% | 73,728 | 0 | 0 |
+| 5 | conv 3×3 | core | 256 × 32 × 288 | 2,359,296 | cols | double | 147,522 | 100.0% | 147,456 | 0 | 0 |
+| 6 | conv 1×1 s2 | core | 256 × 32 × 16 | 131,072 | cols | double | 8,258 | 99.2% | 8,192 | 0 | 0 |
+| 7 | add | host | – | 0 | – | – | – | – | 0 | 0 | 8,192 |
+| 8 | conv 3×3 s2 | core | 64 × 64 × 288 | 1,179,648 | cols | double | 73,834 | 99.9% | 36,864 | 0 | 0 |
+| 9 | conv 3×3 | core | 64 × 64 × 576 | 2,359,296 | cols | double | 147,562 | 99.9% | 73,728 | 0 | 0 |
+| 10 | conv 1×1 s2 | core | 64 × 64 × 32 | 131,072 | cols | double | 8,298 | 98.7% | 4,096 | 0 | 0 |
+| 11 | add | host | – | 0 | – | – | – | – | 0 | 0 | 4,096 |
+| 12 | average pool | host | – | 0 | – | – | – | – | 0 | 0 | 4,096 |
+| 13 | reshape | host | – | 0 | – | – | – | – | 0 | 0 | 0 |
+| 14 | fully connected | core | 1 × 10 × 64 | 640 | rows | single | 164 | 24.4% | 128 | 0 | 0 |
+| 15 | softmax | host | – | 0 | – | – | – | – | 0 | 0 | 0 |
+| | **total** | | | 12,501,632 | | | **787,250** | **99.3%** | 994,432 | 0 | 32,768 |
 
 The core does 100.0% of the network's MACs in 787,250 cycles. Per inference the host writes 994,432 bytes (im2col and A packing; weights, B packing and the epilogue tables are offline) and does 32,768 element ops (residual adds, average pool). At an assumed scalar host rate of one byte, MAC or element op per cycle that is about 1,027,200 host cycles, 1.3× the core's, most of it im2col and A packing (97%).
 
 ## Notes
 
-**Rounding.** The core's epilogue rounds like TFLite's default `MultiplyByQuantizedMultiplier` (a rounding doubling high multiply, then a rounding right shift), as the reference `CONV_2D` kernel does: every convolution output above is TFLite's. The reference int8 `FULLY_CONNECTED` kernel of the LiteRT build used here (ai-edge-litert 2.1.6) rounds once instead (one 64-bit product, round half up, the `TFLITE_SINGLE_ROUNDING` form): over 2,000 random inputs per network, every classifier output where the two roundings differ (82 for DS-CNN, 284 for ResNet-8) follows the single rounding. Those outputs differ by one LSB. The check is exact either way: TFLite's tensor must equal the single-rounded reference and the core's the double-rounded one, element for element. TFLite's other kernel paths round differently again (the optimized `CONV_2D` rounds once; XNNPACK matches neither form exactly), so a bit-exact claim names the kernel.
+**Rounding.** TFLite's reference int8 kernels do not all round the same way: in the LiteRT build used here (ai-edge-litert 2.1.6) `CONV_2D` uses the default `MultiplyByQuantizedMultiplier` (a rounding doubling high multiply, then a rounding right shift) and `FULLY_CONNECTED` the `TFLITE_SINGLE_ROUNDING` form (one 64-bit product, round half up). Over 2,000 random inputs per network every output where the two forms differ follows that split (82 classifier outputs for DS-CNN, 284 for ResNet-8, and thousands per convolution). The core does both (`MODE[10]` selects the single rounding), so each layer runs with its kernel's form (the Rounding column). With double rounding throughout, about 0.3% (DS-CNN) and 1.4% (ResNet-8) of the classifier outputs would be one LSB off. TFLite's optimized kernels round differently again (the optimized `CONV_2D` rounds once; XNNPACK matches neither form exactly), so a bit-exact claim names the kernel.
 
 Inputs are uniform random int8 (`export.py`, seeds 1, 2, 3), not audio features or images: bit-exactness does not depend on the data, and the cycle counts depend only on the shapes. The model's `mem_latency`, FIFO and queue depths are the defaults; no panel buffer. Host costs are counts, not a host simulation.

@@ -67,7 +67,7 @@ module tq_regs #(
   localparam int WR_OUT_REP = WR_OUT_MAX > 255 ? 255 : WR_OUT_MAX;
   localparam logic [31:0] HW_CONFIG2 = {12'(PANEL_BYTES / (2 * T)), 4'($clog2(EPI_LANES)),
                                         8'(WR_OUT_REP), MAC_PIPE == 1, ACC_FORM == tq_pkg::ACC_CSA,
-                                        WR_ACK, PERF, 2'b00, 1'b1, 1'b1};
+                                        WR_ACK, PERF, 1'b0, 1'b1, 1'b1, 1'b1};   // [2] MODE[10]
 
   logic [PROG_BYTES*8-1:0] prog_q;
   logic       done_q, bus_err_q;

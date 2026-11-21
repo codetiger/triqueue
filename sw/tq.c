@@ -72,6 +72,7 @@ int tq_probe(volatile uint32_t *base, tq_info *info) {
     info->mac_pipe = ((hw2 >> 7) & 0x1u) ? 1u : 2u;
     info->wr_out_max = (hw2 >> 8) & 0xFFu;
     info->panel_bytes = ((hw2 >> 20) & 0xFFFu) * info->port_bytes;
+    info->round1 = (hw2 >> 2) & 0x1u;
     return valid_info(info) ? TQ_OK : TQ_ERR_ARG;
 }
 
@@ -400,9 +401,10 @@ size_t tq_layer_workspace_bytes(uint32_t m, uint32_t n, uint32_t k, uint32_t til
 int tq_layer_prepare(tq_gemm_plan *plan, uint8_t *ws, uint32_t ws_addr, const tq_info *info,
                      const int8_t *a, size_t lda, const int8_t *b, size_t ldb,
                      uint32_t m, uint32_t n, uint32_t k, const tq_requant *rq) {
-    if (!plan || !ws || !valid_info(info) || !rq || !rq->m0 || !rq->shift || rq->act_min > rq->act_max)
+    if (!plan || !ws || !valid_info(info) || !rq || !rq->m0 || !rq->shift || rq->act_min > rq->act_max
+        || rq->rounding > TQ_ROUND_SINGLE)
         return TQ_ERR_ARG;
-    if (!info->epilogue)
+    if (!info->epilogue || (rq->rounding == TQ_ROUND_SINGLE && !info->round1))
         return TQ_ERR_UNSUPPORTED;
     if (info->prog_bytes < TQ_GEMM_EPI_PROGRAM_BYTES)
         return TQ_ERR_PROG_SIZE;
@@ -436,7 +438,8 @@ int tq_layer_prepare(tq_gemm_plan *plan, uint8_t *ws, uint32_t ws_addr, const tq
     tq_gemm g = {.m = m, .n = n, .k = k, .a_base = ws_addr + plan->a_off, .b_base = ws_addr + plan->b_off,
                  .c_base = ws_addr + plan->c_off, .c_ld = plan->c_ld,
                  .mode = TQ_MODE_A_SIGNED | TQ_MODE_B_SIGNED | TQ_MODE_OUT_INT8 | TQ_MODE_EPI
-                         | (cols ? TQ_MODE_WALK_COLS : 0u),
+                         | (cols ? TQ_MODE_WALK_COLS : 0u)
+                         | (rq->rounding == TQ_ROUND_SINGLE ? TQ_MODE_ROUND1 : 0u),
                  .epi_base = ws_addr + plan->epi_off,
                  .epi_out = tq_epi_out(rq->zp_out, rq->act_min, rq->act_max)};
     plan->prog_len = (uint32_t)tq_gemm_program(plan->prog, sizeof plan->prog, &g);

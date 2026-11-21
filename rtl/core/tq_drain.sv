@@ -39,6 +39,7 @@ module tq_drain #(
     input  logic [4:0]      out_shift_i,     // MODE[7:3]: right shift before int8 clamp
     // epilogue (MODE[9]): this tile column's parameters and the per-tensor values
     input  logic            epi_i,
+    input  logic            single_i,        // MODE[10]: single rounding (TFLITE_SINGLE_ROUNDING)
     input  logic            par_valid_i,
     input  logic [T*32-1:0] par_bias_i,
     input  logic [T*32-1:0] par_m0_i,
@@ -176,28 +177,34 @@ module tq_drain #(
   assign act_lo = epi_out_i[15:8];
   assign act_hi = epi_out_i[23:16];
 
-  // stage A: + bias, << left, x M0 (one group of L lanes, columns eg*L + l)
+  // stage A: + bias, << left (double rounding), x M0 (one group of L lanes, columns eg*L + l). The
+  // rounding form (MODE[10]) is latched at the drain's start like MODE[9] and travels with the group.
+  logic            single_q, single, a_single_q;
+  assign single = start_i ? single_i : single_q;
   logic [L*64-1:0] a_prod_q;
-  logic [L*5-1:0]  a_right_q;
+  logic [L*5-1:0]  a_left_q, a_right_q;
   logic [L-1:0]    a_sat_q;
   logic [L*64-1:0] a_prod_n;
-  logic [L*5-1:0]  a_right_n;
+  logic [L*5-1:0]  a_left_n, a_right_n;
   logic [L-1:0]    a_sat_n;
   for (genvar l = 0; l < L; l++) begin : g_epa
     logic [31:0] m0, xs;
     assign m0 = par_m0_i[(32'(eg) * L + l) * 32 +: 32];
     tq_requant_pre u_pre (
         .acc_i(rd_val_i[(32'(eg) * L + l) * 32 +: 32]), .bias_i(par_bias_i[(32'(eg) * L + l) * 32 +: 32]),
-        .shift_i(par_shift_i[(32'(eg) * L + l) * 8 +: 8]), .xs_o(xs), .right_o(a_right_n[l*5 +: 5]));
+        .shift_i(par_shift_i[(32'(eg) * L + l) * 8 +: 8]), .single_i(single), .xs_o(xs),
+        .left_o(a_left_n[l*5 +: 5]), .right_o(a_right_n[l*5 +: 5]));
     assign a_prod_n[l*64 +: 64] = 64'($signed(xs) * $signed(m0));
     assign a_sat_n[l]           = (xs == 32'h8000_0000) && (m0 == 32'h8000_0000);
   end
 
-  // stage B: SaturatingRoundingDoublingHighMul, RoundingDivideByPOT, + zp, clamp (model: requant)
+  // stage B: SaturatingRoundingDoublingHighMul and RoundingDivideByPOT, or the single rounding;
+  // + zp, clamp (model: requant)
   logic [L*8-1:0] b_q8;
   for (genvar l = 0; l < L; l++) begin : g_epb
     tq_requant_post u_post (
-        .prod_i(a_prod_q[l*64 +: 64]), .sat_i(a_sat_q[l]), .right_i(a_right_q[l*5 +: 5]),
+        .prod_i(a_prod_q[l*64 +: 64]), .sat_i(a_sat_q[l]), .single_i(a_single_q),
+        .left_i(a_left_q[l*5 +: 5]), .right_i(a_right_q[l*5 +: 5]),
         .zp_i(zp), .act_lo_i(act_lo), .act_hi_i(act_hi), .q_o(b_q8[l*8 +: 8]));
   end
 
@@ -206,6 +213,8 @@ module tq_drain #(
   always_ff @(posedge gclk_ea) begin
     if (e_enter || CLK_GATE) begin
       a_prod_q  <= a_prod_n;
+      a_single_q <= single;
+      a_left_q  <= a_left_n;
       a_right_q <= a_right_n;
       a_sat_q   <= a_sat_n;
       a_g_q     <= eg;
@@ -310,8 +319,9 @@ module tq_drain #(
 
   always_ff @(posedge clk_i) begin
     if (start_i) begin
-      c_ld_q  <= c_ld_i;
-      shift_q <= out_shift_i;
+      c_ld_q   <= c_ld_i;
+      shift_q  <= out_shift_i;
+      single_q <= single_i;
     end
     if (start_i || produce) paddr_q <= paddr;
     if (produce && !last && (phalf || !split_row)) paddr_q <= paddr + c_ld;

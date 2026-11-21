@@ -30,7 +30,7 @@ Further tables in the source file: shared read/write port (79.8% at 64³), drain
 
 ## 2. RTL, T = 8
 
-Source: `verif/` (`make rtl-test`). The SystemVerilog core gives the same cycle count as the model for every one of **2,586 regression cases in 39 configurations** (T = 4, 8, 16, 32; shared port; minimal and reference queues; both accumulator forms; panel buffer; single-beat and burst AXI; CV-X-IF; and random memory back-pressure of 10–80%), including **4,130 cycles for 64³**. Results are bit-exact, and every memory transaction and MAC start happens on the same cycle as in the model. See [`docs/verification.md`](verification.md) for the matrix and the known coverage gaps.
+Source: `verif/` (`make rtl-test`). The SystemVerilog core gives the same cycle count as the model for every one of **2,685 regression cases in 41 configurations** (T = 4, 8, 16, 32; shared port; minimal and reference queues; both accumulator forms; panel buffer; single-beat and burst AXI; CV-X-IF; and random memory back-pressure of 10–80%), including **4,130 cycles for 64³**. Results are bit-exact, and every memory transaction and MAC start happens on the same cycle as in the model. See [`docs/verification.md`](verification.md) for the matrix and the known coverage gaps.
 
 ## 3. Tile size (cycle model)
 
@@ -124,7 +124,7 @@ Read bursts take one round trip per line instead of per word and cut the cycles 
 
 ## 7. End-to-end networks: DS-CNN and ResNet-8 (cycle model and RTL)
 
-Source: `bench/e2e/results.md` (`bench/e2e/network.py`). Two MLPerf Tiny int8 networks run layer by layer, each op consuming this run's tensors: keyword-spotting DS-CNN and CIFAR-10 ResNet-8. Convolutions and fully connected layers run on the core (host im2col and A packing, then GEMM + TFLite epilogue, `MODE[9]`); depthwise convolutions, residual adds and average pools run on the host. Every tensor matches the TFLite interpreter's reference kernels bit for bit for 3 inputs, at T = 8 and T = 4. There is one exception: TFLite's reference `FULLY_CONNECTED` rounds once where its `CONV_2D` and the core round twice, so one of ResNet-8's 30 classifier outputs is one LSB apart. That element is checked exactly against both rounding forms (`bench/e2e/README.md`). The core layers give the same C and cycle count in RTL simulation (`t8_dscnn`, `t4_dscnn`, `t8_resnet8`, `t4_resnet8`).
+Source: `bench/e2e/results.md` (`bench/e2e/network.py`). Two MLPerf Tiny int8 networks run layer by layer, each op consuming this run's tensors: keyword-spotting DS-CNN and CIFAR-10 ResNet-8. Convolutions and fully connected layers run on the core (host im2col and A packing, then GEMM + TFLite epilogue, `MODE[9]`); depthwise convolutions, residual adds and average pools run on the host. Every tensor matches the TFLite interpreter's reference kernels bit for bit for 3 inputs, at T = 8 and T = 4. TFLite's reference `CONV_2D` rounds twice and its reference `FULLY_CONNECTED` once. The core has both forms (`MODE[10]`), and each layer runs with its kernel's (`bench/e2e/README.md`). The core layers give the same C and cycle count in RTL simulation (`t8_dscnn`, `t4_dscnn`, `t8_resnet8`, `t4_resnet8`).
 
 | | DS-CNN, T = 8 | DS-CNN, T = 4 | ResNet-8, T = 8 | ResNet-8, T = 4 |
 | --- | --- | --- | --- | --- |

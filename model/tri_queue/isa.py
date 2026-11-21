@@ -28,7 +28,8 @@ MODE_OUT_INT8 = 0x4
 MODE_OUT_SHIFT = 3
 MODE_WALK_COLS = 0x100       # LOOP_T walks down tile columns; the panel buffer keeps B (spec 6.1)
 MODE_EPI = 0x200             # TFLite int8 epilogue in the drain (needs MODE_OUT_INT8; spec 10.1)
-MODE_RESERVED_SHIFT = 10     # MODE[31:10] must be 0 (ERR_CFG_VAL)
+MODE_ROUND1 = 0x400          # epilogue single rounding, TFLITE_SINGLE_ROUNDING (needs MODE_EPI; spec 10.1)
+MODE_RESERVED_SHIFT = 11     # MODE[31:11] must be 0 (ERR_CFG_VAL)
 
 
 def epi_out(zp_out: int, act_min: int = -128, act_max: int = 127) -> int:

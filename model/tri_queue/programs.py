@@ -24,7 +24,7 @@ def edge_program(name: str, cfg: bytes) -> bytes:
     cfg_loop          a CFG inside LOOP_T's body                              -> ERR_CFG_LOOP
     cfg_val_k         a CFG K above the supported range                       -> ERR_CFG_VAL
     cfg_val_m         a CFG M above 65,535 tiles                              -> ERR_CFG_VAL
-    cfg_val_mode      a CFG MODE with non-zero reserved bits [31:10]          -> ERR_CFG_VAL
+    cfg_val_mode      a CFG MODE with non-zero reserved bits [31:11]          -> ERR_CFG_VAL
     cfg_val_cld       a CFG C_LD narrower than the row width                  -> ERR_CFG_VAL
     walk_after_stream a CFG MODE that flips MODE[8] after a STREAM_A          -> ERR_CFG_VAL
     walk_before_stream the same flip before any STREAM: legal, C is right (column walk)
@@ -65,7 +65,7 @@ def edge_program(name: str, cfg: bytes) -> bytes:
         "cfg_loop": cfg + E(isa.ZERO_C) + E(isa.LOOP_T, 5) + isa.cfg(isa.K, 8) + E(isa.FENCE),
         "cfg_val_k": cfg[:20] + isa.cfg(isa.K, 0xFFFF_FFF8) + cfg[25:] + kernel,
         "cfg_val_m": cfg[:25] + isa.cfg(isa.M, 0x10_0000) + cfg[30:] + kernel,
-        "cfg_val_mode": cfg[:35] + isa.cfg(isa.MODE, 0x400) + kernel,
+        "cfg_val_mode": cfg[:35] + isa.cfg(isa.MODE, 0x800) + kernel,
         "cfg_val_cld": cfg[:15] + isa.cfg(isa.C_LD, 16) + cfg[20:] + kernel,
         "walk_after_stream": cfg + E(isa.ZERO_C) + E(isa.STREAM_A)
                              + isa.cfg(isa.MODE, int.from_bytes(cfg[36:40], "little") ^ isa.MODE_WALK_COLS)

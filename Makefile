@@ -83,7 +83,7 @@ rtl-coverage:
 	TQ_COVERAGE=1 $(PYTHON) -m pytest verif -q
 	$(PYTHON) tools/rtl_coverage.py
 
-# formal: clock-gating template (pattern check + tq_cg.sby), FIFO, AXI4-Lite and CV-X-IF adapters, AXI master (cover, burst BMC, unbounded prove/burst_prove, ~1.5 min), lazy accumulator clear (tq_mac_array.sby), epilogue lane equal to TFLite's output stage (tq_requant.sby, ~10 s), core proof (split port). formal-nightly: csa1 lazy clear, core proofs for shared port, WR_ACK and panel buffer, AXI master burst read data at MAX_OUT = 1 (3-10 min each, PDR variance can exceed 30 min).
+# formal: clock-gating template (pattern check + tq_cg.sby), FIFO, AXI4-Lite and CV-X-IF adapters, AXI master (cover, burst BMC, unbounded prove/burst_prove, ~1.5 min), lazy accumulator clear (tq_mac_array.sby), epilogue lane equal to TFLite's output stage in both roundings (tq_requant.sby, ~25 s), core proof (split port). formal-nightly: csa1 lazy clear, core proofs for shared port, WR_ACK and panel buffer, AXI master burst read data at MAX_OUT = 1 (3-10 min each, PDR variance can exceed 30 min).
 formal:
 	$(PYTHON) verif/formal/check_cg_pattern.py
 	cd verif/formal && $(SBY) -f tq_cg.sby && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_xif_regs.sby && $(SBY) -f tq_axi_mem.sby cover burst prove burst_prove && $(SBY) -f tq_mac_array.sby cpa2 cpa1 csa2 && $(SBY) -f tq_requant.sby pre post && $(SBY) -f tq_core.sby split

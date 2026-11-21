@@ -43,7 +43,8 @@ package tq_pkg;
   localparam int MODE_SHIFT_LSB = 3;   // MODE[7:3]: right shift (0..31) for int8 output
   localparam int MODE_WALK_COLS = 8;   // 1: LOOP_T walks down tile columns; the panel buffer keeps B
   localparam int MODE_EPI       = 9;   // 1: TFLite int8 epilogue in the drain (needs MODE_OUT_INT8)
-  localparam int MODE_RSVD_LSB  = 10;  // MODE[31:10] reserved (ERR_CFG_VAL)
+  localparam int MODE_ROUND1    = 10;  // 1: epilogue single rounding, TFLITE_SINGLE_ROUNDING (needs MODE_EPI)
+  localparam int MODE_RSVD_LSB  = 11;  // MODE[31:11] reserved (ERR_CFG_VAL)
 
   // ---- error codes (STATUS.err_code) ----
   localparam logic [3:0] ERR_NONE      = 4'd0;

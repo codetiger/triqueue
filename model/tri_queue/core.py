@@ -49,7 +49,8 @@ Modelling assumptions (stated in model/README.md):
     with per-column (bias, M0, shift) from the table at CFG EPI_BASE, loaded (5 port words) through
     the read port ahead of A/B reads when the tile column changes, epi_lanes values per cycle, a
     row written G = T / epi_lanes cycles apart (epi_latency before the first), the lanes held
-    while a row's write waits for gnt.
+    while a row's write waits for gnt. MODE[10] (MODE_ROUND1) selects TFLITE_SINGLE_ROUNDING
+    instead of TFLite's default double rounding (requant.mbqm).
   * A column-major tile walk (MODE[8], MODE_WALK_COLS; Params.walk_cols sets it in build_gemm;
     dse.md section 12): LOOP_T walks down tile columns, so consecutive tiles share the B panel; the
     panel buffer then keeps B instead of A.
@@ -373,6 +374,7 @@ class TriQueueCore:
                     or (arg in (isa.M, isa.N) and imm > (0xFFFF << l2t)) \
                     or (arg == isa.MODE and (imm >> isa.MODE_RESERVED_SHIFT) != 0) \
                     or (arg == isa.MODE and imm & isa.MODE_EPI and not imm & isa.MODE_OUT_INT8) \
+                    or (arg == isa.MODE and imm & isa.MODE_ROUND1 and not imm & isa.MODE_EPI) \
                     or (arg == isa.EPI_OUT and (imm >> 24) != 0) \
                     or (arg == isa.MODE and (imm ^ self.cfg[isa.MODE]) & isa.MODE_WALK_COLS
                         and (self.scmd_issued["A"] or self.scmd_issued["B"])):
@@ -577,7 +579,8 @@ class TriQueueCore:
             # column's (bias, M0, shift), loaded through the read port when the column changes
             base_ready = max(self.cycle, self.last_write[bank]) + self.p.cpa_latency
             self.drain = {"bank": bank, "tile": tile, "ready": None, "writes": writes, "epi": True,
-                          "vals": vals[:rows, :cols].astype(np.int64), "base": base, "base_ready": base_ready}
+                          "vals": vals[:rows, :cols].astype(np.int64), "base": base, "base_ready": base_ready,
+                          "rounding": "single" if mode & isa.MODE_ROUND1 else "double"}
             if self.epi_col == tj:
                 self._epi_plan(self.cycle)
             else:
@@ -647,7 +650,7 @@ class TriQueueCore:
         zp, lo, hi = (int(np.int8(np.uint8((out >> s) & 0xFF))) for s in (0, 8, 16))
         bias, m0, shift = self.epi_par
         cols = d["vals"].shape[1]
-        q = requant.requantize(d["vals"], bias[:cols], m0[:cols], shift[:cols], zp, lo, hi)
+        q = requant.requantize(d["vals"], bias[:cols], m0[:cols], shift[:cols], zp, lo, hi, d["rounding"])
         for rr in range(q.shape[0]):
             d["writes"].append((d["base"] + rr * self.cfg[isa.C_LD], q[rr].tobytes()))
         d["ready"] = max(d["base_ready"] - 1, t) + self.T // self.epi_lanes - 1 + self.p.epi_latency
@@ -945,7 +948,8 @@ def epi_table(epi: dict, n: int, tile: int, port_bytes: int) -> bytes:
 def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None, epi: dict | None = None):
     """Pack operands and build the memory image and program. Returns (mem, prog, layout).
     epi: TFLite epilogue (MODE[9], needs out_bytes = 1): per-column bias, m0, shift (length n)
-    and per-tensor zp, act_min, act_max; the parameter table follows C."""
+    and per-tensor zp, act_min, act_max; the parameter table follows C. epi["rounding"] = "single"
+    sets MODE[10] (TFLITE_SINGLE_ROUNDING; default "double")."""
     from .packing import pack_a, pack_b
     p = params or Params()
     p.validate()
@@ -985,6 +989,11 @@ def build_gemm(a: np.ndarray, b: np.ndarray, params: Params | None = None, epi: 
         mode |= isa.MODE_WALK_COLS
     if epi is not None:
         mode |= isa.MODE_EPI
+        rounding = epi.get("rounding", "double")
+        if rounding not in ("double", "single"):
+            raise ValueError(f"epi rounding must be 'double' or 'single', not {rounding!r}")
+        if rounding == "single":
+            mode |= isa.MODE_ROUND1
         out_word = isa.epi_out(epi.get("zp", 0), epi.get("act_min", -128), epi.get("act_max", 127))
         prog = isa.gemm_config(a_base, b_base, c_base, c_ld, k, m, n, mode, epi_base, out_word)
     else:

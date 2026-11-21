@@ -41,10 +41,9 @@ _LAYERS = {}
 
 
 def layer_gemm(case):
-    """A case with "layer": [net, op, seed]: that layer's GEMM (A after im2col, B, epilogue) from the
-    TFLite golden reference of network net (bench/e2e), fed with TFLite's own input tensor. Returns
-    (gemm, the C the core must write as m x n: TFLite's output tensor, with the double-rounded value
-    where TFLite's reference FULLY_CONNECTED rounds once; tflite_ref.core_expected)."""
+    """A case with "layer": [net, op, seed]: that layer's GEMM (A after im2col, B, epilogue with
+    the layer's kernel's rounding) from the TFLite golden reference of network net (bench/e2e),
+    fed with TFLite's own input tensor. Returns (gemm, TFLite's output tensor as m x n)."""
     import tflite_ref
     name, op_i, seed = case["layer"]
     if name not in _LAYERS:
@@ -52,7 +51,7 @@ def layer_gemm(case):
     net = _LAYERS[name]
     op = net.ops[op_i]
     g = tflite_ref.lower(net, op, net.golden(seed, op["inputs"][0]))
-    return g, tflite_ref.core_expected(op, g, net.golden(seed, op["outputs"][0]))[0]
+    return g, net.golden(seed, op["outputs"][0]).reshape(g.a.shape[0], g.b.shape[1])
 
 
 def operands(case):
@@ -79,17 +78,19 @@ def operands(case):
 
 def case_epi(case, n):
     """Epilogue parameters of a case with "epi" (MODE[9]), drawn from the case seed: per-column
-    bias, M0 and shift (with the edge values of the shift range), per-tensor zp and clamp."""
+    bias, M0 and shift (with the edge values of the shift range), per-tensor zp and clamp. With
+    "round1" the single rounding (MODE[10]) and shifts over the whole range [-31, 30]."""
     if not case.get("epi"):
         return None
     if "layer" in case:
         return layer_gemm(case)[0].epi
     rng = np.random.default_rng(case["seed"] + 77)
-    shift = rng.integers(-14, 3, n)
+    shift = rng.integers(-31, 31, n) if case.get("round1") else rng.integers(-14, 3, n)
     shift[: min(n, 3)] = [-40, 31, 0][: min(n, 3)]            # clamped to [-31, 30] by the drain
     lo, hi = sorted(rng.integers(-128, 128, 2)) if case["epi"] == "clamp" else (-128, 127)
     return dict(bias=rng.integers(-20000, 20000, n), m0=rng.integers(1 << 30, 1 << 31, n),
-                shift=shift, zp=int(rng.integers(-20, 21)), act_min=int(lo), act_max=int(hi))
+                shift=shift, zp=int(rng.integers(-20, 21)), act_min=int(lo), act_max=int(hi),
+                rounding="single" if case.get("round1") else "double")
 
 
 def model_run(a, b, p: Params, case=None):
@@ -131,7 +132,7 @@ def hw_config2(rtl: dict, host: str) -> int:
     """HW_CONFIG2 (spec 6.4) for these RTL parameters; tq_top_axi builds the core with WR_ACK = 1."""
     t, axi = rtl.get("T", 8), host in ("axi", "axi_burst")
     wr_out = rtl.get("WR_OUT_MAX", rtl.get("MAX_OUT", 16) if axi else 15)
-    return (0b11 | rtl.get("PERF", 1) << 4 | (1 if axi else rtl.get("WR_ACK", 0)) << 5
+    return (0b111 | rtl.get("PERF", 1) << 4 | (1 if axi else rtl.get("WR_ACK", 0)) << 5
             | int(rtl.get("ACC_FORM", 1) == 0) << 6 | int(rtl.get("MAC_PIPE", 2) == 1) << 7
             | min(wr_out, 255) << 8 | (rtl.get("EPI_LANES", t // 2).bit_length() - 1) << 16
             | rtl.get("PANEL_BYTES", 0) // (2 * t) << 20)
@@ -343,7 +344,7 @@ async def gemm_cases(dut):
         e = case_epi(case, b.shape[1])
         if e is not None:
             want = requant.requantize(reference(a, b), e["bias"], e["m0"], np.clip(e["shift"], -31, 30),
-                                      e["zp"], e["act_min"], e["act_max"])
+                                      e["zp"], e["act_min"], e["act_max"], e.get("rounding", "double"))
         else:
             want = (np.clip(reference(a, b) >> p.out_shift, -128, 127).astype(np.int8)
                     if p.out_bytes == 1 else reference(a, b))

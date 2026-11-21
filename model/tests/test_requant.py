@@ -15,7 +15,7 @@ def _samples(rng, n):
     return x.astype(np.int64)
 
 
-@pytest.mark.parametrize("rounding,shifts", [("double", range(-31, 31)), ("single", range(-31, 8))])
+@pytest.mark.parametrize("rounding,shifts", [("double", range(-31, 31)), ("single", range(-31, 31))])
 def test_vector_matches_scalar(rounding, shifts):
     rng = np.random.default_rng(11)
     scalar = rq.mbqm_double_scalar if rounding == "double" else rq.mbqm_single_scalar

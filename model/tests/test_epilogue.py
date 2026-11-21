@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Harishankar Narayanan
 # SPDX-License-Identifier: Apache-2.0
-"""TFLite int8 epilogue in the drain (MODE[9], spec 10.1): bit-exact with tri_queue.requant."""
+"""TFLite int8 epilogue in the drain (MODE[9], spec 10.1): bit-exact with tri_queue.requant, with
+TFLite's default double rounding or, with MODE[10], TFLITE_SINGLE_ROUNDING."""
 import numpy as np
 import pytest
 
@@ -18,7 +19,7 @@ def _epi(rng, n, zp=-3, lo=-128, hi=127):
 
 def _want(a, b, e):
     return requant.requantize(reference(a, b), e["bias"], e["m0"], np.clip(e["shift"], -31, 30),
-                              e["zp"], e["act_min"], e["act_max"])
+                              e["zp"], e["act_min"], e["act_max"], e.get("rounding", "double"))
 
 
 @pytest.mark.parametrize("m,n,k", [(1, 1, 1), (8, 8, 8), (20, 24, 27), (37, 41, 16), (64, 9, 40),
@@ -32,6 +33,35 @@ def test_epilogue_is_bit_exact(m, n, k, walk, lanes):
     c, s = run_gemm(a, b, Params(out_bytes=1, walk_cols=walk, epi_lanes=lanes), epi=e)
     assert s.error == 0
     assert np.array_equal(c, _want(a, b, e))
+
+
+@pytest.mark.parametrize("m,n,k", [(1, 1, 1), (20, 24, 27), (65, 65, 65)])
+@pytest.mark.parametrize("walk", [False, True])
+def test_single_rounding_is_bit_exact(m, n, k, walk):
+    """MODE[10]: every shift in [-31, 30] (and the clamped -40 and 31), against TFLite's
+    TFLITE_SINGLE_ROUNDING code (requant.mbqm_single_scalar through requantize)."""
+    rng = np.random.default_rng(m + n + k)
+    a, b = rand(rng, (m, k), np.int8), rand(rng, (k, n), np.int8)
+    e = dict(_epi(rng, n), rounding="single")
+    e["shift"] = rng.integers(-31, 31, n)
+    e["shift"][: min(n, 3)] = [-40, 31, 30][: min(n, 3)]
+    mem, prog, L = build_gemm(a, b, Params(out_bytes=1, walk_cols=walk), epi=e)
+    assert L["mode"] & isa.MODE_ROUND1
+    c, s = run_gemm(a, b, Params(out_bytes=1, walk_cols=walk), epi=e)
+    assert s.error == 0 and np.array_equal(c, _want(a, b, e))
+
+
+def test_single_and_double_rounding_differ_only_at_ties():
+    """The two forms differ by at most 1, and only on some values; same cycles."""
+    rng = np.random.default_rng(3)
+    a, b = rand(rng, (64, 64), np.int8), rand(rng, (64, 64), np.int8)
+    e = _epi(rng, 64, lo=-128, hi=127)
+    e["shift"] = np.full(64, -9)
+    c2, s2 = run_gemm(a, b, Params(out_bytes=1), epi=e)
+    c1, s1 = run_gemm(a, b, Params(out_bytes=1), epi=dict(e, rounding="single"))
+    d = np.abs(c1.astype(int) - c2.astype(int))
+    assert d.max() == 1 and 0 < (d != 0).sum() < d.size // 20
+    assert s1.cycles == s2.cycles
 
 
 @pytest.mark.parametrize("shared,stall", [(False, 0.0), (True, 0.0), (False, 0.4), (True, 0.5)])
@@ -63,12 +93,16 @@ def test_mode_rules():
     kernel = isa.gemm_kernel()
     bad = [cfg[:35] + isa.cfg(isa.MODE, L["mode"] & ~isa.MODE_OUT_INT8) + cfg[40:] + kernel,  # MODE[9] without [2]
            cfg[:45] + isa.cfg(isa.EPI_OUT, 1 << 24) + kernel,                                    # EPI_OUT[31:24]
-           cfg[:40] + isa.cfg(isa.EPI_BASE, L["epi_base"] + 4) + cfg[45:] + kernel]               # misaligned
+           cfg[:40] + isa.cfg(isa.EPI_BASE, L["epi_base"] + 4) + cfg[45:] + kernel,               # misaligned
+           cfg[:35] + isa.cfg(isa.MODE, (L["mode"] & ~isa.MODE_EPI) | isa.MODE_ROUND1) + cfg[40:] + kernel,  # [10] w/o [9]
+           cfg[:35] + isa.cfg(isa.MODE, L["mode"] | 1 << isa.MODE_RESERVED_SHIFT) + cfg[40:] + kernel]  # MODE[11]
     codes = []
     for prog_bad in bad:
         core = TriQueueCore(mem.copy(), prog_bad, Params(out_bytes=1))
         codes.append(core.run(max_cycles=10_000).error)
-    assert codes == [isa.ERR_CFG_VAL, isa.ERR_CFG_VAL, isa.ERR_ALIGN]
+    assert codes == [isa.ERR_CFG_VAL, isa.ERR_CFG_VAL, isa.ERR_ALIGN, isa.ERR_CFG_VAL, isa.ERR_CFG_VAL]
+    with pytest.raises(ValueError):
+        build_gemm(a, a, Params(out_bytes=1), epi=dict(_epi(np.random.default_rng(0), 8), rounding="nearest"))
 
 
 def test_no_epilogue_keeps_the_v1_memory_image():

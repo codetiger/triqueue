@@ -85,7 +85,8 @@ the end of a run, both bit 1 and bit 0 latch). A typical handler reads `STATUS`,
 ### Capability discovery
 
 `HW_CONFIG` reports `T`, `FIFO_DEPTH`, `MACQ_DEPTH`, `SHARED_PORT` and `PROG_BYTES`. `HW_CONFIG2`
-(v1.1) reports the features (`[0]` column-major walk, `MODE[8]`; `[1]` TFLite epilogue, `MODE[9]`)
+(v1.1) reports the features (`[0]` column-major walk, `MODE[8]`; `[1]` TFLite epilogue, `MODE[9]`;
+`[2]` the epilogue's single rounding, `MODE[10]`)
 and the build options `PERF` (`[4]`), `WR_ACK` (`[5]`), `ACC_FORM` (`[6]`, 1 = carry-save),
 `MAC_PIPE = 1` (`[7]`), `WR_OUT_MAX` (`[15:8]`), log2 `EPI_LANES` (`[19:16]`) and `PANEL_BYTES / W`
 (`[31:20]`). A core before v1.1 reads 0 there, which correctly reports neither feature; its build

@@ -248,8 +248,12 @@ module tq_frontend #(
                    ((arg == 4'(tq_pkg::CFG_M) || arg == 4'(tq_pkg::CFG_N)) && imm > (32'hFFFF << L2T)) ||
                    (arg == 4'(tq_pkg::CFG_MODE) && (imm[31:tq_pkg::MODE_RSVD_LSB] != '0 ||
                                                     (NO_WALK && imm[tq_pkg::MODE_WALK_COLS]) ||
-                                                    (NO_EPI && imm[tq_pkg::MODE_EPI]) ||
-                                                    (imm[tq_pkg::MODE_EPI] && !imm[tq_pkg::MODE_OUT_INT8]))) ||
+                                                    // with NO_EPI MODE[10] is reserved as well; the
+                                                    // same function as the term below, but PDR
+                                                    // (tq_core.sby split) converges with this form
+                                                    (NO_EPI && (imm[tq_pkg::MODE_EPI] || imm[tq_pkg::MODE_ROUND1])) ||
+                                                    (imm[tq_pkg::MODE_EPI] && !imm[tq_pkg::MODE_OUT_INT8]) ||
+                                                    (imm[tq_pkg::MODE_ROUND1] && !imm[tq_pkg::MODE_EPI]))) ||
                    (arg == 4'(tq_pkg::CFG_EPI_OUT) && imm[31:24] != 8'd0) ||
                    // MODE[8] may change only before the run's first STREAM: the stream engine's
                    // state (panels, reads in flight, FIFO credits) belongs to one walk order

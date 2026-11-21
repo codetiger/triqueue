@@ -72,6 +72,14 @@ def multipliers(in_scale, w_scales, out_scale, n):
     return np.array([p[0] for p in pairs], np.int64), np.array([p[1] for p in pairs], np.int64)
 
 
+# The rounding of TFLite's reference int8 kernels in the LiteRT build used for the export
+# (ai-edge-litert 2.1.6): CONV_2D rounds twice (the default MultiplyByQuantizedMultiplier), and
+# FULLY_CONNECTED once (the TFLITE_SINGLE_ROUNDING form). Measured over 2,000 random inputs per
+# network: every output where the two forms differ follows this table. The core runs each layer
+# with its kernel's form (MODE[10] for "single").
+ROUNDING = {"CONV_2D": "double", "FULLY_CONNECTED": "single"}
+
+
 def wrap32(x):
     return ((np.asarray(x, np.int64) + (1 << 31)) % (1 << 32) - (1 << 31)).astype(np.int32)
 
@@ -124,33 +132,17 @@ def lower(net: Net, op: dict, x: np.ndarray) -> Gemm:
     bias = wrap32(bias - zp_in * b.astype(np.int64).sum(0))
     m0, shift = multipliers(s_in, w_scales, s_out, cout)
     lo, hi = act_range(op["options"]["activation"], s_out, zp_out)
-    epi = dict(bias=bias, m0=m0, shift=shift, zp=zp_out, act_min=lo, act_max=hi)
+    epi = dict(bias=bias, m0=m0, shift=shift, zp=zp_out, act_min=lo, act_max=hi, rounding=ROUNDING[op["kind"]])
     return Gemm(np.ascontiguousarray(a), np.ascontiguousarray(b), epi, out_shape, extra)
 
 
-def gemm_reference(g: Gemm, rounding: str = "double") -> np.ndarray:
-    """The layer's int8 output (m x n). "double" is the core's epilogue (TFLite's default
-    MultiplyByQuantizedMultiplier); "single" is the TFLITE_SINGLE_ROUNDING form."""
+def gemm_reference(g: Gemm, rounding: str | None = None) -> np.ndarray:
+    """The layer's int8 output (m x n): numpy GEMM and requant with the layer's rounding form, or
+    the one given ("double": TFLite's default MultiplyByQuantizedMultiplier; "single":
+    TFLITE_SINGLE_ROUNDING)."""
     acc = g.a.astype(np.int64) @ g.b.astype(np.int64)
     return requant.requantize(acc, g.epi["bias"], g.epi["m0"], np.clip(g.epi["shift"], -31, 30), g.epi["zp"],
-                              g.epi["act_min"], g.epi["act_max"], rounding)
-
-
-def core_expected(op: dict, g: Gemm, tflite_out: np.ndarray):
-    """What the core must write for a layer whose TFLite output tensor is tflite_out: that tensor
-    (m x n), except for FULLY_CONNECTED. LiteRT's reference int8 FULLY_CONNECTED rounds once (one
-    64-bit product, round half up; measured over 2,000 inputs per network, every element where the
-    two roundings differ follows the single one) while its CONV_2D and the core round twice, so
-    there TFLite's tensor must equal the single-rounded reference exactly and the core's value is
-    the double-rounded one. Returns (expected, number of elements that differ from TFLite's)."""
-    t = tflite_out.reshape(g.a.shape[0], g.b.shape[1])
-    if op["kind"] != "FULLY_CONNECTED":
-        return t, 0
-    single = gemm_reference(g, "single")
-    if not np.array_equal(t, single):
-        raise AssertionError("TFLite FULLY_CONNECTED differs from the single-rounded reference")
-    double = gemm_reference(g)
-    return double, int((double != t).sum())
+                              g.epi["act_min"], g.epi["act_max"], rounding or g.epi["rounding"])
 
 
 def depthwise(net: Net, op: dict, x: np.ndarray) -> np.ndarray:

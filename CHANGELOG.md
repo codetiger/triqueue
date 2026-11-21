@@ -30,7 +30,7 @@ All notable changes to the Tri-Queue project. This format follows
   bias, M0, shift) + zp_out, act_min, act_max)`, bit-exact with TFLite's default double rounding
   (`tri_queue/requant.py`). The drain loads a tile column's parameters (5 port words) through the read
   port ahead of A/B reads when the column changes; `epi_lanes` (default T/2) values per cycle.
-  `MODE[9]` needs `MODE[2]`; `MODE[31:10]`, `EPI_OUT[31:24]` and `CFG` registers 10–15 are rejected
+  `MODE[9]` needs `MODE[2]`; `MODE[31:11]`, `EPI_OUT[31:24]` and `CFG` registers 10–15 are rejected
   (`cfg_reg` now uses register 10, `cfg_val_mode` bit 10). `model/dse.md` §14: with the column walk
   and 4 lanes, DS-CNN 96.5%, VWW 84.1%, ResNet-8 98.9%, BERT-tiny 99.7% (shift-only int8: 97.1%,
   89.0%, 99.2%, 100.0%); VWW 87.8% with 8 lanes. `tests/test_epilogue.py`: 49 cases, both walks,
@@ -82,12 +82,27 @@ All notable changes to the Tri-Queue project. This format follows
   1×1 stride-2 shortcuts) and the classifier run on the core; the residual adds (TFLite's int8 `Add`,
   fused ReLU) and the average pool run on the host. The runner now follows the graph, so ops with two
   inputs work. T = 8: 197,499 core cycles per inference at 98.9% utilization, with the core doing
-  every MAC; host im2col and packing (994,560 bytes) are the host's largest cost. TFLite's
-  reference int8 `FULLY_CONNECTED` (ai-edge-litert 2.1.6) rounds once (`TFLITE_SINGLE_ROUNDING`
-  form), where its `CONV_2D` and the core round twice. This was measured over 2,000 inputs per
-  network and affects about 0.3–1.4% of classifier outputs by one LSB (one ResNet-8 output in the
-  checked-in inputs). `tflite_ref.core_expected` checks such outputs exactly against both forms.
-  RTL: `t8_resnet8` and `t4_resnet8` (2,604 cases in 41 configurations).
+  every MAC; host im2col and packing (994,560 bytes) are the host's largest cost. Every tensor
+  matches TFLite's reference kernels, with the classifiers in single rounding (below).
+  RTL: `t8_resnet8` and `t4_resnet8`.
+
+- **Epilogue single rounding (`MODE[10]`, decision D3).** TFLite's int8 kernels do not agree on
+  one rounding. LiteRT's reference `FULLY_CONNECTED` (ai-edge-litert 2.1.6) uses the
+  `TFLITE_SINGLE_ROUNDING` form, measured over 2,000 inputs per network; so do TFLite's
+  optimized `CONV_2D` and CMSIS-NN's single-rounding option. TFLite's reference `CONV_2D`,
+  TFLite Micro and CMSIS-NN by default round twice. With `MODE[10]` (needs `MODE[9]`, else
+  `ERR_CFG_VAL`) the epilogue computes `(x·M0 + 2^(30−shift)) >> (31 − shift)` on the 64-bit
+  product of the unshifted `acc + bias`, cast to int32. Both forms share the lane's 64-bit adder and one
+  64-bit arithmetic right shifter and take the same cycles; +2.1% generic cells at T = 8 (4
+  lanes). `HW_CONFIG2[2]` reports it. `tq_requant.sby` proves the lane equal to TFLite's code
+  in both forms for every input (~25 s; four new mutants fail). The model, the driver
+  (`tq_requant.rounding`, `TQ_ROUND_SINGLE`, `tq_info.round1`) and the regression cover it;
+  `bench/e2e` runs each layer with its kernel's form, so DS-CNN and ResNet-8 are bit-exact on
+  every tensor. 2,685 cases in 41 configurations. The core proofs' formal-only no-epilogue build
+  (`TQ_FORMAL_NO_EPI`) reserves `MODE[10]` together with `MODE[9]`: the same accepted values, but
+  written as the `MODE[10]`-needs-`MODE[9]` rule alone `tq_core.sby split` did not converge in
+  2 h 40 min (PDR gave up on three properties every pass); with the reserved form it passes in
+  ~4 min.
 
 - **Epilogue lane proved equal to TFLite (`verif/formal/tq_requant.sby`, roadmap C3).** The lane
   moved from `tq_drain`'s generate loops into `tq_requant_pre` (bias add, shift clamp, left shift)

@@ -295,7 +295,7 @@ module tq_core #(
       .c_base_err_i(c_base[$clog2(T):0] != '0),
       .out_int8_i(mode[tq_pkg::MODE_OUT_INT8]),
       .out_shift_i(mode[tq_pkg::MODE_SHIFT_LSB +: 5]),
-      .epi_i(epi_mode), .par_valid_i(par_v_q && !epi_start),   // a starting fetch invalidates them now
+      .epi_i(epi_mode), .single_i(mode[tq_pkg::MODE_ROUND1]), .par_valid_i(par_v_q && !epi_start),   // a starting fetch invalidates them now
       .par_bias_i(par_flat[0 +: T*32]), .par_m0_i(par_flat[T*32 +: T*32]), .par_shift_i(par_flat[T*64 +: T*8]),
       .epi_out_i(epi_out[23:0]),
       .prod_valid_i(prod_valid), .prod_bank_i(prod_bank),

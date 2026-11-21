@@ -223,38 +223,46 @@ CONFIGS = {
         + [dict(case(64, 64, 8), epi=True), dict(case(64, 64, 64), epi="clamp"), dict(case(65, 65, 65), epi=True),
            dict(case(20, 24, 27, lat=3, stall=0.4), epi=True), dict(case(33, 40, 64, lat=7, stall=0.7), epi="clamp"),
            # latency > 2 x FIFO_DEPTH: parameter reads in flight on top of a full set of A/B reads (tag FIFO depth)
-           dict(case(64, 24, 64, lat=20), epi=True), dict(case(40, 33, 40, lat=24, stall=0.2), epi=True)],
+           dict(case(64, 24, 64, lat=20), epi=True), dict(case(40, 33, 40, lat=24, stall=0.2), epi=True)]
+        # single rounding (MODE[10]): every shift in [-31, 30] and the clamped edges
+        + [dict(c, epi=True, round1=True) for c in edge_cases(8, (9,))]
+        + [dict(case(65, 65, 65), epi=True, round1=True), dict(case(20, 24, 27, lat=3, stall=0.4), epi="clamp", round1=True),
+           dict(case(64, 24, 64, lat=20), epi=True, round1=True)],
     ),
     "t8_epi_walk": (
         dict(T=8, PANEL_BYTES=1024),
         dict(tile=8, panel_bytes=1024, walk_cols=True),
         [dict(c, epi=True) for c in edge_cases(8, (1, 9, 64))]
         + [dict(case(64, 16, 64), epi=True), dict(case(256, 32, 72), epi="clamp"),
-           dict(case(40, 33, 64, lat=2, stall=0.5), epi=True), dict(case(64, 64, 8, lat=7, stall=0.3), epi=True)],
+           dict(case(40, 33, 64, lat=2, stall=0.5), epi=True), dict(case(64, 64, 8, lat=7, stall=0.3), epi=True),
+           dict(case(256, 32, 72), epi=True, round1=True), dict(case(40, 33, 64, lat=2, stall=0.5), epi=True, round1=True)],
     ),
     "t8_epi_l1": (
         dict(T=8, EPI_LANES=1),
         dict(tile=8, epi_lanes=1),
         [dict(case(m, n, k, lat=lat, stall=st), epi=True) for (m, n, k) in ((20, 24, 27), (64, 64, 8), (9, 9, 9))
-         for lat, st in ((1, 0.0), (3, 0.4))],
+         for lat, st in ((1, 0.0), (3, 0.4))] + [dict(case(20, 24, 27, lat=3, stall=0.4), epi=True, round1=True)],
     ),
     "t8_epi_l8": (
         dict(T=8, EPI_LANES=8),
         dict(tile=8, epi_lanes=8),
         [dict(case(m, n, k, lat=lat, stall=st), epi=True) for (m, n, k) in ((20, 24, 27), (64, 64, 8), (9, 9, 9))
-         for lat, st in ((1, 0.0), (3, 0.4))],
+         for lat, st in ((1, 0.0), (3, 0.4))] + [dict(case(20, 24, 27, lat=3, stall=0.4), epi=True, round1=True)],
     ),
     "t8_epi_shared": (
         dict(T=8, SHARED_PORT=1, WR_ACK=1, WR_OUT_MAX=2),
         dict(tile=8, shared_port=True, wr_ack=True, wr_out_max=2, walk_cols=True),
         [dict(case(m, n, k, lat=lat, stall=st), wr_lat=wl, epi=True) for (m, n, k) in ((24, 20, 27), (64, 64, 8), (40, 40, 40))
-         for lat, st, wl in ((1, 0.0, 0), (2, 0.4, 3), (5, 0.6, 9))],
+         for lat, st, wl in ((1, 0.0, 0), (2, 0.4, 3), (5, 0.6, 9))]
+        + [dict(case(40, 40, 40, lat=2, stall=0.4), wr_lat=3, epi=True, round1=True)],
     ),
     "t4_epi": (
         dict(T=4),
         dict(tile=4),
         [dict(c, epi=True) for c in edge_cases(4, (1, 8, 33))] + [dict(case(16, 16, 16), epi="clamp"),
-                                                                 dict(case(17, 9, 40, lat=3, stall=0.5), epi=True)],
+                                                                 dict(case(17, 9, 40, lat=3, stall=0.5), epi=True)]
+        + [dict(c, epi=True, round1=True) for c in edge_cases(4, (8,))]
+        + [dict(case(17, 9, 40, lat=3, stall=0.5), epi=True, round1=True)],
     ),
     "t8_dscnn": (
         # DS-CNN keyword spotting (MLPerf Tiny, bench/e2e): every engine layer of one input, C equal
