@@ -17,6 +17,12 @@
 #                data (~5 min, nightly): one core read in flight, with the 4-slot line buffer,
 #                hits, orphans, flush/epoch, write invalidation and error responses unrestricted.
 #                MAX_OUT > 1 for read data is covered to the `burst` depth.
+#   ids          BMC depth 10, BURST_BEATS = 2, LINES = 2, WR_IDS = 2 (ID_W = 2): an ID per line
+#                slot and per write, a slave that answers the IDs in any order with interleaved
+#                R beats; every property including read data
+#   ids_prove    unbounded (ABC PDR), the same configuration, every property except the read-data
+#                equality (as burst_prove)
+#   ids_cover    reachability: R and B out of issue order reach the core
 # Run: sby -f tq_axi_mem.sby <task>
 
 [tasks]
@@ -25,6 +31,9 @@ cover
 burst
 burst_prove
 burst_data
+ids
+ids_prove
+ids_cover
 
 [options]
 prove: mode prove
@@ -34,6 +43,11 @@ burst: mode bmc
 burst: depth 10
 burst_prove: mode prove
 burst_data: mode prove
+ids: mode bmc
+ids: depth 10
+ids_prove: mode prove
+ids_cover: mode cover
+ids_cover: depth 16
 
 [engines]
 prove: abc pdr
@@ -41,6 +55,9 @@ cover: smtbmc yices
 burst: smtbmc yices
 burst_prove: abc pdr
 burst_data: abc pdr
+ids: smtbmc yices
+ids_prove: abc pdr
+ids_cover: smtbmc yices
 
 [script]
 # TQ_FORMAL_CORE: the embedded FIFOs assert their legal use (as in tq_core.sby) instead of loading
@@ -50,6 +67,9 @@ read_verilog -sv -formal -DTQ_FORMAL_CORE tq_icg.sv tq_cg.sv tq_fifo.sv tq_axi_m
 burst: chparam -set BURST_BEATS 2 tq_axi_mem_env
 burst_prove: chparam -set BURST_BEATS 2 -set CHECK_RDATA 0 tq_axi_mem_env
 burst_data: chparam -set BURST_BEATS 2 -set MAX_OUT 1 tq_axi_mem_env
+ids: chparam -set BURST_BEATS 2 -set LINES 2 -set WR_IDS 2 tq_axi_mem_env
+ids_prove: chparam -set BURST_BEATS 2 -set LINES 2 -set WR_IDS 2 -set CHECK_RDATA 0 tq_axi_mem_env
+ids_cover: chparam -set BURST_BEATS 2 -set LINES 2 -set WR_IDS 2 tq_axi_mem_env
 prep -top tq_axi_mem_env
 flatten
 opt_clean

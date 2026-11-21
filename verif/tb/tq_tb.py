@@ -10,6 +10,7 @@ Timing contract with the cycle model (docs/golden-vectors.md):
     so stalled runs are cycle-exact too.
 Everything is sampled at the falling edge, when the cycle's combinational values are stable.
 """
+import random
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -306,7 +307,15 @@ class TqTbAxi(TqTbAxil):
     come from the model's GrantSource draws (as the native port's gnt), R returns mem_latency - 1
     cycles after AR, and B returns wr_resp_latency (>= 1) cycles after the write, so the run is
     cycle-exact with the model (wr_ack). Checks the AXI rules a slave relies on: VALID and its
-    payload held until READY, single-beat INCR of one port word, AW and W of a write together."""
+    payload held until READY, single-beat INCR of one port word, AW and W of a write together.
+
+    reorder = True (tq_axi_mem WR_IDS > 0): each burst and each B gets a seeded random extra
+    latency of 0-11 cycles, and every cycle a random one of the IDs whose next beat (or B) is due
+    goes out, so responses of different IDs return out of order and R beats interleave; RID / BID
+    echo the request's ID. Checks the adapter's promise of at most one transaction in flight on
+    an ID (reads and writes together)."""
+
+    reorder = False
 
     def core_handle(self):
         return self.dut.u_tq.u_tq.u_core
@@ -349,7 +358,24 @@ class TqTbAxi(TqTbAxil):
 
         core = self.core
         rec = RunRecord()
-        r_due, b_due = [], []
+        r_due, b_due = [], []                  # (due, ID, beat word, last) and (due, ID), in issue order
+        rng = random.Random(seed * 7919 + 1)
+
+        def pick(due, now):
+            """Index of the response to send now: the oldest if in order, else a random one of the
+            IDs whose oldest response is due."""
+            if not self.reorder:
+                return 0 if due and due[0][0] <= now else None
+            seen, ready = set(), []
+            for i, e in enumerate(due):
+                if e[1] not in seen:
+                    seen.add(e[1])
+                    if e[0] <= now:
+                        ready.append(i)
+            return rng.choice(ready) if ready else None
+
+        def in_flight():
+            return {e[1] for e in r_due} | {e[1] for e in b_due}
         n_r = n_b = 0
         absc, cyc, started = 0, -1, False
         held_ar = held_aw = held_w = None
@@ -382,13 +408,18 @@ class TqTbAxi(TqTbAxil):
             if ar and rd_gnt:
                 addr, beats = ar[0], ar[1] + 1
                 assert (addr % W == 0 or val(core.stream_align_err)) and 0 <= addr and addr + W <= len(mem), f"bad AR addr {addr:#x} (mem {len(mem):#x})"
-                base_due = max(absc + sram_lat, r_due[-1][0] + 1 if r_due else 0)
+                arid = val(d.m_arid_o)
+                if self.reorder:
+                    assert arid not in in_flight(), f"cycle {cyc}: AR on ID {arid}, which has a transaction in flight"
+                    base_due = absc + sram_lat + rng.randrange(12)
+                else:
+                    base_due = max(absc + sram_lat, r_due[-1][0] + 1 if r_due else 0)
                 for b in range(beats):
                     ba = addr + b * W
                     chunk = mem[ba:ba + W].tobytes()
                     if len(chunk) < W:
                         chunk += bytes(W - len(chunk))
-                    r_due.append((base_due + b, int.from_bytes(chunk, "little"), int(b == beats - 1)))
+                    r_due.append((base_due + b, arid, int.from_bytes(chunk, "little"), int(b == beats - 1)))
             if (ar and rd_gnt) if ar else val(core.rd_gnt_i):
                 raddr = val(core.rd_addr_o)
                 assert (raddr % W == 0 or val(core.stream_align_err)) and 0 <= raddr and raddr + W <= len(mem), f"bad rd_addr {raddr:#x} (mem {len(mem):#x})"
@@ -404,15 +435,22 @@ class TqTbAxi(TqTbAxil):
                 for j in range(lo, lo + n):
                     mem[addr + j] = raw[j]
                 rec.writes.append((cyc, addr + lo, n, raw[lo:lo + n]))
-                b_due.append(absc + wr_resp_latency)
+                awid = val(d.m_awid_o)
+                if self.reorder:
+                    assert awid not in in_flight(), f"cycle {cyc}: AW on ID {awid}, which has a transaction in flight"
+                    b_due.append((absc + wr_resp_latency + rng.randrange(12), awid))
+                else:
+                    b_due.append((absc + wr_resp_latency, awid))
             if val(core.mac_start):
                 rf, cf = val(core.beat_rf), val(core.beat_cf)
                 r, c = (self.T if rf else H), (self.T if cf else H)
                 rec.mac_starts.append((cyc, f"{r}x{c}x{self.T * self.T // (r * c)}"))
             d.m_rresp_i.value = 0
-            if r_due and r_due[0][0] == absc:
-                _, rword, rlast = r_due.pop(0)
+            i = pick(r_due, absc)
+            if i is not None:
+                _, rid, rword, rlast = r_due.pop(i)
                 d.m_rvalid_i.value = 1
+                d.m_rid_i.value = rid
                 d.m_rdata_i.value = rword
                 d.m_rlast_i.value = rlast
                 if rresp_err is not None and n_r == rresp_err:
@@ -421,10 +459,11 @@ class TqTbAxi(TqTbAxil):
             else:
                 d.m_rvalid_i.value = 0
                 d.m_rlast_i.value = 1
-            d.m_bvalid_i.value = int(bool(b_due) and b_due[0] == absc)
+            i = pick(b_due, absc)
+            d.m_bvalid_i.value = int(i is not None)
             d.m_bresp_i.value = 0
-            if b_due and b_due[0] == absc:
-                b_due.pop(0)
+            if i is not None:
+                d.m_bid_i.value = b_due.pop(i)[1]
                 if bus_err is not None and n_b == bus_err:
                     d.m_bresp_i.value = 2                   # SLVERR
                 n_b += 1
@@ -435,14 +474,17 @@ class TqTbAxi(TqTbAxil):
             if absc > max_cycles + 400:
                 raise TimeoutError("post-stop AXI drain did not finish")
             d.m_rresp_i.value = d.m_bresp_i.value = 0
-            d.m_rvalid_i.value = int(bool(r_due) and r_due[0][0] == absc)
-            if r_due and r_due[0][0] == absc:
-                _, rword, rlast = r_due.pop(0)
+            i = pick(r_due, absc)
+            d.m_rvalid_i.value = int(i is not None)
+            if i is not None:
+                _, rid, rword, rlast = r_due.pop(i)
+                d.m_rid_i.value = rid
                 d.m_rdata_i.value = rword
                 d.m_rlast_i.value = rlast
-            d.m_bvalid_i.value = int(bool(b_due) and b_due[0] == absc)
-            if b_due and b_due[0] == absc:
-                b_due.pop(0)
+            i = pick(b_due, absc)
+            d.m_bvalid_i.value = int(i is not None)
+            if i is not None:
+                d.m_bid_i.value = b_due.pop(i)[1]
             await FallingEdge(d.clk_i)
             absc += 1
         d.m_rvalid_i.value = d.m_bvalid_i.value = 0

@@ -30,7 +30,7 @@ Further tables in the source file: shared read/write port (79.8% at 64³), drain
 
 ## 2. RTL, T = 8
 
-Source: `verif/` (`make rtl-test`). The SystemVerilog core gives the same cycle count as the model for every one of **2,685 regression cases in 41 configurations** (T = 4, 8, 16, 32; shared port; minimal and reference queues; both accumulator forms; panel buffer; single-beat and burst AXI; CV-X-IF; and random memory back-pressure of 10–80%), including **4,130 cycles for 64³**. Results are bit-exact, and every memory transaction and MAC start happens on the same cycle as in the model. See [`docs/verification.md`](verification.md) for the matrix and the known coverage gaps.
+Source: `verif/` (`make rtl-test`). Across **2,714 regression cases in 43 configurations** (T = 4, 8, 16, 32; shared port; minimal and reference queues; both accumulator forms; panel buffer; single-beat, burst and multi-ID AXI; CV-X-IF; and random memory back-pressure of 10–80%) results are bit-exact. In every configuration except the three with AXI read bursts, the SystemVerilog core gives the model's cycle count, including **4,130 cycles for 64³**, and every memory transaction and MAC start happens on the same cycle as in the model. Read bursts change the timing, so those three configurations check each stream's read order, the writes and the MAC shapes instead. See [`docs/verification.md`](verification.md) for the matrix and the known coverage gaps.
 
 ## 3. Tile size (cycle model)
 
@@ -107,22 +107,22 @@ Source: `flow/results.md` (`flow/results.py`, from runs of `flow/ppa.py` and `fl
 
 ## 6. SoC integration (Chipyard Rocket)
 
-Source: `bench/soc/chipyard/README.md`. A one-core Rocket SoC (Chipyard 1.15.0) with `tq_top_axi` attached to the periphery and front buses, running a 64×64×64 int8 GEMM in Verilator through `sw/tq.c`.
+Source: `bench/soc/chipyard/README.md`. A one-core Rocket SoC (Chipyard 1.15.0) with `tq_top_axi` (4-beat read bursts, one 64-byte line per AR) on the periphery bus for its registers and on the system or front bus for memory, running a 64×64×64 int8 GEMM and two real int8 layers in Verilator through `sw/tq.c`. Every run passes bit-exact (the GEMM against numpy, the layers against TFLite's tensors) with the cycle model's beats, reads and writes (v1.1 RTL, 2026-11-21). Core cycles:
 
-It passes with 0 mismatches and the same 4,096 beats, 4,096 reads and 1,024 writes as the cycle model (v1.0.2 RTL, 2026-11-20):
+| Memory master | GEMM 64³ | DS-CNN op 2 (125×64×64) | ResNet-8 op 14 (1×10×64) |
+| --- | --- | --- | --- |
+| Front bus (8 bytes), one AXI ID (the v1.0 attachment, `TriQueueOneIdConfig`) | 17,031 (24.0%) | 25,258 (31.6%) | 417 |
+| System bus (16 bytes), one AXI ID | 11,878 (34.4%) | 17,082 (46.8%) | 355 |
+| Front bus, an ID per line slot and per write (`WR_IDS = 4`, `TriQueueFbusConfig`) | 9,346 (43.8%) | 17,738 (45.1%) | 273 |
+| **System bus, `WR_IDS = 4` (`TriQueueRocketConfig`)** | **5,787 (70.7%)** | **10,383 (77.0%)** | **240** |
+| System bus, `WR_IDS = 8`, `LINES = 8`, `FIFO_DEPTH = 16`, `MAX_OUT = 32` | 5,598 (73.1%) | 9,831 (81.3%) | 232 |
+| Fixed-latency SRAM, 2 cycles (cycle model and RTL) | 4,130 (99.2%) | 8,260 (96.9%) | 111 |
 
-| Memory master | Cycles | Utilization |
-| --- | --- | --- |
-| `BURST_BEATS = 4` (the shim's setting: one 64-byte line per AR) | **17,187** | **23.8%** |
-| `BURST_BEATS = 4`, `FIFO_DEPTH = 16` | 17,181 | 23.8% |
-| `BURST_BEATS = 4`, `FIFO_DEPTH = 32` | 17,168 | 23.8% |
-| `BURST_BEATS = 4`, `PANEL_BYTES = 1024` (2,304 reads instead of 4,096) | 14,075 | 29.1% |
-| `BURST_BEATS = 1` (one 16-byte word per AR) | 38,686 | 10.5% |
-| Fixed-latency SRAM, 2 cycles (cycle model and RTL) | 4,130 | 99.2% |
+Two things in the SoC, not in the core, set the rate. First, rocket-chip's `AXI4ToTL` turns each AXI ID into one TileLink client (reads and writes together) that asks for FIFO order, and the `TLFIFOFixer` that cached memory needs for it lets one transaction of that client into L2 at a time; with one ID the Tri-Queue's reads and writes take turns, about 8.3 cycles per transaction. Giving each read line slot and each write its own ID (`tq_axi_mem` `WR_IDS`, `docs/integration.md` §5) removes that. Second, Chipyard's front bus is 8 bytes wide, half the core's port; the 128-bit system bus is not. The two are independent: either alone gives 1.4–1.8×, both together 2.4–2.9×. With both, a deeper FIFO and more slots gain another 3–6% (more reads in flight, but the latency grows with them: 11 → 25–29 cycles from AR to the first R beat), so the default `FIFO_DEPTH = 8` is enough here. The remaining gap to the SRAM case is the L2/TileLink latency (11 cycles from AR to the first R beat at `WR_IDS = 4`) and the host's cache traffic.
 
-Read bursts take one round trip per line instead of per word and cut the cycles 2.25×; the panel buffer removes 44% of the reads and another 18% of the cycles. Deeper operand FIFOs change nothing, and neither did doubling the adapter's burst-buffer slots (an RTL experiment, not a parameter): the core and the adapter can keep more reads in flight than this SoC's TileLink path serves, about one 64-byte burst per 16.8 cycles (one word per 9.4 cycles without bursts). This is a memory-system result, not a core limit: the supported v1 integration is a low-latency SRAM or TCM. The single-beat run matches the pre-v1 result (38,295 cycles, 2026-11-08, `65815f3`).
+Earlier, with one ID on the front bus (v1.0.2 RTL, 2026-11-20, GEMM): single-beat reads took 38,686 cycles (10.5%), `FIFO_DEPTH = 16` or `32` changed nothing (17,181 and 17,168), and a 1 KiB panel buffer gave 14,075 (29.1%, 2,304 reads instead of 4,096); the one-transaction-at-a-time path above is why the deeper FIFOs did not help. These are integration measurements on one simulated SoC, not performance results.
 
-With the v1.1 epilogue (2026-11-21) the same SoC runs two real layers through the driver's int8 layer API, each output equal to TFLite's tensor: DS-CNN's 1×1 convolution (125×64×64, double rounding) in 25,258 core cycles (31.6%; 8,260 on fixed-latency SRAM), and ResNet-8's classifier (1×10×64, single rounding, `MODE[10]`) in 417. On the convolution the host's packing and output copy take about 12× the core's cycles; the per-layer table is in the source README.
+On the convolution the host's packing (A, B and the epilogue table) and the output copy take about 29× the core's cycles at `TriQueueRocketConfig` (12× on the v1.0 attachment); the per-layer table is in the source README.
 
 ## 7. End-to-end networks: DS-CNN and ResNet-8 (cycle model and RTL)
 

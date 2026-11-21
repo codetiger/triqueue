@@ -3,12 +3,14 @@
 //
 // Bare-metal GEMM on the Tri-Queue in a Chipyard Rocket SoC (TriQueueRocketConfig): runs
 // C = A x B through the driver's GEMM API (sw/tq.c, tq_gemm_run: pack, program, run, unpack),
-// checks C against the CPU, and prints the core's performance counters. The core reaches A, B
-// and C through the coherent front bus, so no cache maintenance is needed.
+// checks C against the int32 product computed on the host (tq_gemm_ref.h, from export_gemm.py,
+// for the A and B this program generates), and prints the core's performance counters. The core
+// reaches A, B and C through a coherent bus, so no cache maintenance is needed.
 #include <stdint.h>
 #include <stdio.h>
 
 #include "tq.h"
+#include "tq_gemm_ref.h"
 
 #ifndef TQ_BASE
 #define TQ_BASE 0x10040000u
@@ -20,7 +22,7 @@
 #define TILE_MAX 32
 
 static int8_t a[M][K], b[K][N];
-static int32_t ref[M][N], c[M][N];
+static int32_t c[M][N];
 // workspace for packed A, packed B and the core's C (tq_gemm_workspace_bytes, any T <= TILE_MAX)
 static uint8_t ws[2 * (M + TILE_MAX) * ((K + 7) / 8 * 8) + M * (4 * N + 4 * TILE_MAX) + 128]
     __attribute__((aligned(64)));
@@ -45,12 +47,6 @@ int main(void) {
         for (int k = 0; k < K; k++) a[i][k] = rnd();
     for (int k = 0; k < K; k++)
         for (int j = 0; j < N; j++) b[k][j] = rnd();
-    for (int i = 0; i < M; i++)
-        for (int j = 0; j < N; j++) {
-            int32_t s = 0;
-            for (int k = 0; k < K; k++) s += (int32_t)a[i][k] * b[k][j];
-            ref[i][j] = s;
-        }
 
     if (tq_gemm_workspace_bytes(M, N, K, info.tile) > sizeof ws) {
         printf("tq: workspace too small for T=%u\n", (unsigned)info.tile);

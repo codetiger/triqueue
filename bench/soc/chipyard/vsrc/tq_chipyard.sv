@@ -4,12 +4,19 @@
 // tq_top_axi for a Chipyard SoC (bench/soc/chipyard): active-high reset, and a full AXI4 slave
 // port for the registers. The AXI4-Lite slave takes one transaction at a time, so the ID of the
 // accepted request is registered and echoed on its response, and every R beat is the last.
-// The memory master always uses ID 0 (responses in order).
+// The memory master reads 4-beat bursts (one 64-byte line); LINES, WR_IDS, FIFO_DEPTH and MAX_OUT
+// come from TriQueue.scala (WR_IDS > 0: an AXI ID per read line slot and per write).
+// Simulation only: after each burst of memory traffic the shim prints a "tqbus:" line with the
+// AXI transactions in flight on average and the mean AR-to-first-R latency.
 
 module tq_chipyard #(
     parameter int T     = 8,
     parameter int ID_W  = 4,
     parameter int MID_W = 1,
+    parameter int LINES      = 4,
+    parameter int WR_IDS     = 0,
+    parameter int FIFO_DEPTH = 8,
+    parameter int MAX_OUT    = 16,
     localparam int W  = 2 * T,
     localparam int VB = W * 8
 ) (
@@ -89,7 +96,9 @@ module tq_chipyard #(
   assign s_rid   = rid_q;
   assign s_rlast = 1'b1;
 
-  tq_top_axi #(.T(T), .BURST_BEATS(4), .ADDR_W(12), .ID_W(MID_W)) u_tq (
+  localparam int BEATS = 4;
+  tq_top_axi #(.T(T), .BURST_BEATS(BEATS), .ADDR_W(12), .ID_W(MID_W), .LINES(LINES), .WR_IDS(WR_IDS),
+               .FIFO_DEPTH(FIFO_DEPTH), .MAX_OUT(MAX_OUT)) u_tq (
       .clk_i(clock), .rst_ni(!reset),
       .s_awaddr_i(s_awaddr[11:0]), .s_awprot_i(s_awprot), .s_awvalid_i(s_awvalid), .s_awready_o(s_awready),
       .s_wdata_i(s_wdata), .s_wstrb_i(s_wstrb), .s_wvalid_i(s_wvalid), .s_wready_o(s_wready),
@@ -106,6 +115,46 @@ module tq_chipyard #(
       .m_awregion_o(m_awregion), .m_awvalid_o(m_awvalid), .m_awready_i(m_awready),
       .m_wdata_o(m_wdata), .m_wstrb_o(m_wstrb), .m_wlast_o(m_wlast), .m_wvalid_o(m_wvalid), .m_wready_i(m_wready),
       .m_bid_i(m_bid), .m_bresp_i(m_bresp), .m_bvalid_i(m_bvalid), .m_bready_o(m_bready));
+
+  // Bus statistics over each active stretch (until 3,000 idle cycles): reads and writes in flight
+  // per cycle on average, cycles with both in flight, the most in flight, and the mean latency from
+  // AR to the first R beat (the sum of per-burst latencies does not depend on the pairing, so
+  // pairing ARs with last beats in order gives the right mean with out-of-order responses too).
+  int unsigned st_cyc, st_ar, st_aw, st_b, st_rl, st_lat, st_idle, st_rd, st_wr, st_both, st_max;
+  int unsigned rd_of, wr_of, ar_t [$];
+  logic st_act;
+  assign st_act = m_arvalid || m_rvalid || m_awvalid || m_wvalid || m_bvalid || rd_of != 0 || wr_of != 0;
+  always_ff @(posedge clock) begin
+    if (reset) begin
+      st_cyc <= 0; st_ar <= 0; st_aw <= 0; st_b <= 0; st_rl <= 0; st_lat <= 0; st_idle <= 0;
+      st_rd <= 0; st_wr <= 0; st_both <= 0; st_max <= 0; rd_of <= 0; wr_of <= 0;
+    end else begin
+      rd_of <= rd_of + (m_arvalid && m_arready) - (m_rvalid && m_rready && m_rlast);
+      wr_of <= wr_of + (m_awvalid && m_awready) - (m_bvalid && m_bready);
+      if (st_act) begin
+        st_idle <= 0; st_cyc <= st_cyc + 1;
+        st_rd <= st_rd + rd_of; st_wr <= st_wr + wr_of;
+        if (rd_of != 0 && wr_of != 0) st_both <= st_both + 1;
+        if (rd_of + wr_of > st_max) st_max <= rd_of + wr_of;
+      end else if (st_cyc != 0) begin
+        st_idle <= st_idle + 1;
+        if (st_idle == 3000) begin
+          $display("tqbus: cycles=%0d ar=%0d aw=%0d b=%0d mean_rd_inflight=%0d.%02d mean_wr_inflight=%0d.%02d both=%0d max=%0d ar_to_r=%0d.%01d",
+                   st_cyc, st_ar, st_aw, st_b, st_rd / st_cyc, (100 * st_rd / st_cyc) % 100, st_wr / st_cyc,
+                   (100 * st_wr / st_cyc) % 100, st_both, st_max, st_lat / (st_rl == 0 ? 1 : st_rl),
+                   (10 * st_lat / (st_rl == 0 ? 1 : st_rl)) % 10);
+          st_cyc <= 0; st_ar <= 0; st_aw <= 0; st_b <= 0; st_rl <= 0; st_lat <= 0; st_rd <= 0; st_wr <= 0;
+          st_both <= 0; st_max <= 0;
+        end
+      end
+      if (m_arvalid && m_arready) begin st_ar <= st_ar + 1; ar_t.push_back(st_cyc); end
+      if (m_awvalid && m_awready) st_aw <= st_aw + 1;
+      if (m_bvalid && m_bready) st_b <= st_b + 1;
+      if (m_rvalid && m_rready && m_rlast) begin
+        st_rl <= st_rl + 1; st_lat <= st_lat + (st_cyc - ar_t.pop_front()) - (BEATS - 1);
+      end
+    end
+  end
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused;

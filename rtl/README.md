@@ -28,12 +28,15 @@ Synthesizable SystemVerilog for the Tri-Queue matrix core (spec: `docs/specifica
 | Top | Parameter | Default | Meaning |
 | --- | --- | --- | --- |
 | `tq_top_axil`, `tq_top_axi` | `CHECK_PROT` | 0 | 1: reject unprivileged (`AxPROT[0] == 0`) or non-secure (`AxPROT[1] == 1`) AXI4-Lite accesses with `SLVERR` (`2'b10`) |
-| `tq_top_axi` | `MAX_OUT` | 8 | AXI transactions in flight per direction; also forces `WR_ACK = 1` and `WR_OUT_MAX = MAX_OUT` on the core |
+| `tq_top_axi` | `MAX_OUT` | 16 | AXI transactions in flight per direction; also forces `WR_ACK = 1` and `WR_OUT_MAX = MAX_OUT` on the core |
 | `tq_top_axi` | `BURST_BEATS` | 1 | Read burst beats. 1: single-beat INCR per port word. >1: aligned `BURST_BEATS`-beat read bursts through a line buffer. Power of two; `BURST_BEATS × W` must not cross a 4 KiB boundary |
-| `tq_top_axi` | `ID_W` | 4 | AXI ID width (`>= 1`). The master drives a constant ID 0 and receives `RID`/`BID` (ignored) |
-| `tq_top_axi` | `AXPROT` / `AXCACHE` / `AXQOS` | `3'b000` / `4'b0011` / `4'b0000` | Constant `AxPROT`, `AxCACHE`, `AxQOS` values; `AxREGION` is tied to 0 |
-| `tq_top_xif` | `X_ID_W` | 4 | CV-X-IF transaction ID width (`1 <= X_ID_W <= 8`) |
-| `tq_top_xif` | `CUSTOM_OPC` | `7'b0001011` | RISC-V custom opcode (`custom-0`) |
+| `tq_top_axi` | `ID_W` | 1 | AXI ID width (`>= 1`; `>= clog2(LINES + WR_IDS)` if `WR_IDS > 0`) |
+| `tq_top_axi` | `LINES` | 4 | Read line slots of the burst buffer (`BURST_BEATS > 1`; power of two, `>= 2`) |
+| `tq_top_axi` | `WR_IDS` | 0 | 0: every transaction uses ID 0 and responses must return in order (`RID`/`BID` ignored). `> 0` (needs `BURST_BEATS > 1`): line slot `s` reads with `ARID = s` and writes use IDs `LINES .. LINES + WR_IDS - 1`, at most one transaction in flight on each, so the slave may answer IDs in any order and interleave R beats. For fabrics that serialize the transactions of one ID (Chipyard's `AXI4ToTL` + `TLFIFOFixer`, `docs/integration.md` §5) |
+| `tq_top_axi` | `AXPROT` / `AXCACHE` / `AXQOS` | `3'b000` / `4'b0000` / `4'b0000` | Constant `AxPROT`, `AxCACHE`, `AxQOS` values; `AxREGION` is tied to 0 |
+| `tq_top_xif` | `X_ID_WIDTH` | 4 | CV-X-IF transaction ID width (`1 <= X_ID_WIDTH <= 8`) |
+| `tq_top_xif` | `OPCODE` / `FUNCT7` | `7'b0001011` / `7'b0000000` | RISC-V custom opcode (`custom-0`) and funct7 of `tq.wr` / `tq.rd` |
+| `tq_top_xif` | `X_HARTID_WIDTH` | 1 | CV-X-IF hart ID width |
 
 ## Interfaces
 
@@ -72,9 +75,9 @@ Requests never depend combinationally on `gnt`, and an ungranted request stays a
 | `core/tq_top.sv` | Registers + core |
 | `adapters/tq_axil_regs.sv` | AXI4-Lite slave to the register port: one transaction at a time, reads and writes alternate when both wait, B / R after the register port's response. Formally proved (`verif/formal/tq_axil_regs.sby`). |
 | `adapters/tq_axi_mem.sv` | AXI4 master for the memory ports: single-beat INCR per port word (`BURST_BEATS = 1`, default) or a 2-stream read line buffer issuing aligned `BURST_BEATS`-beat INCR bursts (`BURST_BEATS > 1`, invalidated on `flush_i` at START/ABORT and on core writes to the same line), RREADY / BREADY always 1, `wr_done` from B. Finishes and discards a request the core drops at START / ABORT / error. An error response to a live core transaction pulses `bus_err_o` (`STATUS.BUS_ERR`). Formally proved (`verif/formal/tq_axi_mem.sby` at `W = 4`, `MAX_OUT = 3`: unbounded at `BURST_BEATS = 1`; at `BURST_BEATS = 2` unbounded except read data, which is unbounded at `MAX_OUT = 1` and checked to BMC depth 10 at `MAX_OUT = 3`). |
-| `adapters/tq_top_axi.sv` | `tq_top` for an AXI SoC: AXI4-Lite registers + AXI4 memory master, `WR_ACK = 1`. The master exposes `AxID`/`AxPROT`/`AxCACHE`/`AxQOS`/`AxREGION` with constant values and accepts `RID`/`BID`; configure them with `ID_W`/`AXPROT`/`AXCACHE`/`AXQOS`. Regression configurations `t8_axi` and, with `BURST_BEATS = 4`, `t8_axi_burst`. |
+| `adapters/tq_top_axi.sv` | `tq_top` for an AXI SoC: AXI4-Lite registers + AXI4 memory master, `WR_ACK = 1`. The master exposes `AxPROT`/`AxCACHE`/`AxQOS`/`AxREGION` with constant values, and `AxID` = 0 unless `WR_IDS > 0` (an ID per read line slot and per write); configure them with `ID_W`/`LINES`/`WR_IDS`/`AXPROT`/`AXCACHE`/`AXQOS`. Regression configurations `t8_axi`, with `BURST_BEATS = 4` `t8_axi_burst`, and with `WR_IDS > 0` against an out-of-order slave `t8_axi_ids` and `t8_axi_ids8`. |
 | `adapters/tq_top_axil.sv` | `tq_top` with the AXI4-Lite register port; memory ports native (for tightly coupled SRAM). Regression configuration `t8_axil`. |
-| `adapters/tq_xif_regs.sv` | CV-X-IF coprocessor adapter (`core-v-xif` commit `8a46f9a` subset) to the register port: `tq.wr rs1, rs2` (register[rs1] = rs2) and `tq.rd rd, rs1` (rd = register[rs1]), R-type, custom-0, funct7 0, funct3 0 / 1 (`X_ID_W`, `CUSTOM_OPC`, `FUNCT7` parameters). One instruction at a time; the register access happens only after commit, so killed instructions have no effect; one result per committed instruction, after the register port's response. Issue / register / commit / result fields flattened (connect the core's x-interface structs). Formally proved (`verif/formal/tq_xif_regs.sby`). |
+| `adapters/tq_xif_regs.sv` | CV-X-IF coprocessor adapter (`core-v-xif` commit `8a46f9a` subset) to the register port: `tq.wr rs1, rs2` (register[rs1] = rs2) and `tq.rd rd, rs1` (rd = register[rs1]), R-type, custom-0, funct7 0, funct3 0 / 1 (`X_ID_WIDTH`, `X_HARTID_WIDTH`, `OPCODE`, `FUNCT7` parameters). One instruction at a time; the register access happens only after commit, so killed instructions have no effect; one result per committed instruction, after the register port's response. Issue / register / commit / result fields flattened (connect the core's x-interface structs). Formally proved (`verif/formal/tq_xif_regs.sby`). |
 | `adapters/tq_top_xif.sv` | `tq_top` with the CV-X-IF register access; memory ports native. Regression configuration `t8_xif` (operand and commit transactions in random order and delay, a killed speculative copy and a foreign instruction before every write). |
 
 ## Coding rules

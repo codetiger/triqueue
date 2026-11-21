@@ -67,6 +67,10 @@ rtl-lint:
 	@echo "verilator lint tq_top_axi -GBURST_BEATS=4"; $(VERILATOR) --lint-only -Wall -f rtl/files.f --top-module tq_top_axi -GBURST_BEATS=4 || exit 1
 	@echo "yosys elaborate tq_top_axi BURST_BEATS=4"; $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); \
 	  chparam -set BURST_BEATS 4 tq_top_axi; hierarchy -check -top tq_top_axi; proc; check -assert" || exit 1
+	@echo "verilator lint tq_top_axi -GBURST_BEATS=4 -GID_W=3 -GWR_IDS=4"; $(VERILATOR) --lint-only -Wall -f rtl/files.f --top-module tq_top_axi -GBURST_BEATS=4 -GID_W=3 -GWR_IDS=4 || exit 1
+	@echo "verilator lint tq_top_axi -GBURST_BEATS=4 -GID_W=4 -GLINES=8 -GWR_IDS=3"; $(VERILATOR) --lint-only -Wall -f rtl/files.f --top-module tq_top_axi -GBURST_BEATS=4 -GID_W=4 -GLINES=8 -GWR_IDS=3 || exit 1
+	@echo "yosys elaborate tq_top_axi BURST_BEATS=4 ID_W=3 WR_IDS=4"; $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); \
+	  chparam -set BURST_BEATS 4 -set ID_W 3 -set WR_IDS 4 tq_top_axi; hierarchy -check -top tq_top_axi; proc; check -assert" || exit 1
 	@for f in $(ACC_FORMS); do \
 	  echo "yosys elaborate ACC_FORM=$${f#*:}"; \
 	  $(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS $(RTL); chparam -set ACC_FORM $${f#*:} tq_top; \
@@ -83,10 +87,10 @@ rtl-coverage:
 	TQ_COVERAGE=1 $(PYTHON) -m pytest verif -q
 	$(PYTHON) tools/rtl_coverage.py
 
-# formal: clock-gating template (pattern check + tq_cg.sby), FIFO, AXI4-Lite and CV-X-IF adapters, AXI master (cover, burst BMC, unbounded prove/burst_prove, ~1.5 min), lazy accumulator clear (tq_mac_array.sby), epilogue lane equal to TFLite's output stage in both roundings (tq_requant.sby, ~25 s), core proof (split port). formal-nightly: csa1 lazy clear, core proofs for shared port, WR_ACK and panel buffer, AXI master burst read data at MAX_OUT = 1 (3-10 min each, PDR variance can exceed 30 min).
+# formal: clock-gating template (pattern check + tq_cg.sby), FIFO, AXI4-Lite and CV-X-IF adapters, AXI master (cover, burst BMC, unbounded prove/burst_prove, and the same with an ID per line slot and write: ids_cover, ids BMC, ids_prove; ~2.5 min), lazy accumulator clear (tq_mac_array.sby), epilogue lane equal to TFLite's output stage in both roundings (tq_requant.sby, ~25 s), core proof (split port). formal-nightly: csa1 lazy clear, core proofs for shared port, WR_ACK and panel buffer, AXI master burst read data at MAX_OUT = 1 (3-10 min each, PDR variance can exceed 30 min).
 formal:
 	$(PYTHON) verif/formal/check_cg_pattern.py
-	cd verif/formal && $(SBY) -f tq_cg.sby && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_xif_regs.sby && $(SBY) -f tq_axi_mem.sby cover burst prove burst_prove && $(SBY) -f tq_mac_array.sby cpa2 cpa1 csa2 && $(SBY) -f tq_requant.sby pre post && $(SBY) -f tq_core.sby split
+	cd verif/formal && $(SBY) -f tq_cg.sby && $(SBY) -f tq_fifo.sby && $(SBY) -f tq_axil_regs.sby && $(SBY) -f tq_xif_regs.sby && $(SBY) -f tq_axi_mem.sby cover burst prove burst_prove ids_cover ids ids_prove && $(SBY) -f tq_mac_array.sby cpa2 cpa1 csa2 && $(SBY) -f tq_requant.sby pre post && $(SBY) -f tq_core.sby split
 
 formal-nightly:
 	cd verif/formal && $(SBY) -f tq_mac_array.sby csa1 && $(SBY) -f tq_core.sby shared && $(SBY) -f tq_core.sby ack && $(SBY) -f tq_core.sby ack_split && $(SBY) -f tq_core.sby panel && $(SBY) -f tq_core.sby epi_bmc && $(SBY) -f tq_axi_mem.sby burst_data

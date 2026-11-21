@@ -130,7 +130,7 @@ def first_diff(xs, ys):
 
 def hw_config2(rtl: dict, host: str) -> int:
     """HW_CONFIG2 (spec 6.4) for these RTL parameters; tq_top_axi builds the core with WR_ACK = 1."""
-    t, axi = rtl.get("T", 8), host in ("axi", "axi_burst")
+    t, axi = rtl.get("T", 8), host in ("axi", "axi_burst", "axi_ids")
     wr_out = rtl.get("WR_OUT_MAX", rtl.get("MAX_OUT", 16) if axi else 15)
     return (0b111 | rtl.get("PERF", 1) << 4 | (1 if axi else rtl.get("WR_ACK", 0)) << 5
             | int(rtl.get("ACC_FORM", 1) == 0) << 6 | int(rtl.get("MAC_PIPE", 2) == 1) << 7
@@ -187,7 +187,7 @@ async def check_host_contract(tb, dut, params, host, perf_off: bool, check_prot:
     await tb.reg_write(0x010, 0x0)
     assert await tb.reg_read(0x014) == 0x0 and val(dut.irq_o) == 0
 
-    if host in ("axil", "axi", "axi_burst"):
+    if host in ("axil", "axi", "axi_burst", "axi_ids"):
         dut.s_awaddr_i.value, dut.s_awvalid_i.value, dut.s_wvalid_i.value = 0x010, 1, 0
         await tb._handshake(dut.s_awready_o, "AW-only not accepted")
         dut.s_awvalid_i.value = 0
@@ -269,6 +269,7 @@ async def check_burst_special(tb, dut, params):
             break
         await FallingEdge(dut.clk_i)
     assert val(dut.m_arvalid_o), "expected AR valid before ABORT"
+    dut.m_rid_i.value = val(dut.m_arid_o)                  # the orphan burst's ID
     await tb.reg_write(REG_CTRL, 2)
     dut.m_arready_i.value = 1
     await FallingEdge(dut.clk_i)
@@ -296,10 +297,11 @@ async def gemm_cases(dut):
     cases = json.loads(os.environ["TQ_CASES"])
     host = os.environ.get("TQ_HOST", "native")
     case_filter = os.environ.get("TQ_CASE")
-    burst = host == "axi_burst"
-    tb = {"axil": TqTbAxil, "axi": TqTbAxi, "axi_burst": TqTbAxi, "xif": TqTbXif}.get(
+    burst = host in ("axi_burst", "axi_ids")
+    tb = {"axil": TqTbAxil, "axi": TqTbAxi, "axi_burst": TqTbAxi, "axi_ids": TqTbAxi, "xif": TqTbXif}.get(
         host, TqTb
     )(dut, params["tile"], params.get("prog_bytes", 64))
+    tb.reorder = host == "axi_ids"
     await tb.start()
     if not case_filter:
         await check_host_contract(tb, dut, params, host, perf_off, check_prot)

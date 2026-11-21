@@ -370,6 +370,31 @@ CONFIGS = {
            dict(case(20, 24, 27, lat=2), wr_lat=2, rresp_err=1),
            dict(case(9, 9, 9, lat=2), wr_lat=1)],
     ),
+    # tq_axi_mem with an ID per line slot and per write (WR_IDS > 0): the slave returns bursts and
+    # B responses of different IDs out of order, with interleaved R beats (TqTbAxi reorder)
+    "t8_axi_ids": (
+        dict(T=8, BURST_BEATS=4, ID_W=3, WR_IDS=4),
+        dict(tile=8, wr_ack=True, wr_out_max=16),
+        [dict(c, wr_lat=2) for c in edge_cases(8, (9,))[::4]]
+        + [dict(case(1, 16, 8, lat=2), wr_lat=1),
+           dict(case(4, 16, 8, lat=2), wr_lat=1),
+           dict(case(64, 64, 64, lat=8), wr_lat=2),
+           dict(case(20, 24, 27, lat=4, stall=0.3), wr_lat=3, shift=6),
+           dict(case(64, 64, 8, lat=2), wr_lat=1, shift=5),
+           dict(case(12, 12, 24, lat=3), wr_lat=1), dict(case(36, 4, 8, lat=3), wr_lat=1),
+           dict(case(28, 28, 24, lat=5, stall=0.3), wr_lat=2), dict(case(5, 64, 40, lat=2), wr_lat=1),
+           dict(case(20, 24, 27, lat=2), wr_lat=2, bus_err=1),
+           dict(case(20, 24, 27, lat=2), wr_lat=2, rresp_err=1),
+           dict(case(9, 9, 9, lat=2), wr_lat=1)]
+        + [dict(case(48, 40, 32, lat=6, seed=s), wr_lat=4) for s in (3, 4)],
+    ),
+    "t8_axi_ids8": (
+        dict(T=8, BURST_BEATS=4, ID_W=4, LINES=8, WR_IDS=8, FIFO_DEPTH=16, MAX_OUT=32),
+        dict(tile=8, fifo_depth=16, wr_ack=True, wr_out_max=32),
+        [dict(case(64, 64, 64, lat=12), wr_lat=6), dict(case(20, 24, 27, lat=4, stall=0.3), wr_lat=3, shift=6),
+         dict(case(5, 64, 40, lat=2), wr_lat=1), dict(case(28, 28, 24, lat=9, stall=0.3), wr_lat=5),
+         dict(case(20, 24, 27, lat=2), wr_lat=2, bus_err=3), dict(case(20, 24, 27, lat=2), wr_lat=2, rresp_err=5)],
+    ),
     "t32": (
         dict(T=32),
         dict(tile=32),
@@ -394,7 +419,8 @@ CONFIGS = {
 # configurations whose top level is not tq_top (the testbench host driver follows it)
 TOPS = {"t8_axil": ("tq_top_axil", "axil"), "t8_axil_prot": ("tq_top_axil", "axil"),
         "t8_axi": ("tq_top_axi", "axi"),
-        "t8_axi_burst": ("tq_top_axi", "axi_burst"), "t8_xif": ("tq_top_xif", "xif")}
+        "t8_axi_burst": ("tq_top_axi", "axi_burst"), "t8_axi_ids": ("tq_top_axi", "axi_ids"),
+        "t8_axi_ids8": ("tq_top_axi", "axi_ids"), "t8_xif": ("tq_top_xif", "xif")}
 
 
 @pytest.mark.parametrize("name", list(CONFIGS))

@@ -3,7 +3,8 @@
 //
 // Tri-Queue in a Chipyard SoC (bench/soc/chipyard/README.md). The registers hang off the
 // periphery bus as an AXI4 slave (TileLink -> AXI4, 4-byte beats), and the core's AXI4 memory
-// master joins the front bus, which is coherent with the cores' caches, through AXI4 -> TileLink.
+// master joins the system bus (sbus, 16 bytes wide like the core's port) or the front bus (fbus,
+// 8 bytes), both coherent with the cores' caches, through AXI4 -> TileLink.
 // The RTL is the repository's (rtl/files.f, mounted at /tq) plus the shim vsrc/tq_chipyard.sv.
 package chipyard.triqueue
 
@@ -14,17 +15,26 @@ import org.chipsalliance.cde.config.{Config, Field, Parameters}
 import freechips.rocketchip.amba.axi4._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.resources.SimpleDevice
-import freechips.rocketchip.subsystem.{BaseSubsystem, FBUS, PBUS}
+import freechips.rocketchip.subsystem.{BaseSubsystem, FBUS, PBUS, SBUS}
 import freechips.rocketchip.tilelink._
 import testchipip.soc.{SubsystemInjector, SubsystemInjectorKey}
 
-case class TriQueueParams(address: BigInt = 0x10040000L, tile: Int = 8, root: String = "/tq")
+// lines / wrIds / fifoDepth / maxOut: tq_top_axi's LINES, WR_IDS, FIFO_DEPTH and MAX_OUT (wrIds > 0:
+// an AXI ID per read line slot and per write, docs/integration.md section 5); sbus: the memory
+// master's bus (system bus, else front bus)
+case class TriQueueParams(address: BigInt = 0x10040000L, tile: Int = 8, root: String = "/tq",
+                          lines: Int = 4, wrIds: Int = 4, fifoDepth: Int = 8, maxOut: Int = 16,
+                          sbus: Boolean = true)
 case object TriQueueKey extends Field[Option[TriQueueParams]](None)
 
-class TriQueueBlackBox(t: Int, idBits: Int, midBits: Int, root: String)
-    extends BlackBox(Map("T" -> IntParam(t), "ID_W" -> IntParam(idBits), "MID_W" -> IntParam(midBits)))
+class TriQueueBlackBox(params: TriQueueParams, idBits: Int, midBits: Int)
+    extends BlackBox(Map("T" -> IntParam(params.tile), "ID_W" -> IntParam(idBits), "MID_W" -> IntParam(midBits),
+      "LINES" -> IntParam(params.lines), "WR_IDS" -> IntParam(params.wrIds),
+      "FIFO_DEPTH" -> IntParam(params.fifoDepth), "MAX_OUT" -> IntParam(params.maxOut)))
     with HasBlackBoxInline {
   override def desiredName = "tq_chipyard"
+  private val t = params.tile
+  private val root = params.root
   val vb = 16 * t
   val io = IO(new Bundle {
     val clock = Input(Clock())
@@ -85,13 +95,18 @@ class TriQueueAXI(params: TriQueueParams)(implicit p: Parameters) extends LazyMo
       interleavedId = Some(0))),
     beatBytes = 4)))
   val memNode = AXI4MasterNode(Seq(AXI4MasterPortParameters(
-    // one ID, up to 16 transactions in flight per direction (tq_axi_mem MAX_OUT), in order
-    masters = Seq(AXI4MasterParameters(name = "triqueue", id = IdRange(0, 1), maxFlight = Some(16))))))
+    // wrIds = 0: one ID, up to maxOut transactions in flight per direction, in order. Otherwise an
+    // ID per read line slot and per write ID, each with one transaction in flight (AXI4ToTL gives
+    // every ID its own TileLink sources and FIFO domain, so the IDs do not wait for each other).
+    masters = Seq(if (params.wrIds == 0)
+      AXI4MasterParameters(name = "triqueue", id = IdRange(0, 1), maxFlight = Some(params.maxOut))
+    else
+      AXI4MasterParameters(name = "triqueue", id = IdRange(0, params.lines + params.wrIds), maxFlight = Some(1))))))
 
   lazy val module = new LazyModuleImp(this) {
     val (s, se) = regNode.in(0)
     val (m, me) = memNode.out(0)
-    val bb = Module(new TriQueueBlackBox(params.tile, se.bundle.idBits, me.bundle.idBits, params.root))
+    val bb = Module(new TriQueueBlackBox(params, se.bundle.idBits, me.bundle.idBits))
     bb.io.clock := clock
     bb.io.reset := reset.asBool
     // registers (slave)
@@ -133,7 +148,7 @@ case object TriQueueInjector extends SubsystemInjector((p, baseSubsystem) => {
   p(TriQueueKey).foreach { params =>
     implicit val q: Parameters = p
     val pbus = baseSubsystem.locateTLBusWrapper(PBUS)
-    val fbus = baseSubsystem.locateTLBusWrapper(FBUS)
+    val mbus = baseSubsystem.locateTLBusWrapper(if (params.sbus) SBUS else FBUS)
     val tq = pbus { LazyModule(new TriQueueAXI(params)) }
     pbus.coupleTo("triqueue") {
       // TLToAXI4 carries TileLink state in AXI echo fields; the yanker keeps them per ID, since the
@@ -141,9 +156,11 @@ case object TriQueueInjector extends SubsystemInjector((p, baseSubsystem) => {
       tq.regNode := AXI4UserYanker() := AXI4Buffer() := TLToAXI4() :=
         TLFragmenter(4, pbus.blockBytes, holdFirstDeny = true) := TLWidthWidget(pbus.beatBytes) := _
     }
-    fbus.coupleFrom("triqueue") {
+    mbus.coupleFrom("triqueue") {
       // AXI4ToTL reuses TileLink sources in order and needs responses in order per AXI ID; the
-      // system bus orders only volatile regions, so cacheable DRAM gets a FIFO fixer here
+      // system bus orders only volatile regions, so cacheable DRAM gets a FIFO fixer here. The
+      // fixer lets one transaction of an ID (one TileLink client, reads and writes together) into
+      // cached memory at a time, hence wrIds > 0.
       _ := TLFIFOFixer(TLFIFOFixer.all) := TLWidthWidget(tq.portBytes) := AXI4ToTL() := AXI4UserYanker(Some(16)) := AXI4Fragmenter() := tq.memNode
     }
   }
@@ -154,8 +171,23 @@ class WithTriQueue(params: TriQueueParams = TriQueueParams()) extends Config((si
   case SubsystemInjectorKey => up(SubsystemInjectorKey) + TriQueueInjector
 })
 
+// System bus, an ID per read line slot and per write (the recommended attachment)
 class TriQueueRocketConfig extends Config(
   new WithTriQueue ++
+  new freechips.rocketchip.rocket.WithNHugeCores(1) ++
+  new chipyard.config.WithSystemBusWidth(128) ++
+  new chipyard.config.AbstractConfig)
+
+// Front bus (8 bytes wide), an ID per read line slot and per write
+class TriQueueFbusConfig extends Config(
+  new WithTriQueue(TriQueueParams(sbus = false)) ++
+  new freechips.rocketchip.rocket.WithNHugeCores(1) ++
+  new chipyard.config.WithSystemBusWidth(128) ++
+  new chipyard.config.AbstractConfig)
+
+// Front bus, one AXI ID (the v1.0 attachment)
+class TriQueueOneIdConfig extends Config(
+  new WithTriQueue(TriQueueParams(sbus = false, wrIds = 0)) ++
   new freechips.rocketchip.rocket.WithNHugeCores(1) ++
   new chipyard.config.WithSystemBusWidth(128) ++
   new chipyard.config.AbstractConfig)

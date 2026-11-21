@@ -8,8 +8,8 @@ detailed commands and the per-configuration case list are in [`verif/README.md`]
 
 ## 1. Differential regression (RTL vs cycle model)
 
-`make rtl-test` builds `tq_top` (and the adapters) with Verilator for 41 configurations and runs
-**2,685 cases** (plus a standalone Verilator `$readmemh` golden-vector test). Each case drives a
+`make rtl-test` builds `tq_top` (and the adapters) with Verilator for 43 configurations and runs
+**2,714 cases** (plus a standalone Verilator `$readmemh` golden-vector test). Each case drives a
 real program through the register port, serves memory from a Python SRAM/bus model, records every
 read, write and MAC start, and compares the RTL with the cycle-model run:
 
@@ -25,7 +25,9 @@ read-after-write line invalidation), CV-X-IF, random `gnt` back-pressure (10–8
 restart, and K = 0. The full matrix and the exact counts are in [`verif/README.md`](../verif/README.md).
 
 **What this gives you:** cycle-exact agreement with the golden model, including control, addressing,
-queueing and error timing, for the tested configurations.
+queueing and error timing, for the tested configurations. The exception is the three configurations with
+AXI read bursts (`t8_axi_burst`, `t8_axi_ids`, `t8_axi_ids8`), where the bus model changes the timing: they check results, each stream's read order, the writes,
+MAC shapes and the counters other than cycles.
 
 ## 2. Formal (SymbiYosys)
 
@@ -39,6 +41,7 @@ queueing and error timing, for the tested configurations.
 | `tq_xif_regs.sby` | CV-X-IF adapter: commit-gated register access, one result per committed instruction, killed/speculative instructions have no effect | `make formal` |
 | `tq_axi_mem.sby` (`cover`, `burst`) | AXI master reachability (`cover`, `BURST_BEATS = 1`, depth 16) and bounded burst proof including read data (`burst`, `W = 4`, `MAX_OUT = 3`, `BURST_BEATS = 2`, BMC depth 10) | `make formal` |
 | `tq_axi_mem.sby` (`prove`, `burst_prove`) | Unbounded AXI master rules, response routing, orphan tracking and legal use of the internal FIFOs at `W = 4`, `MAX_OUT = 3`: every property at `BURST_BEATS = 1` (`prove`); at `BURST_BEATS = 2` (`burst_prove`) every property except the read-data equality, which is bounded by `burst` | `make formal` |
+| `tq_axi_mem.sby` (`ids_cover`, `ids`, `ids_prove`) | `WR_IDS > 0` (an ID per line slot and per write) at `LINES = 2`, `WR_IDS = 2`, `ID_W = 2`, `BURST_BEATS = 2`, against a slave that answers any ID that has a transaction in flight, with R beats of different IDs interleaved: out-of-order responses reach the core (`ids_cover`); BMC depth 10 of every property including read data (`ids`); unbounded every property except the read-data equality (`ids_prove`). Added properties: an AR or AW only on an ID with nothing in flight, IDs in their ranges, `AxID` held until READY | `make formal` |
 | `tq_axi_mem.sby burst_data` | Unbounded burst proof including read data at `BURST_BEATS = 2`, `MAX_OUT = 1` (one core read in flight; line buffer, hits, orphans, flush and write invalidation unrestricted) | `make formal-nightly` |
 | `tq_core.sby split` | T = 4 core (`FIFO_DEPTH = 2`, `MACQ_DEPTH = 2`, `PROG_BYTES = 8`), any program, START/ABORT at any time, any `gnt`, any read latency: no accumulate into the draining bank, no queue overflow/underflow, OBI request stability | `make formal` |
 | `tq_core.sby shared/ack/ack_split/panel` | The same unbounded core invariants for shared port (`shared`), `WR_ACK = 1` on shared (`ack`) and split (`ack_split`) ports, and panel buffer (`panel`, `PANEL_BYTES = 32`). Every task includes the column walk (`MODE[8]`) except `ack_split`, which builds with `TQ_FORMAL_NO_WALK` (`MODE[8]` reserved): with the walk, PDR did not converge in 90 min. With the TFLite epilogue (`MODE[9]`: parameter fetch ahead of A/B reads, third response tag) the core invariants are checked to depth 16 (`epi_bmc`, nightly), which found the read-tag FIFO overflow fixed in v1.1; the other tasks, `split` included, build with `TQ_FORMAL_NO_EPI` (`MODE[9]` reserved), since with it `split` did not converge in 60 min | `make formal-nightly` |

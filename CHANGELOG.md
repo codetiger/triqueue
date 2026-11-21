@@ -86,6 +86,36 @@ All notable changes to the Tri-Queue project. This format follows
   matches TFLite's reference kernels, with the classifiers in single rounding (below).
   RTL: `t8_resnet8` and `t4_resnet8`.
 
+- **AXI IDs per read line slot and per write (`tq_axi_mem` / `tq_top_axi` `WR_IDS`, `LINES`;
+  roadmap C5).** With `WR_IDS > 0` (needs `BURST_BEATS > 1`) read line slot `s` uses `ARID = s`
+  and writes take a free one of `WR_IDS` IDs after the slots, at most one transaction in flight per
+  ID, so the slave may answer IDs in any order and interleave R beats: the line slots already
+  buffer whole bursts, beats go to the slot their `RID` names, and the core still gets its reads in
+  order; per-ID busy and orphan bits replace the in-order write tag FIFO. `LINES` (default 4, as
+  before) sets the slot count. Default `WR_IDS = 0` keeps one in-order ID; the one-ID SoC run gives
+  the same cycles as before. Why: on the Chipyard Rocket SoC, rocket-chip's `AXI4ToTL` turns an AXI
+  ID into one TileLink client that asks for FIFO order, and the `TLFIFOFixer` that cached memory
+  needs for it lets one of that client's transactions into L2 at a time, so with one ID the core's
+  reads and writes took turns (~8.3 cycles each). Regression `t8_axi_ids` (4 lines, 4 write IDs,
+  `ID_W = 3`) and `t8_axi_ids8` (8 / 8, `FIFO_DEPTH = 16`, `MAX_OUT = 32`) against a slave that
+  answers IDs out of order with interleaved R beats and checks one transaction per ID (2,714 cases
+  in 43 configurations); formal `tq_axi_mem.sby ids_cover`, `ids` (BMC depth 10 with read data) and
+  `ids_prove` (unbounded, without the read-data equality) in `make formal` (~45 s); an adapter that
+  ignores `RID` or keeps a constant `ARID` fails the regression and the proofs. Lint found that
+  `ID_W'(LINES + WR_IDS)` truncates to 0 when the write IDs reach the top of the ID space, which
+  would have made every B look foreign; the comparison now drops the upper bound there.
+- **Chipyard SoC at 70.7% (`bench/soc/chipyard`).** `TriQueue.scala` takes `tq_top_axi`'s `LINES`,
+  `WR_IDS`, `FIFO_DEPTH`, `MAX_OUT` and the bus from `TriQueueParams`. `TriQueueRocketConfig` now
+  puts the memory master on the 16-byte system bus with `WR_IDS = 4` (64³ GEMM 5,787 cycles, 70.7%,
+  was 17,031 / 24.0%; DS-CNN's 1×1 convolution 10,383, 77.0%, was 25,258 / 31.6%; ResNet-8's
+  classifier 240, was 417); `TriQueueFbusConfig` (front bus, 8 bytes, `WR_IDS = 4`) and
+  `TriQueueOneIdConfig` (front bus, one ID: the v1.0 attachment) reproduce the comparison. The two
+  causes are independent: either fix alone gives 1.4–1.8×. The shim prints AXI transactions in
+  flight and the AR-to-R latency (`tqbus:`). `tq_gemm_test` checks against numpy's product
+  (`export_gemm.py`, `tq_gemm_ref.h`) instead of a reference GEMM on the simulated Rocket, which took
+  most of the simulation time (the caches then start differently: the one-ID GEMM takes 17,031
+  cycles instead of 17,011), and `run.sh` builds the `CONFIGS` one after another in one container,
+  then runs every program on every configuration in parallel.
 - **Int8 layers on the Chipyard SoC.** `bench/soc/chipyard/tq_layer_test.c` runs DS-CNN's 1×1
   convolution (125×64×64, double rounding, column walk) and ResNet-8's classifier (1×10×64, single
   rounding) through `tq_layer_run` on the Rocket SoC, every int8 output equal to TFLite's tensor
@@ -144,6 +174,16 @@ All notable changes to the Tri-Queue project. This format follows
 
 ### Fixed (docs)
 
+- `docs/benchmarks.md` §6, the spec's cached-memory note, `docs/integration.md` §4 and the README
+  explained the SoC's 24% by the 8-word operand FIFOs not hiding DRAM latency; the measured cause is
+  the one-ID serialization in TileLink and the 8-byte front bus (above). `docs/benchmarks.md` and the
+  README said every regression case is cycle-exact with the model, but the AXI read-burst
+  configurations check results, each stream's read order, the writes and the MAC shapes, not
+  cycles. `rtl/README.md` and `docs/integration.md` gave `tq_top_axi` defaults of `MAX_OUT = 8`,
+  `ID_W = 4` and `AXCACHE = 4'b0011` (the RTL: 16, 1, `4'b0000`) and `tq_top_xif` parameters
+  `X_ID_W` and `CUSTOM_OPC` (the RTL: `X_ID_WIDTH`, `X_HARTID_WIDTH`, `OPCODE`, `FUNCT7`).
+  `docs/integration.md` §8 still said int8 output is shift-only. The bench README said the
+  container runs under Rosetta; only `firtool` does.
 - `docs/integration.md` and the v1.0.1 notes described `HW_CONFIG[26:21]` (`PANEL_BYTES / 64`) and
   `HW_CONFIG[27]` (`MAC_PIPE`), and `STATUS[12]` as `PENDING`. The RTL never had those fields
   (`[31:24]` is the program-buffer size) and `PENDING` is `STATUS[4]`; the panel size and

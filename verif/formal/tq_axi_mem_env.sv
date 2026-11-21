@@ -12,11 +12,18 @@
 // never reaches it); wr_done only for the core's granted writes. CHECK_RDATA = 0 leaves out only
 // the read-data equality (tq_axi_mem.sby burst_prove; burst checks it to a bounded depth and
 // burst_data unbounded at MAX_OUT = 1).
+// WR_IDS > 0 (tq_axi_mem's ID per line slot and per write): the slave holds one burst per read ID
+// and one write per write ID, and answers any of them in any order (m_rid_i / m_bid_i are free;
+// R beats of different IDs interleave). Added properties: an AR or AW only on an ID with nothing in
+// flight, read IDs below LINES and write IDs in LINES .. LINES + WR_IDS - 1, AxID held until READY.
 
 module tq_axi_mem_env #(
     parameter int MAX_OUT     = 3,
     parameter int BURST_BEATS = 1,
-    parameter bit CHECK_RDATA = 1'b1
+    parameter bit CHECK_RDATA = 1'b1,
+    parameter int LINES       = 4,
+    parameter int WR_IDS      = 0,
+    localparam int IDW = (WR_IDS > 0) ? $clog2(LINES + WR_IDS) : 1
 ) (
     input  logic        clk_i,
     input  logic        rst_ni,
@@ -33,7 +40,9 @@ module tq_axi_mem_env #(
     input  logic        m_awready_i,
     input  logic        m_wready_i,
     input  logic        m_bvalid_i,
-    input  logic        m_berr_i
+    input  logic        m_berr_i,
+    input  logic [IDW-1:0] m_rid_i,
+    input  logic [IDW-1:0] m_bid_i
 );
   logic        rd_gnt, rd_rvalid, wr_gnt, wr_done, pending, bus_err;
   logic [31:0] rd_rdata;
@@ -44,6 +53,7 @@ module tq_axi_mem_env #(
   logic        arvalid, rready, awvalid, wvalid, wlast, bready;
   logic [3:0]  wstrb;
   logic [31:0] rdata;
+  logic [IDW-1:0] arid, awid;
 
   // Address bits that carry information. In burst mode the core-side assumptions below fix
   // rd_addr_i / wr_addr_i [31:6] to 0, so the DUT sees those bits as constants and the queues
@@ -68,15 +78,16 @@ module tq_axi_mem_env #(
   assign rd_addr_c = (BURST_BEATS > 1) ? {26'b0, rd_addr_i[5:0]} : rd_addr_i;
   assign wr_addr_c = (BURST_BEATS > 1) ? {26'b0, wr_addr_i[5:0]} : wr_addr_i;
 
-  tq_axi_mem #(.W(4), .MAX_OUT(MAX_OUT), .BURST_BEATS(BURST_BEATS)) dut (
+  tq_axi_mem #(.W(4), .MAX_OUT(MAX_OUT), .BURST_BEATS(BURST_BEATS), .ID_W(IDW), .LINES(LINES),
+               .WR_IDS(WR_IDS)) dut (
       .clk_i, .rst_ni, .flush_i, .pending_o(pending),
       .rd_req_i, .rd_addr_i(rd_addr_c), .rd_gnt_o(rd_gnt), .rd_rvalid_o(rd_rvalid), .rd_rdata_o(rd_rdata),
       .wr_req_i, .wr_addr_i(wr_addr_c), .wr_be_i, .wr_wdata_i, .wr_gnt_o(wr_gnt), .wr_done_o(wr_done), .bus_err_o(bus_err),
       .m_araddr_o(araddr), .m_arlen_o(arlen), .m_arsize_o(arsize), .m_arburst_o(arburst),
-      .m_arvalid_o(arvalid), .m_arready_i,
+      .m_arvalid_o(arvalid), .m_arready_i, .m_arid_o(arid), .m_rid_i(m_rid_i),
       .m_rdata_i(rdata), .m_rresp_i({m_rerr_i, 1'b0}), .m_rlast_i(1'b1), .m_rvalid_i, .m_rready_o(rready),
       .m_awaddr_o(awaddr), .m_awlen_o(awlen), .m_awsize_o(awsize), .m_awburst_o(awburst),
-      .m_awvalid_o(awvalid), .m_awready_i,
+      .m_awvalid_o(awvalid), .m_awready_i, .m_awid_o(awid), .m_bid_i(m_bid_i),
       .m_wdata_o(wdata), .m_wstrb_o(wstrb), .m_wlast_o(wlast), .m_wvalid_o(wvalid), .m_wready_i,
       .m_bresp_i({m_berr_i, 1'b0}), .m_bvalid_i, .m_bready_o(bready));
 
@@ -107,7 +118,7 @@ module tq_axi_mem_env #(
   // ---------------------------------------------------------------- AXI slave (assumptions)
   // R: a FIFO of accepted AR beat addresses; R carries the oldest one, never in the AR cycle.
   // epoch_q toggles on flush_i when no read is in flight (host rewrote operand memory before START).
-  localparam int RQ_MAX = ((BURST_BEATS > 1) ? 4 : MAX_OUT) * BURST_BEATS;
+  localparam int RQ_MAX = ((BURST_BEATS > 1) ? LINES : MAX_OUT) * BURST_BEATS;
   logic [RQ_MAX:0][QW:0] ar_q;                    // {epoch, qval(beat address)}
   logic [3:0]  ar_n;
   logic [2:0]  b_n, cr_n, cw_n;
@@ -121,7 +132,8 @@ module tq_axi_mem_env #(
     if (!rst_ni) begin
       ar_n <= '0; b_n <= '0; aw_open_q <= 1'b0; w_open_q <= 1'b0; epoch_q <= 1'b0;
     end else begin
-      if (flush_i && ar_n == 0 && !arvalid && cr_n == 0) epoch_q <= ~epoch_q;
+      if (flush_i && !r_out && !arvalid && cr_n == 0) epoch_q <= ~epoch_q;
+      if (WR_IDS == 0) begin
       for (int i = 0; i < RQ_MAX; i++)
         ar_q[i] <= (m_rvalid_i ? ar_q[i + 1] : ar_q[i]);
       if (ar_fire) begin
@@ -129,6 +141,7 @@ module tq_axi_mem_env #(
           ar_q[32'(ar_n) - 32'(m_rvalid_i) + b] <= {epoch_q, qval(araddr[DAW-1:0] + DAW'(b * 4))};
       end
       ar_n <= ar_n + (ar_fire ? 4'(BURST_BEATS) : 4'd0) - 4'(m_rvalid_i);
+      end
       // a write is complete in the slave when both AW and W are in
       if ((aw_fire || aw_open_q) && (w_fire || w_open_q)) begin
         aw_open_q <= 1'b0; w_open_q <= 1'b0;
@@ -140,11 +153,48 @@ module tq_axi_mem_env #(
       end
     end
   end
-  assign rdata = qdata(ar_q[0]);
+  // WR_IDS > 0: one burst per read ID ({epoch, line address}, beats returned) and one complete
+  // write per write ID; R and B pick any ID that has one.
+  logic [LINES-1:0]           rq_v;
+  logic [LINES-1:0][DAW-1:0]  rq_addr;
+  logic [LINES-1:0]           rq_ep;
+  logic [LINES-1:0][3:0]      rq_beat;
+  logic [WR_IDS:0]            wq_v;                 // [WR_IDS] unused (keeps the width >= 1)
+  logic [IDW-1:0]             aw_id_q;              // ID of the write whose AW is in
+  logic                       r_out, w_out;
+  logic [IDW-1:0]             w_rel, b_rel;
+  assign w_rel = (WR_IDS > 0 && aw_fire) ? awid - IDW'(LINES) : aw_id_q - IDW'(LINES);
+  assign b_rel = m_bid_i - IDW'(LINES);
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      rq_v <= '0; wq_v <= '0; aw_id_q <= '0;
+    end else if (WR_IDS > 0) begin
+      if (aw_fire) aw_id_q <= awid;
+      if (m_rvalid_i) begin
+        rq_beat[m_rid_i] <= rq_beat[m_rid_i] + 4'd1;
+        if (32'(rq_beat[m_rid_i]) == BURST_BEATS - 1) rq_v[m_rid_i] <= 1'b0;
+      end
+      if (ar_fire) begin
+        rq_v[arid] <= 1'b1; rq_addr[arid] <= araddr[DAW-1:0]; rq_ep[arid] <= epoch_q; rq_beat[arid] <= '0;
+      end
+      if (m_bvalid_i) wq_v[b_rel] <= 1'b0;
+      if ((aw_fire || aw_open_q) && (w_fire || w_open_q)) wq_v[w_rel] <= 1'b1;
+    end
+  end
+  assign r_out = (WR_IDS > 0) ? (rq_v != '0) : (ar_n != 0);
+  assign w_out = (WR_IDS > 0) ? (wq_v != '0) : (b_n != 0);
+  logic [QW:0] r_ent;
+  assign r_ent = (WR_IDS > 0) ? {rq_ep[m_rid_i], qval(rq_addr[m_rid_i] + DAW'(32'(rq_beat[m_rid_i]) * 4))} : ar_q[0];
+  assign rdata = qdata(r_ent);
   always_comb begin
     if (rst_ni) begin
-      if (m_rvalid_i) assume (ar_n != 0);
-      if (m_bvalid_i) assume (b_n != 0);
+      if (WR_IDS > 0) begin
+        if (m_rvalid_i) assume (32'(m_rid_i) < LINES && rq_v[m_rid_i]);
+        if (m_bvalid_i) assume (m_bid_i >= IDW'(LINES) && 32'(b_rel) < WR_IDS && wq_v[b_rel]);
+      end else begin
+        if (m_rvalid_i) assume (ar_n != 0);
+        if (m_bvalid_i) assume (b_n != 0);
+      end
     end
   end
 
@@ -153,15 +203,20 @@ module tq_axi_mem_env #(
   logic [31:0] p_araddr, p_awaddr, p_wdata;
   logic [3:0]  p_wstrb;
   logic        p_ar_wait, p_aw_wait, p_w_wait;
+  logic [IDW-1:0] p_arid, p_awid;
   always_ff @(posedge clk_i) begin
-    p_ar_wait <= rst_ni && arvalid && !m_arready_i;   p_araddr <= araddr;
-    p_aw_wait <= rst_ni && awvalid && !m_awready_i;   p_awaddr <= awaddr;
+    p_ar_wait <= rst_ni && arvalid && !m_arready_i;   p_araddr <= araddr;   p_arid <= arid;
+    p_aw_wait <= rst_ni && awvalid && !m_awready_i;   p_awaddr <= awaddr;   p_awid <= awid;
     p_w_wait  <= rst_ni && wvalid && !m_wready_i;     p_wdata <= wdata;   p_wstrb <= wstrb;
   end
   always_comb begin
     if (run) begin
-      if (p_ar_wait) assert (arvalid && araddr == p_araddr);
-      if (p_aw_wait) assert (awvalid && awaddr == p_awaddr);
+      if (p_ar_wait) assert (arvalid && araddr == p_araddr && arid == p_arid);
+      if (p_aw_wait) assert (awvalid && awaddr == p_awaddr && awid == p_awid);
+      if (WR_IDS == 0) assert (arid == '0 && awid == '0);
+      if (WR_IDS > 0 && arvalid) assert (32'(arid) < LINES && !rq_v[arid]);
+      if (WR_IDS > 0 && awvalid) assert (awid >= IDW'(LINES) && 32'(awid - IDW'(LINES)) < WR_IDS
+                                         && !wq_v[awid - IDW'(LINES)]);
       if (p_w_wait)  assert (wvalid && wdata == p_wdata && wstrb == p_wstrb);
       assert (rready && bready && wlast);
       assert (arlen == 8'(BURST_BEATS - 1) && awlen == 0 && arsize == 3'd2 && awsize == 3'd2
@@ -195,7 +250,7 @@ module tq_axi_mem_env #(
       assert (!bus_err || rd_rvalid || wr_done);
       if (wr_done && m_berr_i) assert (bus_err);
       if (BURST_BEATS == 1) assert (bus_err == ((rd_rvalid && m_rerr_i) || (wr_done && m_berr_i)));
-      if (cr_n != 0 || cw_n != 0 || ar_n != 0 || b_n != 0) assert (pending);
+      if (cr_n != 0 || cw_n != 0 || r_out || w_out) assert (pending);
     end
   end
 
@@ -215,6 +270,10 @@ module tq_axi_mem_env #(
       cover (orph_w_q && wr_done);
       cover (bus_err);
       cover (epoch_q && rd_rvalid);
+      // responses out of issue order reach the core: R for slot 1 while slot 0's burst is in
+      // flight, B for the second write ID while the first one's is
+      if (WR_IDS > 0) cover (m_rvalid_i && rq_v[0] && rq_v[1] && m_rid_i == IDW'(1) && rd_rvalid);
+      if (WR_IDS > 1) cover (m_bvalid_i && wq_v[0] && wq_v[1] && b_rel == IDW'(1) && wr_done);
     end
   end
 

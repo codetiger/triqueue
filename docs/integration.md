@@ -148,13 +148,17 @@ The operand FIFOs hide SRAM read latency, not cache misses. A FIFO of depth `FIF
 `L = FIFO_DEPTH - 1` cycles of SRAM read latency (`FIFO_DEPTH >= L + 1`, where model `mem_latency =
 L + 1` includes the 1-cycle operand FIFO write); depth 4 hides up to `L = 3`, depth 8 hides up to
 `L = 7`, and depth 16 hides up to `L = 15`. Choose `FIFO_DEPTH` from the memory's read latency plus
-the adapter's latency. The 64³ GEMM on the Chipyard Rocket SoC passes bit-exact but runs at 23.8% with
-4-beat read bursts (`BURST_BEATS = 4`) and 10.5% with single-beat reads, because the 8-word FIFOs do
-not hide the TileLink/L2/DRAM latency; that is a memory-system result, not a core limit
-(`docs/benchmarks.md` §6, v1.0.2 RTL). For a cached-memory SoC, use read bursts of a cache line and,
-if A is reused across a tile row, the panel buffer (29.1% there); a deeper FIFO did not help there
-(`FIFO_DEPTH = 16` and `32` gave the same cycles as 8), because that SoC's memory path, not the
-number of reads the core keeps in flight, sets the rate.
+the adapter's latency.
+
+Behind an interconnect, check what limits the transactions in flight before deepening the FIFOs.
+On the Chipyard Rocket SoC (`docs/benchmarks.md` §6, v1.1 RTL) a 64³ GEMM ran at 24.0% with 4-beat
+read bursts, and deeper FIFOs changed nothing: with one AXI ID, rocket-chip let one transaction at a
+time into L2 (section 5, IDs), and the 8-byte front bus carried half the port's width. With an ID per
+line slot and per write (`WR_IDS = 4`) and the master on the 16-byte system bus it runs at 70.7%
+(DS-CNN's first 1×1 convolution at 77.0%), with 2–4 transactions in flight per direction and 11
+cycles from AR to the first R beat; `FIFO_DEPTH = 16` with 8 line slots then adds 3–6%. For a
+cached-memory SoC: read bursts of a cache line, `WR_IDS > 0` if the fabric serializes one ID, a bus
+at least as wide as the port (2T bytes) and, if A is reused across a tile row, the panel buffer.
 
 ## 5. AXI4 master (`tq_top_axi`)
 
@@ -163,8 +167,9 @@ The adapter is an AXI4 master with a W-byte data bus:
 - Reads: one aligned `BURST_BEATS`-beat INCR burst per line when `BURST_BEATS > 1`, or one single-beat
   INCR per port word when `BURST_BEATS = 1` (default). Bursts are aligned to their own size, so
   `BURST_BEATS × W ≤ 4 KiB` keeps a burst inside the AXI 4 KiB boundary. `tq_axi_mem` checks that
-  `BURST_BEATS` is a power of two, that `BURST_BEATS × W ≤ 4 KiB`, `ID_W ≥ 1` and `MAX_OUT ≥ 1` at
-  elaboration, and refuses to build otherwise.
+  `BURST_BEATS` is a power of two, that `BURST_BEATS × W ≤ 4 KiB`, `ID_W ≥ 1`, `MAX_OUT ≥ 1`, that
+  `LINES` is a power of two of at least 2, and that `WR_IDS > 0` comes with `BURST_BEATS > 1` and
+  enough ID bits, at elaboration, and refuses to build otherwise.
 - **Burst over-read (`BURST_BEATS > 1`):** because bursts are aligned to `BURST_BEATS × W` bytes and
   always fetch a full line, the last burst of an A or B panel can read up to
   `(BURST_BEATS - 1) × W` bytes past the end of the packed operand buffer (or before its start if a
@@ -175,10 +180,23 @@ The adapter is an AXI4 master with a W-byte data bus:
 - `RREADY` and `BREADY` are always 1; the core never back-pressures a response.
 - `ARREADY`, `AWREADY`/`WREADY` act as the core's `gnt`.
 
-**Signals.** The adapter drives `ARID`/`AWID` = 0, `ARPROT`/`AWPROT`, `ARCACHE`/`AWCACHE`, `ARQOS`/`AWQOS`
-and `ARREGION`/`AWREGION` (region = 0), and accepts `RID`/`BID` (ignored). `AxUSER` is not exposed; tie
-it off in a wrapper if your fabric requires it. Set `ID_W`, `AXPROT`, `AXCACHE` and `AXQOS` for your
-address map.
+**Signals.** The adapter drives `ARPROT`/`AWPROT`, `ARCACHE`/`AWCACHE`, `ARQOS`/`AWQOS` and
+`ARREGION`/`AWREGION` (region = 0) as constants. `AxUSER` is not exposed; tie it off in a wrapper if your
+fabric requires it. Set `ID_W`, `AXPROT`, `AXCACHE` and `AXQOS` for your address map.
+
+**IDs (`WR_IDS`).** With `WR_IDS = 0` (default) `ARID` = `AWID` = 0, `RID`/`BID` are ignored, and the
+slave must return R and B in order, as AXI requires for one ID. With `WR_IDS > 0` (needs
+`BURST_BEATS > 1`, `ID_W ≥ clog2(LINES + WR_IDS)`), read line slot `s` (of `LINES`) uses `ARID = s` and
+each write takes a free ID among `LINES .. LINES + WR_IDS - 1`, with at most one transaction in flight
+on any ID. The slave may then answer IDs in any order and interleave R beats of different IDs; the
+adapter routes each beat by `RID` to its line slot and still hands the core its reads in order. Writes
+on different IDs may complete in any order; the core does not write the same bytes twice in a run, and
+`FENCE` (and `DONE`) waits for every B. Use it where the fabric serializes the transactions of one
+ID. Chipyard/rocket-chip is such a fabric: `AXI4ToTL` makes one TileLink client per AXI ID, reads and
+writes together, and asks for FIFO order, and the `TLFIFOFixer` that cached memory needs for that
+order lets one transaction of the client into L2 at a time. With one ID the Tri-Queue's reads and
+writes then take turns (`bench/soc/chipyard`, section 4 above). Each ID also needs a TileLink source
+(`maxFlight = 1` per ID in `bench/soc/chipyard/TriQueue.scala`).
 
 **Errors, ordering and reset.** An `RRESP`/`BRESP` error on a live core transaction sets
 `STATUS.BUS_ERR` and the run continues (orphan responses from an aborted run are drained without
@@ -196,7 +214,7 @@ These are starting points, not measured v1 results. The reference PPA is the `t8
 | Profile | Target | Suggested parameters | Notes |
 | --- | --- | --- | --- |
 | MCU / tightly coupled SRAM | smallest area, low latency | `T=8`, `FIFO_DEPTH=4`, `MACQ_DEPTH=3`, `SHARED_PORT=1` if the SRAM has one port, `PANEL_BYTES=0`, `PERF=0` if counters are not needed | Reference PPA is close to this; shared port costs drain cycles. |
-| SoC / AXI, latency-tolerant | hide bus latency | `T=8`, `FIFO_DEPTH=16`, `MACQ_DEPTH=4`, `BURST_BEATS=4` or `8`, `PANEL_BYTES=0`, `MAX_OUT=16` | No measured PPA yet. Measure the memory system before quoting a utilization. |
+| SoC / AXI, latency-tolerant | hide bus latency | `T=8`, `FIFO_DEPTH=8` or `16`, `MACQ_DEPTH=4`, `BURST_BEATS=4` (one 64-byte line), `WR_IDS=4` with `ID_W=3` where the fabric serializes one ID, `PANEL_BYTES=0`, `MAX_OUT=16` | No measured PPA yet. Measured on Chipyard: 70.7% on a 64³ GEMM with these settings on the system bus (section 4). |
 | Throughput / area | fewer bytes per MAC | `T=16` with a 256-bit port, `MAC_PIPE=2`, `ACC_FORM=ACC_CPA` | T=16 closes at 741 MHz on ASAP7 (747 MHz post-route), not 1 GHz; mobile/narrow shapes lose utilization. |
 | Panel-buffer experiment | GEMV / A-reuse | add `PANEL_BYTES=1024` or `4096` | Experimental: flops today, no PPA; verify your SRAM macro plan first. |
 
@@ -210,8 +228,8 @@ profile's energy or area from a different configuration.
 | Top | Adapter-specific parameters | Notes |
 | --- | --- | --- |
 | `tq_top_axil` | `CHECK_PROT = 0` | Set `CHECK_PROT = 1` to reject unprivileged/non-secure AXI4-Lite accesses with `SLVERR`. |
-| `tq_top_axi` | `BURST_BEATS = 1`, `MAX_OUT = 8`, `ID_W = 4`, `AXPROT = 3'b000`, `AXCACHE = 4'b0011`, `AXQOS = 4'b0000`, `CHECK_PROT = 0` | Forces `WR_ACK = 1` and `WR_OUT_MAX = MAX_OUT` on `tq_top`. |
-| `tq_top_xif` | `X_ID_W = 4`, `CUSTOM_OPC = 7'b0001011` (`custom-0`) | Implements the OpenHW `core-v-xif` issue/commit/result subset (`core-v-xif` commit `8a46f9a`, pre-v1.0 draft). For CV32E40X or CVA6, map the flat ports (`x_issue_*`, `x_commit_*`, `x_result_*`) to `cv32e40x_if_xif` in a thin SV interface shim and tie `x_compressed_ready_o = 0`, `x_mem_valid_o = 0`. |
+| `tq_top_axi` | `BURST_BEATS = 1`, `MAX_OUT = 16`, `ID_W = 1`, `LINES = 4`, `WR_IDS = 0`, `AXPROT = 3'b000`, `AXCACHE = 4'b0000`, `AXQOS = 4'b0000`, `CHECK_PROT = 0` | Forces `WR_ACK = 1` and `WR_OUT_MAX = MAX_OUT` on `tq_top`. `LINES` and `WR_IDS`: section 5. |
+| `tq_top_xif` | `X_ID_WIDTH = 4`, `X_HARTID_WIDTH = 1`, `OPCODE = 7'b0001011` (`custom-0`), `FUNCT7 = 7'b0000000` | Implements the OpenHW `core-v-xif` issue/commit/result subset (`core-v-xif` commit `8a46f9a`, pre-v1.0 draft). For CV32E40X or CVA6, map the flat ports (`x_issue_*`, `x_commit_*`, `x_result_*`) to `cv32e40x_if_xif` in a thin SV interface shim and tie `x_compressed_ready_o = 0`, `x_mem_valid_o = 0`. |
 
 ## 7. Verification and bring-up
 
@@ -225,14 +243,18 @@ profile's energy or area from a different configuration.
 
 ## 8. Known limitations
 
-- int8 output is shift-only: no per-tensor/per-channel scale, bias or activation.
+- int8 output is either shift-only (`MODE[9] = 0`) or TFLite's int8 output stage (`MODE[9]`:
+  per-channel bias, `M0` and shift, zero point and clamp, with TFLite's double rounding or, with
+  `MODE[10]`, single rounding). Other activations (sigmoid, tanh, ...) and per-tensor float scales are
+  left to the host.
 - The panel buffer (`PANEL_BYTES > 0`) is experimental and uses flip-flops (`PANEL_BYTES ≤ 2048` by
   default unless `ALLOW_LARGE_FLOP_PANEL = 1`).
 - `rtl/common/tq_icg.sv` is a simulation/generic-synthesis model with no DFT scan-enable (`SE`/`TE`)
   pin; replace it with the foundry's technology ICG cell and wire `TE` for scan insertion (§2).
 - `AxUSER` is not exposed on `tq_top_axi`; tie it off in a wrapper if required.
-- Cached-DRAM performance is not a v1 use case; on the Chipyard Rocket SoC a 64³ GEMM runs at 23.8%
-  with 4-beat read bursts and 10.5% with single-beat reads (v1.0.2 RTL).
+- Cached memory is supported for correctness; its speed depends on the SoC: on the Chipyard Rocket
+  SoC a 64³ GEMM runs at 70.7% with `WR_IDS = 4` on the system bus and 24.0% with one ID on the front
+  bus (v1.1 RTL, section 4).
 - The optional input ports `ext_pending_i` (`tq_top*`) and `flush_i` (`tq_axi_mem`) have a default
   value (`= 1'b0`) in their declarations. Verilator 5.022 (Chipyard 1.15.0's) rejects input port
   defaults; Verilator 5.054 accepts them. With an older tool, connect those ports and drop the

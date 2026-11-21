@@ -17,12 +17,22 @@
 // bit per accepted transaction, in order, marks which responses belong to the core.
 // An error response (RRESP / BRESP SLVERR or DECERR) to one of the core's transactions pulses
 // bus_err_o (tq_regs latches it in STATUS.BUS_ERR); a discarded orphan's response is ignored.
+//
+// IDs. With WR_IDS = 0 (default) every transaction uses ID 0 and the slave must return R and B
+// in order (as for any one AXI ID). With WR_IDS > 0 (needs BURST_BEATS > 1): read line slot s
+// uses ARID s, and writes use IDs LINES .. LINES + WR_IDS - 1, with at most one transaction in
+// flight on each ID, so responses may come back in any order and R beats of different IDs may
+// interleave. Use it where the fabric orders transactions of one ID by serializing them: rocket-
+// chip's AXI4ToTL + TLFIFOFixer lets one transaction of an ID, reads and writes together, into
+// cached memory at a time (bench/soc/chipyard, docs/integration.md section 5).
 
 module tq_axi_mem #(
     parameter int W           = 16,                // port width in bytes (2T)
     parameter int MAX_OUT     = 16,                // transactions in flight per direction
     parameter int BURST_BEATS = 1,                 // read burst beats (power of two, >= 1)
-    parameter int ID_W        = 1,                 // AXI ID width (one ID, constant 0)
+    parameter int ID_W        = 1,                 // AXI ID width (>= clog2(LINES + WR_IDS) if WR_IDS > 0)
+    parameter int LINES       = 4,                 // read burst line slots (BURST_BEATS > 1; power of two)
+    parameter int WR_IDS      = 0,                 // 0: one ID, in order; > 0: an ID per line slot and WR_IDS write IDs
     parameter logic [2:0] AXPROT  = 3'b000,
     parameter logic [3:0] AXCACHE = 4'b0000,
     parameter logic [3:0] AXQOS   = 4'b0000,
@@ -98,16 +108,19 @@ module tq_axi_mem #(
     if (BURST_BEATS * W > 4096) begin : g_bad_burst_4k
       $error("tq_axi_mem: BURST_BEATS * W must not exceed the 4 KiB AXI boundary");
     end
+    if (BURST_BEATS > 1 && (LINES < 2 || (LINES & (LINES - 1)) != 0)) begin : g_bad_lines
+      $error("tq_axi_mem: LINES must be a power of two, at least 2");
+    end
+    if (WR_IDS < 0 || (WR_IDS > 0 && (BURST_BEATS == 1 || ID_W < $clog2(LINES + WR_IDS)))) begin : g_bad_ids
+      $error("tq_axi_mem: WR_IDS > 0 needs BURST_BEATS > 1 and ID_W >= clog2(LINES + WR_IDS)");
+    end
     if (MAX_OUT < 1) begin : g_bad_max_out
       $error("tq_axi_mem: MAX_OUT must be at least 1");
     end
   endgenerate
 
-  // One constant ID; the core never relies on response interleaving and the adapter keeps
-  // per-direction ordering. Protection/cache/QoS/region are constants so a full AXI4 master port
-  // can be connected without a wrapper.
-  assign m_arid_o      = '0;
-  assign m_awid_o      = '0;
+  // IDs: see the header (WR_IDS). Protection/cache/QoS/region are constants so a full AXI4
+  // master port can be connected without a wrapper.
   assign m_arprot_o    = AXPROT;
   assign m_awprot_o    = AXPROT;
   assign m_arcache_o   = AXCACHE;
@@ -116,10 +129,14 @@ module tq_axi_mem #(
   assign m_awqos_o     = AXQOS;
   assign m_arregion_o  = '0;
   assign m_awregion_o  = '0;
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic unused_axi_id;
-  assign unused_axi_id = ^{m_rid_i, m_bid_i};
-  /* verilator lint_on UNUSEDSIGNAL */
+  if (WR_IDS == 0) begin : g_one_id
+    assign m_arid_o = '0;
+    assign m_awid_o = '0;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_axi_id;
+    assign unused_axi_id = ^{m_rid_i, m_bid_i};
+    /* verilator lint_on UNUSEDSIGNAL */
+  end
 
   assign m_arsize_o = SIZE;  assign m_arburst_o = 2'b01;
   assign m_awlen_o = 8'd0;   assign m_awsize_o = SIZE;  assign m_awburst_o = 2'b01;
@@ -170,10 +187,11 @@ module tq_axi_mem #(
     assign rd_err      = (rd_rvalid_o && m_rresp_i[1]) || (m_rvalid_i && (rt_cnt == '0) && !ar_fire);
     assign rd_pend     = ar_q || (rt_cnt != '0);
   end else begin : g_rd_burst
-    // Four-slot read burst buffer: each miss issues an aligned BURST_BEATS-beat INCR AR burst,
+    // LINES-slot read burst buffer: each miss issues an aligned BURST_BEATS-beat INCR AR burst,
     // subsequent beats in the line grant immediately without an AR, and u_rord returns responses
-    // in exact grant order as R beats arrive.
-    localparam int NSLOTS = 4;
+    // in exact grant order as R beats arrive. With WR_IDS = 0 the bursts return in AR order
+    // (u_rfifo names the slot being filled); otherwise ARID is the slot and RID names it.
+    localparam int NSLOTS = LINES;
     localparam int SW     = $clog2(NSLOTS);
     localparam int LBW    = $clog2(BURST_BEATS);
     localparam int WLOG   = $clog2(W);
@@ -192,7 +210,8 @@ module tq_axi_mem #(
     logic [NSLOTS*BURST_BEATS-1:0]  lerr_q;
     logic [NSLOTS*LDATAW-1:0]       ldata_q;
     logic [SW-1:0]                  hit_slot, vic, ar_vic_q, alloc_slot, rr_vic_q;
-    logic [SW-1:0]                  r_slot, ord_slot, gnt_slot, unused_rf1;
+    logic [SW-1:0]                  r_slot, rf_head, ord_slot, gnt_slot, unused_rf1;
+    logic                           r_ok;           // the R beat belongs to a burst in flight
     logic [SW+LBW-1:0]              ord_head, unused_ord1;
     logic [$clog2(NSLOTS+1)-1:0]    rf_cnt;
     logic [TW-1:0]                  ord_cnt;
@@ -248,6 +267,18 @@ module tq_axi_mem #(
     assign m_arvalid_o = ar_q || miss_req;
     assign m_araddr_o  = ar_q ? ar_addr_q : req_line_addr;
     assign ar_fire     = m_arvalid_o && m_arready_i;
+    if (WR_IDS == 0) begin : g_r_fifo
+      assign r_slot = rf_head;
+      assign r_ok   = rf_cnt != '0;
+    end else begin : g_r_ids
+      assign m_arid_o = ID_W'(alloc_slot);
+      assign r_slot   = m_rid_i[SW-1:0];
+      assign r_ok     = l_fill_q[r_slot] && (m_rid_i < ID_W'(NSLOTS));
+      /* verilator lint_off UNUSEDSIGNAL */
+      logic unused_rf_head;
+      assign unused_rf_head = ^rf_head;
+      /* verilator lint_on UNUSEDSIGNAL */
+    end
     assign miss_take   = (ar_q ? (!ar_orph_q && rd_req_i) : miss_req) && m_arready_i;
     assign rd_gnt_o    = hit_gnt || miss_take;
     assign gnt_slot    = hit_gnt ? hit_slot : alloc_slot;
@@ -260,8 +291,8 @@ module tq_axi_mem #(
     tq_fifo #(.WIDTH(SW), .DEPTH(NSLOTS)) u_rfifo (
         .clk_i, .rst_ni, .clear_i(1'b0),
         .push_i(ar_fire), .data_i(alloc_slot),
-        .pop_i({1'b0, m_rvalid_i && (rf_cnt != '0) && r_last}),
-        .head0_o(r_slot), .head1_o(unused_rf1), .count_o(rf_cnt));
+        .pop_i({1'b0, m_rvalid_i && r_ok && r_last}),
+        .head0_o(rf_head), .head1_o(unused_rf1), .count_o(rf_cnt));
 
     tq_fifo #(.WIDTH(SW + LBW), .DEPTH(MAX_OUT)) u_rord (
         .clk_i, .rst_ni, .clear_i(1'b0),
@@ -274,7 +305,7 @@ module tq_axi_mem #(
     assign rd_rvalid_o = ord_ready;
     assign rd_rdata_o  = ldata_q[(32'(ord_slot) * BURST_BEATS + 32'(ord_idx)) * VB +: VB];
     assign rd_err      = (ord_ready && lerr_q[32'(ord_slot) * BURST_BEATS + 32'(ord_idx)])
-                      || (m_rvalid_i && (rf_cnt == '0));
+                      || (m_rvalid_i && !r_ok);
     assign rd_pend     = ar_q || (rf_cnt != '0) || (ord_cnt != '0);
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -308,7 +339,7 @@ module tq_axi_mem #(
             ltag_q[s*TAGW +: TAGW] <= ar_q ? ar_addr_q[31:LSW] : req_tag;
             lcnt_q[s*CW +: CW]     <= '0;
             lerr_q[s*BURST_BEATS +: BURST_BEATS] <= '0;
-          end else if (m_rvalid_i && (rf_cnt != '0) && (r_slot == SW'(s))) begin
+          end else if (m_rvalid_i && r_ok && (r_slot == SW'(s))) begin
             ldata_q[(s*BURST_BEATS + 32'(r_idx))*VB +: VB] <= m_rdata_i;
             lerr_q[s*BURST_BEATS + 32'(r_idx)]             <= m_rresp_i[1];
             lcnt_q[s*CW +: CW]                             <= lcnt_q[s*CW +: CW] + 1'b1;
@@ -341,12 +372,10 @@ module tq_axi_mem #(
   logic [31:0] w_addr_q;
   logic [W-1:0] w_be_q;
   logic [VB-1:0] w_data_q;
-  logic [TW-1:0] wt_cnt;
-  logic        wt_full, aw_fire, w_fire, wr_take, wr_all, cur_v;
+  logic        wt_full, aw_fire, w_fire, wr_take, wr_all, cur_v, w_err, wt_any;
   logic [31:0] cur_addr;
   logic [W-1:0] cur_be;
   logic [VB-1:0] cur_data;
-  assign wt_full  = 32'(wt_cnt) >= MAX_OUT;
   // the transaction on the bus: a held one, else the core's request
   assign cur_v    = wv_q || (wr_req_i && !wt_full);
   assign cur_addr = wv_q ? w_addr_q : wr_addr_i;
@@ -378,18 +407,70 @@ module tq_axi_mem #(
     end
   end
 
-  // write tags: one per completed AW + W pair, 1 = the B belongs to the core
-  logic wt_head, w_tag;
-  logic unused_wt1;
+  // write tags, 1 = the B belongs to the core: one per completed AW + W pair, in order (one ID),
+  // or one per write ID (WR_IDS > 0)
+  logic w_tag;
   assign w_tag = !(wv_q && (w_orph_q || !wr_req_i));
-  tq_fifo #(.WIDTH(1), .DEPTH(MAX_OUT)) u_wtag (
-      .clk_i, .rst_ni, .clear_i(1'b0),
-      .push_i(wr_all && !(m_bvalid_i && (wt_cnt == '0))), .data_i(w_tag),
-      .pop_i({1'b0, m_bvalid_i && (wt_cnt != '0)}),
-      .head0_o(wt_head), .head1_o(unused_wt1), .count_o(wt_cnt));
-  assign wr_done_o = m_bvalid_i && ((wt_cnt != '0) ? wt_head : (wr_all && w_tag));
-  assign bus_err_o = rd_err || (wr_done_o && m_bresp_i[1]) || (m_bvalid_i && (wt_cnt == '0) && !wr_all);
-  assign pending_o = rd_pend || wv_q || (wt_cnt != '0);
+  if (WR_IDS == 0) begin : g_w_fifo
+    logic [TW-1:0] wt_cnt;
+    logic          wt_head, unused_wt1;
+    assign wt_full = 32'(wt_cnt) >= MAX_OUT;
+    tq_fifo #(.WIDTH(1), .DEPTH(MAX_OUT)) u_wtag (
+        .clk_i, .rst_ni, .clear_i(1'b0),
+        .push_i(wr_all && !(m_bvalid_i && (wt_cnt == '0))), .data_i(w_tag),
+        .pop_i({1'b0, m_bvalid_i && (wt_cnt != '0)}),
+        .head0_o(wt_head), .head1_o(unused_wt1), .count_o(wt_cnt));
+    assign wr_done_o = m_bvalid_i && ((wt_cnt != '0) ? wt_head : (wr_all && w_tag));
+    assign w_err     = m_bvalid_i && (wt_cnt == '0) && !wr_all;
+    assign wt_any    = wt_cnt != '0;
+  end else begin : g_w_ids
+    // A new write takes the lowest free write ID and keeps it while held; B frees its ID.
+    localparam int WIW = (WR_IDS > 1) ? $clog2(WR_IDS) : 1;
+    logic [WR_IDS-1:0] wbusy_q, wtag_q;
+    logic [WIW-1:0]    wid_q, wid_free, wid_cur, b_wid;
+    logic              wid_ok, b_in, b_own, b_same;
+    always_comb begin
+      wid_ok   = 1'b0;
+      wid_free = '0;
+      for (int i = WR_IDS - 1; i >= 0; i--) begin
+        if (!wbusy_q[i]) begin
+          wid_ok   = 1'b1;
+          wid_free = WIW'(i);
+        end
+      end
+    end
+    assign wid_cur  = wv_q ? wid_q : wid_free;
+    assign m_awid_o = ID_W'(LINES) + ID_W'(wid_cur);
+    assign wt_full  = !wid_ok;                       // a held write's own ID is never busy
+    if (LINES + WR_IDS < (1 << ID_W)) begin : g_b_hi
+      assign b_in = (m_bid_i >= ID_W'(LINES)) && (m_bid_i < ID_W'(LINES + WR_IDS));
+    end else begin : g_b_top                           // the write IDs reach the top of the ID space
+      assign b_in = m_bid_i >= ID_W'(LINES);
+    end
+    assign b_wid    = WIW'(m_bid_i - ID_W'(LINES));
+    assign b_own    = b_in && wbusy_q[b_wid];
+    assign b_same   = b_in && wr_all && (wid_cur == b_wid);   // B in the AW + W cycle
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+      if (!rst_ni) begin
+        wbusy_q <= '0; wtag_q <= '0; wid_q <= '0;
+      end else begin
+        if (cur_v && !wv_q) wid_q <= wid_free;
+        for (int i = 0; i < WR_IDS; i++) begin
+          if (wr_all && (wid_cur == WIW'(i)) && !(m_bvalid_i && b_same)) begin
+            wbusy_q[i] <= 1'b1;
+            wtag_q[i]  <= w_tag;
+          end else if (m_bvalid_i && b_own && (b_wid == WIW'(i))) begin
+            wbusy_q[i] <= 1'b0;
+          end
+        end
+      end
+    end
+    assign wr_done_o = m_bvalid_i && (b_own ? wtag_q[b_wid] : (b_same && w_tag));
+    assign w_err     = m_bvalid_i && !b_own && !b_same;
+    assign wt_any    = |wbusy_q;
+  end
+  assign bus_err_o = rd_err || (wr_done_o && m_bresp_i[1]) || w_err;
+  assign pending_o = rd_pend || wv_q || wt_any;
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused;

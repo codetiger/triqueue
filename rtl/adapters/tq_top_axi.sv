@@ -21,7 +21,9 @@ module tq_top_axi #(
     parameter bit PERF        = 1'b1,
     parameter int EPI_LANES   = T / 2,
     parameter int BURST_BEATS = 1,       // read burst beats (power of two, >= 1)
-    parameter int ID_W        = 1,       // AXI ID width (constant 0)
+    parameter int ID_W        = 1,       // AXI ID width
+    parameter int LINES       = 4,       // tq_axi_mem read burst line slots (BURST_BEATS > 1)
+    parameter int WR_IDS      = 0,       // tq_axi_mem: 0 one ID, in order; > 0 IDs per line slot and write
     parameter logic [2:0] AXPROT  = 3'b000,
     parameter logic [3:0] AXCACHE = 4'b0000,
     parameter logic [3:0] AXQOS   = 4'b0000,
@@ -112,7 +114,7 @@ module tq_top_axi #(
       .wr_req_o(wr_req), .wr_addr_o(wr_addr), .wr_be_o(wr_be), .wr_wdata_o(wr_wdata), .wr_gnt_i(wr_gnt),
       .wr_done_i(wr_done), .bus_err_i(bus_err), .flush_o(flush), .ext_pending_i(axi_pending));
 
-  tq_axi_mem #(.W(W), .MAX_OUT(MAX_OUT), .BURST_BEATS(BURST_BEATS), .ID_W(ID_W),
+  tq_axi_mem #(.W(W), .MAX_OUT(MAX_OUT), .BURST_BEATS(BURST_BEATS), .ID_W(ID_W), .LINES(LINES), .WR_IDS(WR_IDS),
                 .AXPROT(AXPROT), .AXCACHE(AXCACHE), .AXQOS(AXQOS)) u_axi (
       .clk_i, .rst_ni,
       .rd_req_i(rd_req), .rd_addr_i(rd_addr), .rd_gnt_o(rd_gnt), .rd_rvalid_o(rd_rvalid), .rd_rdata_o(rd_rdata),
