@@ -72,10 +72,22 @@ All notable changes to the Tri-Queue project. This format follows
   (host im2col padded with the input zero point) and the classifier as GEMM + epilogue on the core,
   depthwise and average pool on the host, every tensor bit-exact with the TFLite interpreter's
   reference kernels for 3 inputs at T = 8 and T = 4. T = 8: 38,339 core cycles per inference at 96.5%
-  utilization; the host's 288,000 depthwise MACs dominate a scalar host. `export_dscnn.py` (needs
-  `ai-edge-litert`, not a requirement) writes the checked-in `dscnn_golden.npz`; `dscnn.py` writes
+  utilization; the host's 288,000 depthwise MACs dominate a scalar host. `export.py` (needs
+  `ai-edge-litert`, not a requirement) writes the checked-in `dscnn_golden.npz`; `network.py` writes
   `results.md` (CI checks it); `make e2e-test`. RTL: `t8_dscnn` and `t4_dscnn` run the same layers with
-  C compared against TFLite's tensors (2,586 cases in 39 configurations).
+  C compared against TFLite's tensors.
+
+- **End-to-end ResNet-8 (`bench/e2e/`, roadmap C1).** MLPerf Tiny's int8 CIFAR-10 ResNet-8
+  (`pretrainedResnet_quant.tflite`) runs the same way. All nine convolutions (3×3 at stride 1 and 2,
+  1×1 stride-2 shortcuts) and the classifier run on the core; the residual adds (TFLite's int8 `Add`,
+  fused ReLU) and the average pool run on the host. The runner now follows the graph, so ops with two
+  inputs work. T = 8: 197,499 core cycles per inference at 98.9% utilization, with the core doing
+  every MAC; host im2col and packing (994,560 bytes) are the host's largest cost. TFLite's
+  reference int8 `FULLY_CONNECTED` (ai-edge-litert 2.1.6) rounds once (`TFLITE_SINGLE_ROUNDING`
+  form), where its `CONV_2D` and the core round twice. This was measured over 2,000 inputs per
+  network and affects about 0.3–1.4% of classifier outputs by one LSB (one ResNet-8 output in the
+  checked-in inputs). `tflite_ref.core_expected` checks such outputs exactly against both forms.
+  RTL: `t8_resnet8` and `t4_resnet8` (2,604 cases in 41 configurations).
 
 - **Epilogue lane proved equal to TFLite (`verif/formal/tq_requant.sby`, roadmap C3).** The lane
   moved from `tq_drain`'s generate loops into `tq_requant_pre` (bias add, shift clamp, left shift)

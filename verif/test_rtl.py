@@ -41,17 +41,29 @@ def signedness(t):
     return [case(t + 5, 2 * t + 3, 40, a, b) for a, b in itertools.product(("s8", "u8"), repeat=2)]
 
 
-# DS-CNN (bench/e2e) engine layers: op index -> GEMM m, n, k
-DSCNN = {0: (125, 64, 40), 2: (125, 64, 64), 4: (125, 64, 64), 6: (125, 64, 64), 8: (125, 64, 64),
-         11: (1, 12, 64)}
+# bench/e2e engine layers: network -> op index -> GEMM m, n, k
+LAYERS = {
+    "dscnn": {0: (125, 64, 40), 2: (125, 64, 64), 4: (125, 64, 64), 6: (125, 64, 64), 8: (125, 64, 64),
+              11: (1, 12, 64)},
+    "resnet8": {0: (1024, 16, 27), 1: (1024, 16, 144), 2: (1024, 16, 144), 4: (256, 32, 144), 5: (256, 32, 288),
+                6: (256, 32, 16), 8: (64, 64, 288), 9: (64, 64, 576), 10: (64, 64, 32), 14: (1, 10, 64)},
+}
 
 
-def dscnn(op, seed, t, lat=2, stall=0.0, walk=None):
-    """A real DS-CNN layer (TFLite weights, activations and quantization) on the epilogue; the walk is
+def layer(net, op, seed, t, lat=2, stall=0.0, walk=None):
+    """A real network layer (TFLite weights, activations and quantization) on the epilogue; the walk is
     the driver's choice (columns with more than one tile row) unless given."""
-    m, n, k = DSCNN[op]
-    return dict(m=m, n=n, k=k, a="s8", b="s8", seed=seed, lat=lat, stall=stall, epi=True, layer=[op, seed],
+    m, n, k = LAYERS[net][op]
+    return dict(m=m, n=n, k=k, a="s8", b="s8", seed=seed, lat=lat, stall=stall, epi=True, layer=[net, op, seed],
                 walk=(m > t) if walk is None else walk)
+
+
+def dscnn(op, seed, t, **kw):
+    return layer("dscnn", op, seed, t, **kw)
+
+
+def resnet8(op, seed, t, **kw):
+    return layer("resnet8", op, seed, t, **kw)
 
 
 def latency_sweep(t, lats=(1, 2, 3, 5, 8, 13)):
@@ -249,7 +261,7 @@ CONFIGS = {
         # to the TFLite interpreter's tensor; then latency, back-pressure and the other walk
         dict(T=8),
         dict(tile=8),
-        [dscnn(op, 1, 8) for op in DSCNN]
+        [dscnn(op, 1, 8) for op in LAYERS["dscnn"]]
         + [dscnn(0, 2, 8, lat=5, stall=0.3), dscnn(2, 3, 8, lat=3, stall=0.5), dscnn(4, 2, 8, walk=False),
            dscnn(11, 3, 8, lat=9)],
     ),
@@ -258,6 +270,22 @@ CONFIGS = {
         dict(T=4),
         dict(tile=4),
         [dscnn(0, 1, 4), dscnn(6, 2, 4, stall=0.3), dscnn(11, 1, 4)],
+    ),
+    "t8_resnet8": (
+        # ResNet-8 image classification (MLPerf Tiny, bench/e2e): every engine layer of input 2
+        # (its classifier has the output where TFLite's FULLY_CONNECTED rounds once), then
+        # latency and back-pressure on the stride-2 and 1x1 shapes
+        dict(T=8),
+        dict(tile=8),
+        [resnet8(op, 2, 8) for op in LAYERS["resnet8"]]
+        + [resnet8(4, 1, 8, lat=5, stall=0.3), resnet8(6, 3, 8, lat=3, stall=0.5), resnet8(10, 1, 8, walk=False),
+           resnet8(14, 2, 8, lat=9)],
+    ),
+    "t4_resnet8": (
+        # the same at T = 4: first conv (k = 27), a 1x1 stride-2 shortcut, the deepest conv, the classifier
+        dict(T=4),
+        dict(tile=4),
+        [resnet8(0, 1, 4), resnet8(6, 2, 4, stall=0.3), resnet8(9, 3, 4), resnet8(14, 2, 4)],
     ),
     "t8_mac1": (
         # MAC_PIPE = 1: no product register, multiply and accumulate in the beat's cycle

@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Int8 TFLite layers for the end-to-end run: lowering of CONV_2D and FULLY_CONNECTED to a GEMM
 plus the core's epilogue (MODE[9]), and host reference kernels for the ops the core does not run
-(DEPTHWISE_CONV_2D, AVERAGE_POOL_2D, RESHAPE). Transcribed from TFLite's reference integer
-kernels (reference_integer_ops::ConvPerChannel, DepthwiseConvPerChannel, FullyConnected,
-AveragePool) and PopulateConvolutionQuantizationParams; dscnn.py checks every tensor against the
-TFLite interpreter's, bit for bit."""
+(DEPTHWISE_CONV_2D, ADD, AVERAGE_POOL_2D, RESHAPE). Transcribed from TFLite's reference integer
+kernels (reference_integer_ops::ConvPerChannel, DepthwiseConvPerChannel, FullyConnected, Add,
+AveragePool) and their Prepare steps (PopulateConvolutionQuantizationParams, the int8 Add
+parameters); network.py checks every tensor against the TFLite interpreter's, bit for bit."""
 import json
 import sys
 from dataclasses import dataclass
@@ -16,7 +16,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "model"))
 from tri_queue import requant  # noqa: E402
 
-GOLDEN = Path(__file__).resolve().parent / "dscnn_golden.npz"
+HERE = Path(__file__).resolve().parent
+NETS = ("dscnn", "resnet8")
 
 
 @dataclass
@@ -39,8 +40,9 @@ class Net:
         return t["scale"], t["zero_point"]
 
 
-def load(path: Path = GOLDEN) -> Net:
-    z = np.load(path)
+def load(name: str = "dscnn") -> Net:
+    """The golden reference bench/e2e/<name>_golden.npz (export.py)."""
+    z = np.load(HERE / f"{name}_golden.npz")
     meta = json.loads(str(z["meta"]))
     tensors = {int(k): v for k, v in meta["tensors"].items()}
     return Net(meta["ops"], tensors, meta["inputs"], meta["outputs"],
@@ -126,10 +128,29 @@ def lower(net: Net, op: dict, x: np.ndarray) -> Gemm:
     return Gemm(np.ascontiguousarray(a), np.ascontiguousarray(b), epi, out_shape, extra)
 
 
-def gemm_reference(g: Gemm) -> np.ndarray:
+def gemm_reference(g: Gemm, rounding: str = "double") -> np.ndarray:
+    """The layer's int8 output (m x n). "double" is the core's epilogue (TFLite's default
+    MultiplyByQuantizedMultiplier); "single" is the TFLITE_SINGLE_ROUNDING form."""
     acc = g.a.astype(np.int64) @ g.b.astype(np.int64)
     return requant.requantize(acc, g.epi["bias"], g.epi["m0"], np.clip(g.epi["shift"], -31, 30), g.epi["zp"],
-                              g.epi["act_min"], g.epi["act_max"])
+                              g.epi["act_min"], g.epi["act_max"], rounding)
+
+
+def core_expected(op: dict, g: Gemm, tflite_out: np.ndarray):
+    """What the core must write for a layer whose TFLite output tensor is tflite_out: that tensor
+    (m x n), except for FULLY_CONNECTED. LiteRT's reference int8 FULLY_CONNECTED rounds once (one
+    64-bit product, round half up; measured over 2,000 inputs per network, every element where the
+    two roundings differ follows the single one) while its CONV_2D and the core round twice, so
+    there TFLite's tensor must equal the single-rounded reference exactly and the core's value is
+    the double-rounded one. Returns (expected, number of elements that differ from TFLite's)."""
+    t = tflite_out.reshape(g.a.shape[0], g.b.shape[1])
+    if op["kind"] != "FULLY_CONNECTED":
+        return t, 0
+    single = gemm_reference(g, "single")
+    if not np.array_equal(t, single):
+        raise AssertionError("TFLite FULLY_CONNECTED differs from the single-rounded reference")
+    double = gemm_reference(g)
+    return double, int((double != t).sum())
 
 
 def depthwise(net: Net, op: dict, x: np.ndarray) -> np.ndarray:
@@ -167,8 +188,24 @@ def depthwise(net: Net, op: dict, x: np.ndarray) -> np.ndarray:
     return out.reshape(1, ho, wo, c)
 
 
-def depthwise_macs(op: dict, x_shape, out_shape, w_shape) -> int:
-    return int(np.prod(out_shape)) * w_shape[1] * w_shape[2]
+def add(net: Net, op: dict, x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
+    """reference_integer_ops::Add for int8 (same shapes): both inputs rescaled to twice the larger
+    input scale with 20 bits of headroom, summed, then rescaled to the output scale."""
+    (s1,), (zp1,) = net.q(op["inputs"][0])
+    (s2,), (zp2,) = net.q(op["inputs"][1])
+    (s_out,), (zp_out,) = net.q(op["outputs"][0])
+    assert x1.shape == x2.shape
+    left_shift = 20
+    twice_max = 2 * max(float(s1), float(s2))
+    m1, sh1 = requant.quantize_multiplier(float(s1) / twice_max)
+    m2, sh2 = requant.quantize_multiplier(float(s2) / twice_max)
+    mo, sho = requant.quantize_multiplier(twice_max / ((1 << left_shift) * float(s_out)))
+    assert max(sh1, sh2, sho) <= 0                       # QuantizeMultiplierSmallerThanOneExp
+    lo, hi = act_range(op["options"]["activation"], s_out, zp_out)
+    v1 = requant.mbqm((x1.astype(np.int64) - zp1) << left_shift, m1, sh1)
+    v2 = requant.mbqm((x2.astype(np.int64) - zp2) << left_shift, m2, sh2)
+    raw = requant.mbqm(v1.astype(np.int64) + v2, mo, sho).astype(np.int64) + zp_out
+    return np.clip(raw, lo, hi).astype(np.int8)
 
 
 def average_pool(net: Net, op: dict, x: np.ndarray) -> np.ndarray:

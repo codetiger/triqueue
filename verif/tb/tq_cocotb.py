@@ -41,17 +41,18 @@ _LAYERS = {}
 
 
 def layer_gemm(case):
-    """A case with "layer": [op, seed]: that DS-CNN layer's GEMM (A after im2col, B, epilogue) from
-    the TFLite golden reference (bench/e2e), fed with TFLite's own input tensor. Returns
-    (gemm, TFLite's output tensor as m x n)."""
+    """A case with "layer": [net, op, seed]: that layer's GEMM (A after im2col, B, epilogue) from the
+    TFLite golden reference of network net (bench/e2e), fed with TFLite's own input tensor. Returns
+    (gemm, the C the core must write as m x n: TFLite's output tensor, with the double-rounded value
+    where TFLite's reference FULLY_CONNECTED rounds once; tflite_ref.core_expected)."""
     import tflite_ref
-    if "net" not in _LAYERS:
-        _LAYERS["net"] = tflite_ref.load()
-    net = _LAYERS["net"]
-    op_i, seed = case["layer"]
+    name, op_i, seed = case["layer"]
+    if name not in _LAYERS:
+        _LAYERS[name] = tflite_ref.load(name)
+    net = _LAYERS[name]
     op = net.ops[op_i]
     g = tflite_ref.lower(net, op, net.golden(seed, op["inputs"][0]))
-    return g, net.golden(seed, op["outputs"][0]).reshape(g.a.shape[0], g.b.shape[1])
+    return g, tflite_ref.core_expected(op, g, net.golden(seed, op["outputs"][0]))[0]
 
 
 def operands(case):

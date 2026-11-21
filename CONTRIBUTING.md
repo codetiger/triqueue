@@ -30,7 +30,7 @@ pip install -r requirements.txt
 make model-test          # Python model
 make sw-test             # C driver against the model
 make rtl-lint            # Verilator + Yosys, must be warning-free
-make rtl-test            # cocotb regression, 39 configurations
+make rtl-test            # cocotb regression, 41 configurations
 make formal              # SymbiYosys, typically 3–11 min (CI allows 90 min)
 make synth-check         # generic Yosys, both accumulator forms
 make lock-check          # PPA records and locked UI layouts

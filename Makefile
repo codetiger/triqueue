@@ -26,7 +26,7 @@ model-test:
 sw-test:
 	$(PYTHON) -m pytest sw -q
 
-# DS-CNN end to end on the cycle model, bit-exact against TFLite (bench/e2e)
+# DS-CNN and ResNet-8 end to end on the cycle model, bit-exact against TFLite (bench/e2e)
 e2e-test:
 	$(PYTHON) -m pytest bench/e2e -q
 
@@ -37,7 +37,7 @@ spdx-check:
 
 model-results:
 	cd model && $(PYTHON) bench.py > /dev/null && $(PYTHON) dse.py > /dev/null
-	$(PYTHON) bench/e2e/dscnn.py > /dev/null
+	$(PYTHON) bench/e2e/network.py > /dev/null
 
 # Rewrites flow/results.md from the committed run records (flow/records/). Running the physical
 # design flow itself is manual: flow/ppa.py, flow/power.py, then flow/results.py collect.

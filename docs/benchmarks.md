@@ -122,14 +122,15 @@ It passes with 0 mismatches and the same 4,096 beats, 4,096 reads and 1,024 writ
 
 Read bursts take one round trip per line instead of per word and cut the cycles 2.25×; the panel buffer removes 44% of the reads and another 18% of the cycles. Deeper operand FIFOs change nothing, and neither did doubling the adapter's burst-buffer slots (an RTL experiment, not a parameter): the core and the adapter can keep more reads in flight than this SoC's TileLink path serves, about one 64-byte burst per 16.8 cycles (one word per 9.4 cycles without bursts). This is a memory-system result, not a core limit: the supported v1 integration is a low-latency SRAM or TCM. The single-beat run matches the pre-v1 result (38,295 cycles, 2026-11-08, `65815f3`).
 
-## 7. End-to-end network: DS-CNN keyword spotting (cycle model and RTL)
+## 7. End-to-end networks: DS-CNN and ResNet-8 (cycle model and RTL)
 
-Source: `bench/e2e/results.md` (`bench/e2e/dscnn.py`). MLPerf Tiny's int8 DS-CNN runs layer by layer, each layer consuming the previous one's output. The five convolutions and the classifier run on the core (host im2col and A packing, then GEMM + TFLite epilogue, `MODE[9]`); the four depthwise convolutions and the average pool run on the host. Every tensor is bit-exact with the TFLite interpreter (reference kernels) for 3 inputs, at T = 8 and T = 4, and the core layers give the same C and cycle count in RTL simulation (`t8_dscnn`, `t4_dscnn`).
+Source: `bench/e2e/results.md` (`bench/e2e/network.py`). Two MLPerf Tiny int8 networks run layer by layer, each op consuming this run's tensors: keyword-spotting DS-CNN and CIFAR-10 ResNet-8. Convolutions and fully connected layers run on the core (host im2col and A packing, then GEMM + TFLite epilogue, `MODE[9]`); depthwise convolutions, residual adds and average pools run on the host. Every tensor matches the TFLite interpreter's reference kernels bit for bit for 3 inputs, at T = 8 and T = 4. There is one exception: TFLite's reference `FULLY_CONNECTED` rounds once where its `CONV_2D` and the core round twice, so one of ResNet-8's 30 classifier outputs is one LSB apart. That element is checked exactly against both rounding forms (`bench/e2e/README.md`). The core layers give the same C and cycle count in RTL simulation (`t8_dscnn`, `t4_dscnn`, `t8_resnet8`, `t4_resnet8`).
 
-| | T = 8 | T = 4 |
-| --- | --- | --- |
-| Core cycles per inference (6 layers, 2.37 M MACs) | **38,339** | 151,048 |
-| Core utilization | **96.5%** | 98.0% |
-| Host work per inference | 51,144 bytes written, 288,000 depthwise MACs | 50,424 bytes, 288,000 MACs |
+| | DS-CNN, T = 8 | DS-CNN, T = 4 | ResNet-8, T = 8 | ResNet-8, T = 4 |
+| --- | --- | --- | --- | --- |
+| Core layers, MACs | 6, 2.37 M | 6, 2.37 M | 10, 12.50 M | 10, 12.50 M |
+| Core cycles per inference | **38,339** | 151,048 | **197,499** | 787,250 |
+| Core utilization | **96.5%** | 98.0% | **98.9%** | 99.3% |
+| Host work per inference | 43,144 bytes written, 288,000 depthwise MACs, 8,000 element ops | 42,424 bytes, 288,000 MACs, 8,000 ops | 994,560 bytes written, 32,768 element ops | 994,432 bytes, 32,768 ops |
 
-The core does 89.2% of the network's MACs. The other 10.8%, the depthwise layers, are what a single-issue host spends most of its time on: at one byte and one MAC per host cycle (an assumption, not a simulation) the host's share is about 339,000 cycles, 8.8× the core's at T = 8.
+At one byte, MAC or element op per host cycle (an assumption, not a simulation), the scalar host's share is 8.8× the core's cycles at T = 8 on DS-CNN and 5.2× on ResNet-8. The bottleneck differs by network. On DS-CNN it is the depthwise layers (10.8% of the MACs, which the core does not run). On ResNet-8 the core does every MAC, and the host's work is im2col and A packing of the 3×3 convolutions (97% of its counted work). A host that writes im2col rows straight into the panel layout writes about half of those bytes.
